@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Login — Funil por Campanha</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#0a0a0a;--panel:#111;--border:#222;--blue:#4a9eed;--gray:#666;--white:#f0f0f0;--red:#c0392b;}
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--bg);color:var(--white);font-family:'DM Sans',sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;-webkit-font-smoothing:antialiased;}
+  .box{width:100%;max-width:360px;padding:40px 32px;background:var(--panel);border:1px solid var(--border);}
+  .eyebrow{font-family:'DM Mono',monospace;font-size:11px;color:var(--blue);letter-spacing:.15em;text-transform:uppercase;margin-bottom:8px;}
+  h1{font-family:'Bebas Neue',sans-serif;font-size:32px;margin-bottom:28px;line-height:1;}
+  h1 span{color:var(--blue);}
+  label{display:block;font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--gray);margin-bottom:6px;}
+  input{width:100%;padding:10px 12px;margin-bottom:18px;background:#0a0a0a;border:1px solid var(--border);color:var(--white);font-family:'DM Sans',sans-serif;font-size:14px;outline:none;}
+  input:focus{border-color:var(--blue);}
+  button{width:100%;padding:12px;background:transparent;border:1px solid var(--blue);color:var(--blue);font-family:'DM Mono',monospace;font-size:12px;text-transform:uppercase;letter-spacing:.1em;cursor:pointer;transition:all .15s;}
+  button:hover{background:var(--blue);color:var(--bg);}
+  button:disabled{opacity:.5;cursor:not-allowed;}
+  .error{color:var(--red);font-family:'DM Mono',monospace;font-size:12px;margin-top:14px;min-height:16px;}
+</style>
+</head>
+<body>
+  <div class="box">
+    <div class="eyebrow">Board Academy · Marketing</div>
+    <h1>FUNIL POR <span>CAMPANHA</span></h1>
+    <form id="loginForm">
+      <label>Usuário</label>
+      <input type="text" id="username" autocomplete="username" required>
+      <label>Senha</label>
+      <input type="password" id="password" autocomplete="current-password" required>
+      <button type="submit" id="btnLogin">Entrar</button>
+      <div class="error" id="errorMsg"></div>
+    </form>
+  </div>
+
+<script>
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('btnLogin');
+  const errorMsg = document.getElementById('errorMsg');
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+
+  btn.disabled = true; btn.textContent = 'Entrando...';
+  errorMsg.textContent = '';
+
+  try {
+    const r = await fetch('/api/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ username, password })
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Erro ao entrar.');
+
+    localStorage.setItem('funil_token', data.token);
+    localStorage.setItem('funil_user', data.username);
+    window.location.href = '/index.html';
+  } catch (err) {
+    errorMsg.textContent = '❌ ' + err.message;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Entrar';
+  }
+});
+</script>
+</body>
+</html>
