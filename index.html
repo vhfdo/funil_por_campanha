@@ -6,14 +6,18 @@
 <title>Análise de Funil por Campanha — PFCC Brasil</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js">// Inicializa datas com 1º do mês atual até hoje
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script>
+// Inicializa datas com 1º do mês atual até hoje
 (function() {
   const now = new Date();
   const ano = now.getFullYear();
   const mes = String(now.getMonth()+1).padStart(2,'0');
   const dia = String(now.getDate()).padStart(2,'0');
-  document.getElementById('dataInicio').value = `${ano}-${mes}-01`;
-  document.getElementById('dataFim').value    = `${ano}-${mes}-${dia}`;
+  window.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('dataInicio').value = `${ano}-${mes}-01`;
+    document.getElementById('dataFim').value    = `${ano}-${mes}-${dia}`;
+  });
 })();
 </script>
 <style>
@@ -180,12 +184,13 @@
 
 </div>
 <script>
-const TOKEN      = "a09d71984f61d3452a315109240ecabccc6149c6";
-const FILTER_MOV = 1669190;
-const CARGO_KEY  = "718c8aba81211c883ffd9f4616f75ee22a10b2da";
-const APLIC_KEY  = "23de049432e523993f69ecd456a3f755c0f07f3d";
-const UTM_KEY    = "ae03fa460a108b8cdfa87e97ebca24379d2779d6";
-const UTM_SRC_KEY= "8fb3221ab3d91cddaf51e0a9e1bbcda34fc9d28e";
+// ⚠️ O TOKEN NÃO FICA MAIS AQUI. Todas as chamadas passam pelo proxy
+// serverless em /api/pipedrive, que injeta o PIPEDRIVE_TOKEN no servidor.
+const FILTER_MOV  = 1669190;
+const CARGO_KEY   = "718c8aba81211c883ffd9f4616f75ee22a10b2da";
+const APLIC_KEY   = "23de049432e523993f69ecd456a3f755c0f07f3d";
+const UTM_KEY     = "ae03fa460a108b8cdfa87e97ebca24379d2779d6";
+const UTM_SRC_KEY = "8fb3221ab3d91cddaf51e0a9e1bbcda34fc9d28e";
 
 const GOOGLE_IDS = new Set(["22822740395","23869952762","22675029313","23874401647","23397388987","22508119133","23963147748"]);
 const PALAVRAS_MQL = ["diretor","director","founder","fundador","propr","socio","sócio","partner","owner","empresario","empresário","ceo","chief","president","consultor","consultant","profissional liberal","vice","c-level","vp","cfo","coo","cto","cmo","conselh","advisor","manager","gerente","coordenador","head","entrepreneur","executive"];
@@ -195,15 +200,11 @@ const MESES_PT = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho",
 
 let stagesMap = {}, dadosCamp = [], filtroAtivo = 'todos', sortCol = 'total', sortAsc = false, chartInst = null;
 
-// Popula seletor de meses (últimos 6 meses)
-
-
 function getPeriodo() {
   const ini = document.getElementById('dataInicio').value;
   const fim = document.getElementById('dataFim').value;
   if (!ini || !fim) { alert('Selecione a data de início e a data de fim!'); return null; }
 
-  // Gera lista de todas as datas no range
   const datas = [];
   const d = new Date(ini + 'T00:00:00');
   const fimDate = new Date(fim + 'T00:00:00');
@@ -249,7 +250,7 @@ function getCanal(utm) {
 function normCamp(utm) {
   if (!utm) return 'Sem UTM';
   utm = utm.trim();
-  if (GOOGLE_IDS.has(utm)) return utm; // só o ID
+  if (GOOGLE_IDS.has(utm)) return utm;
   return utm.length > 55 ? utm.substring(0,55)+'…' : utm;
 }
 function converterBR(ts) {
@@ -267,11 +268,20 @@ function setProgress(pct, label, sub) {
   if (sub!==undefined) document.getElementById('progressSub').textContent = sub;
 }
 
-async function fetchAll(url) {
+// ---- Chamadas agora vão todas pro proxy /api/pipedrive ----
+// path = endpoint do Pipedrive (ex: "deals", "stages", "deals/123/changelog")
+// params = objeto com os demais query params (sem api_token — o proxy cuida disso)
+
+async function pdFetch(path, params = {}) {
+  const qs = new URLSearchParams(params);
+  const r = await fetch(`/api/pipedrive?path=${encodeURIComponent(path)}&${qs.toString()}`);
+  return r.json();
+}
+
+async function fetchAll(path, baseParams = {}) {
   let items=[], start=0;
   while(true){
-    const r = await fetch(`${url}&start=${start}&limit=500`);
-    const d = await r.json();
+    const d = await pdFetch(path, {...baseParams, start, limit:500});
     if(!d.data) break;
     items = items.concat(d.data);
     if(!d.additional_data?.pagination?.more_items_in_collection) break;
@@ -284,10 +294,10 @@ async function getChangelog(dealId, mesIso) {
   const entradas=[];
   let cursor=null;
   while(true){
-    let url=`https://api.pipedrive.com/v1/deals/${dealId}/changelog?api_token=${TOKEN}&limit=100`;
-    if(cursor) url+=`&cursor=${cursor}`;
+    const params = { limit: 100 };
+    if (cursor) params.cursor = cursor;
     let res;
-    try{ const r=await fetch(url); res=await r.json(); }catch{ break; }
+    try{ res = await pdFetch(`deals/${dealId}/changelog`, params); }catch{ break; }
     for(const item of (res.data||[])){
       if(item.field_key==='stage_id'&&item.new_value){
         const dia=converterBR(item.time||'');
@@ -343,7 +353,6 @@ function toggleDeals(utmKey) {
   const campRow   = document.getElementById('camp-'+utmKey);
   const dealsRow  = document.getElementById('deals-'+utmKey);
   if(!campRow||!dealsRow) return;
-  const isOpen = campRow.classList.contains('open');
   campRow.classList.toggle('open');
   dealsRow.classList.toggle('open');
 }
@@ -412,13 +421,12 @@ async function atualizar() {
     setProgress(5,'Carregando etapas...','');
     stagesMap={};
     for(const pid of [87,88,46]){
-      const r=await fetch(`https://api.pipedrive.com/v1/stages?pipeline_id=${pid}&api_token=${TOKEN}`);
-      const d=await r.json();
+      const d = await pdFetch('stages', { pipeline_id: pid });
       (d.data||[]).forEach(s=>stagesMap[s.id]=s.name);
     }
 
     setProgress(15,'Carregando deals de movimentação...','');
-    const deals=await fetchAll(`https://api.pipedrive.com/v1/deals?filter_id=${FILTER_MOV}&api_token=${TOKEN}`);
+    const deals=await fetchAll('deals', { filter_id: FILTER_MOV });
     setProgress(30,`${deals.length} deals. Filtrando candidatos...`,'');
 
     const candidatos=deals.filter(d=>{
@@ -452,7 +460,6 @@ async function atualizar() {
       if(deal.status==='won'){c.ganho++;c.conexao++;c.agendamento++;c.vr++;}
       else if(deal.status==='lost'){c.perdido++;}
 
-      // Busca changelog para cada mês único do range
       const mesesUnicos = [...new Set(datas.map(d=>d.diaIso.substring(0,7)))];
       let entradas = [];
       for (const mesIsoLoop of mesesUnicos) {
@@ -501,7 +508,6 @@ async function atualizar() {
     btn.disabled=false; btn.textContent='⟳ Atualizar';
   }
 }
-
 </script>
 </body>
 </html>
