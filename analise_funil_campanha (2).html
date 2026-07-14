@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Análise de Funil por Campanha — PFCC Brasil</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js">// Inicializa datas com 1º do mês atual até hoje
+(function() {
+  const now = new Date();
+  const ano = now.getFullYear();
+  const mes = String(now.getMonth()+1).padStart(2,'0');
+  const dia = String(now.getDate()).padStart(2,'0');
+  document.getElementById('dataInicio').value = `${ano}-${mes}-01`;
+  document.getElementById('dataFim').value    = `${ano}-${mes}-${dia}`;
+})();
+</script>
+<style>
+  :root{--bg:#0a0a0a;--panel:#111;--panel2:#1a1a1a;--border:#222;--blue:#4a9eed;--gray:#666;--gray-light:#999;--white:#f0f0f0;--green:#4a9eed;--red:#c0392b;}
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--bg);color:var(--white);font-family:'DM Sans',sans-serif;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1400px;margin:0 auto;padding:40px 24px 80px;}
+
+  .header{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid var(--blue);padding-bottom:24px;margin-bottom:40px;flex-wrap:wrap;gap:16px;}
+  .header-left .eyebrow{font-family:'DM Mono',monospace;font-size:11px;color:var(--blue);letter-spacing:.15em;text-transform:uppercase;margin-bottom:8px;}
+  .header-left h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(36px,5vw,60px);line-height:1;}
+  .header-left h1 span{color:var(--blue);}
+  .header-right{display:flex;gap:12px;align-items:center;flex-wrap:wrap;}
+
+  .btn{font-family:'DM Mono',monospace;font-size:12px;text-transform:uppercase;letter-spacing:.1em;padding:10px 20px;border:1px solid var(--blue);background:transparent;color:var(--blue);cursor:pointer;transition:all .15s;}
+  .btn:hover{background:var(--blue);color:var(--bg);}
+  .btn:disabled{opacity:.4;cursor:not-allowed;}
+
+
+  .progress-wrap{margin-bottom:32px;display:none;}
+  .progress-label{font-family:'DM Mono',monospace;font-size:12px;color:var(--gray);margin-bottom:8px;}
+  .progress-bar{height:3px;background:var(--border);border-radius:2px;overflow:hidden;}
+  .progress-fill{height:100%;background:var(--blue);border-radius:2px;transition:width .3s;width:0%;}
+  .progress-sub{font-family:'DM Mono',monospace;font-size:11px;color:var(--gray);margin-top:6px;}
+
+  .status-bar{font-family:'DM Mono',monospace;font-size:12px;color:var(--gray);margin-bottom:32px;min-height:18px;}
+
+  .kpi-row{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:var(--border);border:1px solid var(--border);margin-bottom:48px;}
+  .kpi{background:var(--panel);padding:20px 18px;}
+  .kpi .klabel{font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--gray);margin-bottom:8px;}
+  .kpi .kval{font-family:'Bebas Neue',sans-serif;font-size:32px;line-height:1;}
+  .kpi .kval.blue{color:var(--blue);}
+  .kpi .ksub{font-size:11px;color:var(--gray);margin-top:4px;}
+
+  .filters{display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap;align-items:center;}
+  .filter-label{font-family:'DM Mono',monospace;font-size:11px;color:var(--gray);text-transform:uppercase;letter-spacing:.06em;}
+  .filter-btn{font-family:'DM Mono',monospace;font-size:11px;padding:6px 14px;border:1px solid var(--border);background:var(--panel);color:var(--gray-light);cursor:pointer;transition:all .1s;}
+  .filter-btn.active{border-color:var(--blue);color:var(--blue);background:var(--panel2);}
+
+  .sec-title{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:.02em;margin-bottom:16px;display:flex;align-items:center;gap:12px;}
+  .sec-title .tag{font-family:'DM Mono',monospace;font-size:10px;background:var(--blue);color:var(--bg);padding:3px 8px;letter-spacing:.06em;}
+
+  .chart-wrap{background:var(--panel);border:1px solid var(--border);padding:24px;margin-bottom:48px;}
+  .chart-inner{position:relative;height:280px;}
+
+  .table-wrap{overflow-x:auto;margin-bottom:56px;}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th{font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray);padding:10px 14px;border-bottom:2px solid var(--blue);text-align:left;white-space:nowrap;cursor:pointer;}
+  th:hover{color:var(--blue);}
+  th.num{text-align:right;}
+  td{padding:12px 14px;border-bottom:1px solid var(--border);vertical-align:middle;}
+  td.num{text-align:right;font-family:'DM Mono',monospace;font-size:12px;}
+  tr.camp-row{cursor:pointer;}
+  tr.camp-row:hover td{background:var(--panel2);}
+  tr.camp-row.open td{background:var(--panel2);border-bottom:none;}
+  .camp-name{font-weight:500;max-width:260px;}
+  .camp-tag{display:inline-block;font-family:'DM Mono',monospace;font-size:9px;padding:2px 6px;margin-left:6px;border-radius:2px;}
+  .tag-google{background:#1a3a5c;color:#4a9eed;}
+  .tag-meta{background:#1a2a4a;color:#6b8dd6;}
+  .tag-linkedin{background:#0a2a3a;color:#4a9ec0;}
+
+  .expand-arrow{display:inline-block;margin-right:6px;transition:transform .2s;font-size:10px;color:var(--gray);}
+  tr.camp-row.open .expand-arrow{transform:rotate(90deg);color:var(--blue);}
+
+  /* DEALS EXPANDIDOS */
+  tr.deals-row{display:none;}
+  tr.deals-row.open{display:table-row;}
+  tr.deals-row td{background:var(--panel2);padding:12px 14px 16px 28px;border-bottom:1px solid var(--border);}
+  .deals-grid{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;}
+  .deal-link{font-family:'DM Mono',monospace;font-size:11px;color:var(--blue);text-decoration:none;padding:3px 8px;border:1px solid #1a3a5c;background:#0a1a2a;border-radius:2px;transition:all .1s;}
+  .deal-link:hover{background:var(--blue);color:var(--bg);}
+  .deals-label{font-family:'DM Mono',monospace;font-size:10px;color:var(--gray);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;}
+
+  .rate-cell{display:flex;align-items:center;gap:8px;justify-content:flex-end;}
+  .rate-bar{width:56px;height:4px;background:var(--border);border-radius:2px;overflow:hidden;flex-shrink:0;}
+  .rate-fill{height:100%;border-radius:2px;}
+  .rate-val{font-family:'DM Mono',monospace;font-size:12px;min-width:38px;text-align:right;}
+  .c-green{color:#4a9eed;} .c-mid{color:#8ab8dd;} .c-red{color:#c0392b;}
+
+  .empty{text-align:center;padding:80px 24px;color:var(--gray);font-family:'DM Mono',monospace;font-size:13px;}
+  @media(max-width:768px){.kpi-row{grid-template-columns:repeat(2,1fr);}}
+
+  /* DATE RANGE */
+  .date-range{display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--border);padding:8px 14px;}
+  .date-range:focus-within{border-color:var(--blue);}
+  .date-field{display:flex;align-items:center;gap:8px;}
+  .date-label{font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--gray);}
+  .date-sep{font-family:'DM Mono',monospace;font-size:12px;color:var(--blue);padding:0 4px;}
+  .date-input{font-family:'DM Mono',monospace;font-size:12px;background:transparent;border:none;color:var(--white);outline:none;cursor:pointer;width:120px;}
+  .date-input::-webkit-calendar-picker-indicator{filter:invert(.4) sepia(1) saturate(3) hue-rotate(190deg);cursor:pointer;opacity:.7;}
+  .date-input::-webkit-calendar-picker-indicator:hover{opacity:1;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="header">
+    <div class="header-left">
+      <div class="eyebrow">Board Academy · Marketing · PFCC Brasil</div>
+      <h1>FUNIL POR <span>CAMPANHA</span></h1>
+    </div>
+    <div class="header-right">
+      <div class="date-range">
+        <div class="date-field">
+          <span class="date-label">DE</span>
+          <input type="date" class="date-input" id="dataInicio">
+        </div>
+        <div class="date-sep">→</div>
+        <div class="date-field">
+          <span class="date-label">ATÉ</span>
+          <input type="date" class="date-input" id="dataFim">
+        </div>
+      </div>
+      <button class="btn" id="btnAtualizar" onclick="atualizar()">⟳ Atualizar</button>
+    </div>
+  </div>
+
+  <div class="progress-wrap" id="progressWrap">
+    <div class="progress-label" id="progressLabel">Carregando...</div>
+    <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+    <div class="progress-sub" id="progressSub"></div>
+  </div>
+
+  <div class="status-bar" id="statusBar">Selecione o mês e clique em Atualizar.</div>
+
+  <div class="kpi-row">
+    <div class="kpi"><div class="klabel">Total MQLs</div><div class="kval blue" id="kTotal">—</div><div class="ksub">período selecionado</div></div>
+    <div class="kpi"><div class="klabel">Taxa de Conexão</div><div class="kval" id="kConexao">—</div><div class="ksub">entraram em Contatado</div></div>
+    <div class="kpi"><div class="klabel">Taxa de Agendamento</div><div class="kval" id="kAgendamento">—</div><div class="ksub">chegaram em Agendados</div></div>
+    <div class="kpi"><div class="klabel">VR%</div><div class="kval" id="kValidacao">—</div><div class="ksub">Validação de Reunião</div></div>
+    <div class="kpi"><div class="klabel">Taxa de Descarte</div><div class="kval" id="kDescarte">—</div><div class="ksub">% perdidos</div></div>
+  </div>
+
+  <div class="filters">
+    <span class="filter-label">Canal:</span>
+    <button class="filter-btn active" onclick="setFiltro('todos',this)">Todos</button>
+    <button class="filter-btn" onclick="setFiltro('google',this)">Google</button>
+    <button class="filter-btn" onclick="setFiltro('meta',this)">Meta</button>
+    <button class="filter-btn" onclick="setFiltro('linkedin',this)">LinkedIn</button>
+  </div>
+
+  <div class="sec-title">Top Campanhas por Volume <span class="tag">CHANGELOG</span></div>
+  <div class="chart-wrap"><div class="chart-inner"><canvas id="chartCamp"></canvas></div></div>
+
+  <div class="sec-title">Tabela Completa <span class="tag">CLIQUE PARA VER DEALS</span></div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th onclick="sortBy('nome')">Campanha</th>
+          <th class="num" onclick="sortBy('total')">MQLs ↕</th>
+          <th class="num" onclick="sortBy('txConexao')">Conexão ↕</th>
+          <th class="num" onclick="sortBy('txAgendamento')">Agendamento ↕</th>
+          <th class="num" onclick="sortBy('txVR')">VR% ↕</th>
+          <th class="num" onclick="sortBy('txConversao')">Conversão ↕</th>
+          <th class="num" onclick="sortBy('txDescarte')">Descarte ↕</th>
+        </tr>
+      </thead>
+      <tbody id="tabelaBody">
+        <tr><td colspan="7" class="empty">Selecione o mês e clique em Atualizar.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</div>
+<script>
+const TOKEN      = "a09d71984f61d3452a315109240ecabccc6149c6";
+const FILTER_MOV = 1669190;
+const CARGO_KEY  = "718c8aba81211c883ffd9f4616f75ee22a10b2da";
+const APLIC_KEY  = "23de049432e523993f69ecd456a3f755c0f07f3d";
+const UTM_KEY    = "ae03fa460a108b8cdfa87e97ebca24379d2779d6";
+const UTM_SRC_KEY= "8fb3221ab3d91cddaf51e0a9e1bbcda34fc9d28e";
+
+const GOOGLE_IDS = new Set(["22822740395","23869952762","22675029313","23874401647","23397388987","22508119133","23963147748"]);
+const PALAVRAS_MQL = ["diretor","director","founder","fundador","propr","socio","sócio","partner","owner","empresario","empresário","ceo","chief","president","consultor","consultant","profissional liberal","vice","c-level","vp","cfo","coo","cto","cmo","conselh","advisor","manager","gerente","coordenador","head","entrepreneur","executive"];
+
+const STAGE_LEVEL = {"aplicação":1,"aplicacao":1,"contatado":2,"etapa 1":3,"etapa 2":4,"etapa 3":5,"oportunidade":3,"reabertura":2,"agendados":6,"no show":6,"validação de reunião":7,"validacao de reuniao":7,"negociação":8,"negociacao":8,"inscrição em andamento":9,"inscricao em andamento":9};
+const MESES_PT = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+
+let stagesMap = {}, dadosCamp = [], filtroAtivo = 'todos', sortCol = 'total', sortAsc = false, chartInst = null;
+
+// Popula seletor de meses (últimos 6 meses)
+
+
+function getPeriodo() {
+  const ini = document.getElementById('dataInicio').value;
+  const fim = document.getElementById('dataFim').value;
+  if (!ini || !fim) { alert('Selecione a data de início e a data de fim!'); return null; }
+
+  // Gera lista de todas as datas no range
+  const datas = [];
+  const d = new Date(ini + 'T00:00:00');
+  const fimDate = new Date(fim + 'T00:00:00');
+  while (d <= fimDate) {
+    const dia = String(d.getDate()).padStart(2,'0');
+    const mes = String(d.getMonth()+1).padStart(2,'0');
+    const ano = d.getFullYear();
+    datas.push({ diaStr: `${dia}/${mes}/${ano}`, diaIso: `${ano}-${mes}-${dia}`, mesStr: `${mes}/${ano}` });
+    d.setDate(d.getDate() + 1);
+  }
+
+  const label = `${ini.split('-').reverse().join('/')} → ${fim.split('-').reverse().join('/')}`;
+  return { datas, label, iniIso: ini, fimIso: fim };
+}
+
+function stageLevel(name) {
+  const n = (name||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  for (const [k,v] of Object.entries(STAGE_LEVEL)) {
+    if (n.includes(k.normalize('NFD').replace(/[\u0300-\u036f]/g,''))) return v;
+  }
+  return 0;
+}
+
+function isMQL(cargo) {
+  if (!cargo) return false;
+  return PALAVRAS_MQL.some(p => cargo.toLowerCase().includes(p));
+}
+function isCampanhaValida(utm) {
+  if (!utm) return false;
+  utm = utm.trim();
+  if (GOOGLE_IDS.has(utm)) return true;
+  if (utm.toUpperCase().includes("PFCC")) return true;
+  return false;
+}
+function getCanal(utm) {
+  if (!utm) return 'outros';
+  if (GOOGLE_IDS.has(utm.trim())) return 'google';
+  const u = utm.toUpperCase();
+  if (u.includes('META')) return 'meta';
+  if (u.includes('LKDN')||u.includes('LINKEDIN')||u.includes('LICKS')) return 'linkedin';
+  return 'outros';
+}
+function normCamp(utm) {
+  if (!utm) return 'Sem UTM';
+  utm = utm.trim();
+  if (GOOGLE_IDS.has(utm)) return utm; // só o ID
+  return utm.length > 55 ? utm.substring(0,55)+'…' : utm;
+}
+function converterBR(ts) {
+  if (!ts) return '';
+  try {
+    const d = new Date(ts.replace(' ','T')+'Z');
+    d.setHours(d.getHours()-3);
+    return d.toISOString().substring(0,10);
+  } catch { return ts.substring(0,10); }
+}
+
+function setProgress(pct, label, sub) {
+  document.getElementById('progressFill').style.width = pct+'%';
+  document.getElementById('progressLabel').textContent = label;
+  if (sub!==undefined) document.getElementById('progressSub').textContent = sub;
+}
+
+async function fetchAll(url) {
+  let items=[], start=0;
+  while(true){
+    const r = await fetch(`${url}&start=${start}&limit=500`);
+    const d = await r.json();
+    if(!d.data) break;
+    items = items.concat(d.data);
+    if(!d.additional_data?.pagination?.more_items_in_collection) break;
+    start+=500;
+  }
+  return items;
+}
+
+async function getChangelog(dealId, mesIso) {
+  const entradas=[];
+  let cursor=null;
+  while(true){
+    let url=`https://api.pipedrive.com/v1/deals/${dealId}/changelog?api_token=${TOKEN}&limit=100`;
+    if(cursor) url+=`&cursor=${cursor}`;
+    let res;
+    try{ const r=await fetch(url); res=await r.json(); }catch{ break; }
+    for(const item of (res.data||[])){
+      if(item.field_key==='stage_id'&&item.new_value){
+        const dia=converterBR(item.time||'');
+        if(dia.startsWith(mesIso)) entradas.push({stageId:parseInt(item.new_value),dia});
+      }
+    }
+    cursor=res.additional_data?.next_cursor;
+    if(!cursor) break;
+  }
+  return entradas;
+}
+
+function setFiltro(f, btn) {
+  filtroAtivo=f;
+  document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  renderTabela();
+  renderChart();
+}
+
+function sortBy(col) {
+  if(sortCol===col) sortAsc=!sortAsc;
+  else{sortCol=col;sortAsc=false;}
+  renderTabela();
+}
+
+function calcTx(n,t){ return t?Math.round(n/t*1000)/10:0; }
+
+function rateBar(v, inverse=false) {
+  const good = inverse ? v<=30 : v>=50;
+  const mid  = inverse ? v<=60 : v>=25;
+  const color = good?'#4a9eed':mid?'#8ab8dd':'#c0392b';
+  const cls   = good?'c-green':mid?'c-mid':'c-red';
+  return `<div class="rate-cell"><div class="rate-bar"><div class="rate-fill" style="width:${Math.min(v,100)}%;background:${color}"></div></div><span class="rate-val ${cls}">${v}%</span></div>`;
+}
+
+function tagCanal(canal) {
+  const m={google:['tag-google','G'],meta:['tag-meta','M'],linkedin:['tag-linkedin','Li']};
+  const [cls,label]=(m[canal]||['','']);
+  return cls?`<span class="camp-tag ${cls}">${label}</span>`:'';
+}
+
+function dadosFiltrados() {
+  let d = filtroAtivo==='todos'?dadosCamp:dadosCamp.filter(x=>x.canal===filtroAtivo);
+  return d.sort((a,b)=>{
+    const va=a[sortCol]??a.total;
+    const vb=b[sortCol]??b.total;
+    return sortAsc?va-vb:vb-va;
+  });
+}
+
+function toggleDeals(utmKey) {
+  const campRow   = document.getElementById('camp-'+utmKey);
+  const dealsRow  = document.getElementById('deals-'+utmKey);
+  if(!campRow||!dealsRow) return;
+  const isOpen = campRow.classList.contains('open');
+  campRow.classList.toggle('open');
+  dealsRow.classList.toggle('open');
+}
+
+function renderTabela() {
+  const tbody = document.getElementById('tabelaBody');
+  const dados = dadosFiltrados();
+  if(!dados.length){ tbody.innerHTML='<tr><td colspan="7" class="empty">Nenhuma campanha encontrada.</td></tr>'; return; }
+
+  tbody.innerHTML = dados.flatMap(c => {
+    const key = btoa(c.utm).replace(/[^a-z0-9]/gi,'').substring(0,20);
+    const dealsHtml = c.dealIds.map(id =>
+      `<a class="deal-link" href="https://boardacademy.pipedrive.com/deal/${id}" target="_blank">${id}</a>`
+    ).join('');
+    return [
+      `<tr class="camp-row" id="camp-${key}" onclick="toggleDeals('${key}')">
+        <td class="camp-name"><span class="expand-arrow">▶</span>${c.nome}${tagCanal(c.canal)}</td>
+        <td class="num" style="color:var(--blue)">${c.total}</td>
+        <td>${rateBar(c.txConexao)}</td>
+        <td>${rateBar(c.txAgendamento)}</td>
+        <td>${rateBar(c.txVR)}</td>
+        <td>${rateBar(c.txConversao)}</td>
+        <td>${rateBar(c.txDescarte,true)}</td>
+      </tr>`,
+      `<tr class="deals-row" id="deals-${key}">
+        <td colspan="7">
+          <div class="deals-label">Negócios (${c.dealIds.length}) — clique para abrir no Pipedrive</div>
+          <div class="deals-grid">${dealsHtml}</div>
+        </td>
+      </tr>`
+    ];
+  }).join('');
+}
+
+function renderChart() {
+  const dados = dadosFiltrados().slice(0,12);
+  const labels = dados.map(d=>d.nome.length>20?d.nome.substring(0,20)+'…':d.nome);
+  if(chartInst) chartInst.destroy();
+  chartInst = new Chart(document.getElementById('chartCamp'),{
+    type:'bar',
+    data:{labels,datasets:[{data:dados.map(d=>d.total),backgroundColor:dados.map(d=>d.canal==='google'?'#2980b9':d.canal==='meta'?'#4a6dd4':d.canal==='linkedin'?'#0e76a8':'#4a9eed'),borderWidth:0,borderRadius:2}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>` ${ctx.raw} MQLs`},backgroundColor:'#1a1a1a',borderColor:'#222',borderWidth:1,titleFont:{family:'DM Mono'},bodyFont:{family:'DM Mono'}}},scales:{x:{ticks:{color:'#666',font:{family:'DM Mono',size:10}},grid:{color:'#1a1a1a'}},y:{ticks:{color:'#666',font:{family:'DM Mono',size:10}},grid:{color:'#1c1c1c'}}}}
+  });
+}
+
+function atualizarKPIs() {
+  const all=dadosCamp;
+  const total=all.reduce((s,c)=>s+c.total,0);
+  document.getElementById('kTotal').textContent=total.toLocaleString('pt-BR');
+  document.getElementById('kConexao').textContent=calcTx(all.reduce((s,c)=>s+c.conexao,0),total)+'%';
+  document.getElementById('kAgendamento').textContent=calcTx(all.reduce((s,c)=>s+c.agendamento,0),total)+'%';
+  document.getElementById('kValidacao').textContent=calcTx(all.reduce((s,c)=>s+c.vr,0),total)+'%';
+  document.getElementById('kDescarte').textContent=calcTx(all.reduce((s,c)=>s+c.perdido,0),total)+'%';
+}
+
+async function atualizar() {
+  const btn=document.getElementById('btnAtualizar');
+  btn.disabled=true; btn.textContent='Carregando…';
+  document.getElementById('progressWrap').style.display='block';
+  document.getElementById('statusBar').textContent='';
+
+  const {mesStr, mesIso, label} = getMesSelecionado();
+
+  try{
+    setProgress(5,'Carregando etapas...','');
+    stagesMap={};
+    for(const pid of [87,88,46]){
+      const r=await fetch(`https://api.pipedrive.com/v1/stages?pipeline_id=${pid}&api_token=${TOKEN}`);
+      const d=await r.json();
+      (d.data||[]).forEach(s=>stagesMap[s.id]=s.name);
+    }
+
+    setProgress(15,'Carregando deals de movimentação...','');
+    const deals=await fetchAll(`https://api.pipedrive.com/v1/deals?filter_id=${FILTER_MOV}&api_token=${TOKEN}`);
+    setProgress(30,`${deals.length} deals. Filtrando candidatos...`,'');
+
+    const candidatos=deals.filter(d=>{
+      const utm=(d[UTM_KEY]||'').trim();
+      const cargo=d[CARGO_KEY]||'';
+      const aplic=d[APLIC_KEY]||'';
+      const src=(d[UTM_SRC_KEY]||'').toLowerCase();
+      return isMQL(cargo)
+        && isCampanhaValida(utm)
+        && !utm.toLowerCase().includes('workshop')
+        && utm.toLowerCase()!=='org'
+        && src!=='org'
+        && datas.some(d => aplic.includes(d.diaStr));
+    });
+
+    setProgress(35,`${candidatos.length} candidatos. Buscando changelog...`,'0 / '+candidatos.length);
+
+    const campMap={};
+    for(let i=0;i<candidatos.length;i++){
+      const deal=candidatos[i];
+      const utm=(deal[UTM_KEY]||'').trim();
+      const nome=normCamp(utm);
+      const canal=getCanal(utm);
+
+      if(!campMap[utm]) campMap[utm]={nome,canal,utm,total:0,conexao:0,agendamento:0,vr:0,ganho:0,perdido:0,dealIds:[]};
+      const c=campMap[utm];
+      if(c.dealIds.includes(deal.id)) continue;
+      c.dealIds.push(deal.id);
+      c.total++;
+
+      if(deal.status==='won'){c.ganho++;c.conexao++;c.agendamento++;c.vr++;}
+      else if(deal.status==='lost'){c.perdido++;}
+
+      // Busca changelog para cada mês único do range
+      const mesesUnicos = [...new Set(datas.map(d=>d.diaIso.substring(0,7)))];
+      let entradas = [];
+      for (const mesIsoLoop of mesesUnicos) {
+        const e = await getChangelog(deal.id, mesIsoLoop);
+        entradas = entradas.concat(e);
+      }
+      const diasValidos = new Set(datas.map(d=>d.diaIso));
+      let maxLevel=0, passoiContatado=false;
+      const entradasFiltradas = entradas.filter(e => diasValidos.has(e.dia));
+      for(const e of entradasFiltradas){
+        const sn=stagesMap[e.stageId]||'';
+        const lvl=stageLevel(sn);
+        if(lvl>maxLevel) maxLevel=lvl;
+        if(sn.toLowerCase().includes('contatado')) passoiContatado=true;
+      }
+      if(passoiContatado) c.conexao++;
+      if(maxLevel>=6) c.agendamento++;
+      if(maxLevel>=7) c.vr++;
+
+      const pct=Math.round(((i+1)/candidatos.length)*65)+35;
+      setProgress(pct,`Changelog: ${i+1} / ${candidatos.length}`,nome.substring(0,40));
+    }
+
+    dadosCamp=Object.values(campMap).map(c=>({
+      ...c,
+      txConexao:calcTx(c.conexao,c.total),
+      txAgendamento:calcTx(c.agendamento,c.total),
+      txVR:calcTx(c.vr,c.total),
+      txConversao:calcTx(c.ganho,c.total),
+      txDescarte:calcTx(c.perdido,c.total),
+    })).sort((a,b)=>b.total-a.total);
+
+    setProgress(100,'Concluído!','');
+    setTimeout(()=>{document.getElementById('progressWrap').style.display='none';},1500);
+
+    atualizarKPIs();
+    renderTabela();
+    renderChart();
+
+    document.getElementById('statusBar').textContent=`✅ ${dadosCamp.length} campanhas | ${candidatos.length} MQLs | ${label} | via changelog`;
+
+  }catch(e){
+    document.getElementById('statusBar').textContent=`❌ Erro: ${e.message}`;
+    console.error(e);
+  }finally{
+    btn.disabled=false; btn.textContent='⟳ Atualizar';
+  }
+}
+
+</script>
+</body>
+</html>
