@@ -405,9 +405,10 @@ async function atualizar() {
   document.getElementById('progressWrap').style.display='block';
   document.getElementById('statusBar').textContent='';
 
-  const {mesStr, mesIso, label} = getMesSelecionado();
-
   try{
+    const periodo = getPeriodo();
+    if (!periodo) { btn.disabled=false; btn.textContent='⟳ Atualizar'; document.getElementById('progressWrap').style.display='none'; return; }
+    const {datas, label} = periodo;
     setProgress(5,'Carregando etapas...','');
     stagesMap={};
     for(const pid of [87,88,46]){
