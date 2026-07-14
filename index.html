@@ -35,6 +35,7 @@
   .btn{font-family:'DM Mono',monospace;font-size:12px;text-transform:uppercase;letter-spacing:.1em;padding:10px 20px;border:1px solid var(--blue);background:transparent;color:var(--blue);cursor:pointer;transition:all .15s;}
   .btn:hover{background:var(--blue);color:var(--bg);}
   .btn:disabled{opacity:.4;cursor:not-allowed;}
+  .user-info{font-family:'DM Mono',monospace;font-size:11px;color:var(--gray);text-transform:uppercase;letter-spacing:.06em;}
 
 
   .progress-wrap{margin-bottom:32px;display:none;}
@@ -132,6 +133,8 @@
         </div>
       </div>
       <button class="btn" id="btnAtualizar" onclick="atualizar()">⟳ Atualizar</button>
+      <span class="user-info" id="userInfo"></span>
+      <button class="btn" onclick="logout()">Sair</button>
     </div>
   </div>
 
@@ -184,8 +187,22 @@
 
 </div>
 <script>
-// ⚠️ O TOKEN NÃO FICA MAIS AQUI. Todas as chamadas passam pelo proxy
-// serverless em /api/pipedrive, que injeta o PIPEDRIVE_TOKEN no servidor.
+// ⚠️ O TOKEN DO PIPEDRIVE NÃO FICA MAIS AQUI. Todas as chamadas passam pelo
+// proxy serverless em /api/pipedrive, que injeta o PIPEDRIVE_TOKEN no servidor.
+
+// --- Gate de sessão: sem login válido, não entra ---
+const SESSION_TOKEN = localStorage.getItem('funil_token');
+if (!SESSION_TOKEN) {
+  window.location.href = '/login.html';
+}
+document.getElementById('userInfo').textContent = localStorage.getItem('funil_user') || '';
+
+function logout() {
+  localStorage.removeItem('funil_token');
+  localStorage.removeItem('funil_user');
+  window.location.href = '/login.html';
+}
+
 const FILTER_MOV  = 1669190;
 const CARGO_KEY   = "718c8aba81211c883ffd9f4616f75ee22a10b2da";
 const APLIC_KEY   = "23de049432e523993f69ecd456a3f755c0f07f3d";
@@ -274,7 +291,13 @@ function setProgress(pct, label, sub) {
 
 async function pdFetch(path, params = {}) {
   const qs = new URLSearchParams(params);
-  const r = await fetch(`/api/pipedrive?path=${encodeURIComponent(path)}&${qs.toString()}`);
+  const r = await fetch(`/api/pipedrive?path=${encodeURIComponent(path)}&${qs.toString()}`, {
+    headers: { Authorization: `Bearer ${SESSION_TOKEN}` }
+  });
+  if (r.status === 401) {
+    logout();
+    throw new Error('Sessão expirada. Faça login novamente.');
+  }
   return r.json();
 }
 
