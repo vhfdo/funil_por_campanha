@@ -419,9 +419,10 @@ function renderTabela() {
 
   tbody.innerHTML = dados.flatMap(c => {
     const key = btoa(c.utm).replace(/[^a-z0-9]/gi,'').substring(0,20);
-    const dealsHtml = c.dealIds.map(id =>
-      `<a class="deal-link" href="https://boardacademy.pipedrive.com/deal/${id}" target="_blank">${id}</a>`
-    ).join('');
+    const dealsHtml = c.dealIds.map(id => {
+      const nomeEscapado = JSON.stringify(c.nome).replace(/"/g, '&quot;');
+      return `<a class="deal-link" href="https://boardacademy.pipedrive.com/deal/${id}" target="_blank" onclick="logEvent('clicar_deal', {deal_id: ${id}, campanha: ${nomeEscapado}})">${id}</a>`;
+    }).join('');
     return [
       `<tr class="camp-row" id="camp-${key}" onclick="toggleDeals('${key}')">
         <td class="camp-name"><span class="expand-arrow">▶</span>${c.nome}${tagCanal(c.canal)}</td>
