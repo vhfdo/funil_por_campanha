@@ -140,6 +140,7 @@
         </div>
       </div>
       <button class="btn" id="btnAtualizar" onclick="atualizar()">⟳ Atualizar</button>
+      <button class="btn" id="btnExportar" onclick="exportarCSV()">⬇ Exportar CSV</button>
       <span class="user-info" id="userInfo"></span>
       <button class="btn" onclick="logout()">Sair</button>
     </div>
@@ -287,6 +288,56 @@ function montarCabecalhoTabela() {
   ).join('');
 }
 window.addEventListener('DOMContentLoaded', montarCabecalhoTabela);
+
+function colunasExport() {
+  return [
+    { label: 'Campanha', get: c => c.nome },
+    { label: 'Canal', get: c => c.canal },
+    { label: 'MQLs', get: c => c.total },
+    ...FUNNEL_STAGES.filter(f => f.key !== 'aplicacao').map(f => ({ label: f.label, get: c => c.funilCounts[f.key] || 0 })),
+    { label: 'Descarte', get: c => c.perdido || 0 },
+  ];
+}
+
+function csvEscape(valor) {
+  const s = String(valor ?? '');
+  if (s.includes(';') || s.includes('"') || s.includes('\n')) {
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+  return s;
+}
+
+function exportarCSV() {
+  if (!dadosCamp.length) {
+    alert('Não há dados pra exportar ainda — clique em Atualizar primeiro.');
+    return;
+  }
+  const dados = dadosFiltrados();
+  const cols = colunasExport();
+
+  const periodo = document.getElementById('dataInicio').value && document.getElementById('dataFim').value
+    ? `${document.getElementById('dataInicio').value}_a_${document.getElementById('dataFim').value}`
+    : 'periodo';
+
+  const linhas = [];
+  linhas.push(cols.map(c => csvEscape(c.label)).join(';'));
+  for (const c of dados) {
+    linhas.push(cols.map(col => csvEscape(col.get(c))).join(';'));
+  }
+  const csvContent = '\uFEFF' + linhas.join('\r\n'); // BOM pra acentuação abrir certo no Excel
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `funil_por_campanha_${periodo}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+
+  logEvent('exportar_csv', { linhas: dados.length, periodo, filtro_canal: filtroAtivo });
+}
 
 function getPeriodo() {
   const ini = document.getElementById('dataInicio').value;
