@@ -590,8 +590,8 @@ async function atualizar() {
     setProgress(35,`${candidatos.length} candidatos. Buscando changelog...`,'0 / '+candidatos.length);
 
     const campMap={};
-    const funilGlobalSets = {};
-    FUNNEL_STAGES.forEach(f => funilGlobalSets[f.key] = new Set());
+    const funilGlobalCounts_ = {};
+    FUNNEL_STAGES.forEach(f => funilGlobalCounts_[f.key] = 0);
 
     for(let i=0;i<candidatos.length;i++){
       const deal=candidatos[i];
@@ -601,17 +601,17 @@ async function atualizar() {
 
       if(!campMap[utm]) {
         campMap[utm]={nome,canal,utm,total:0,conexao:0,agendamento:0,vr:0,ganho:0,perdido:0,dealIds:[]};
-        campMap[utm].funilSets = {};
-        FUNNEL_STAGES.forEach(f => campMap[utm].funilSets[f.key] = new Set());
+        campMap[utm].funilCounts = {};
+        FUNNEL_STAGES.forEach(f => campMap[utm].funilCounts[f.key] = 0);
       }
       const c=campMap[utm];
       if(c.dealIds.includes(deal.id)) continue;
       c.dealIds.push(deal.id);
       c.total++;
 
-      // Toda vez que um deal entra como candidato, ele conta como "Aplicação"
-      c.funilSets['aplicacao'].add(deal.id);
-      funilGlobalSets['aplicacao'].add(deal.id);
+      // Aplicação: 1 por deal candidato (dedupe por deal, igual ao "candidatos_mes" do Python)
+      c.funilCounts['aplicacao']++;
+      funilGlobalCounts_['aplicacao']++;
 
       if(deal.status==='won'){c.ganho++;c.conexao++;c.agendamento++;c.vr++;}
       else if(deal.status==='lost'){c.perdido++;}
@@ -623,20 +623,37 @@ async function atualizar() {
         entradas = entradas.concat(e);
       }
       const diasValidos = new Set(datas.map(d=>d.diaIso));
-      let maxLevel=0, passoiContatado=false;
       const entradasFiltradas = entradas.filter(e => diasValidos.has(e.dia));
+
+      // ── Réplica exata do funil_brasil_changelog.py ──
+      // Pra cada DIA, considera só a PRIMEIRA mudança de etapa daquele dia
+      // (não importa qual etapa) — é assim que o script Python monta
+      // entradas_por_dia[dia][deal_id], e depois soma isso linha a linha
+      // no DEALS-FUNIL. Se o deal mudar de etapa mais de uma vez no MESMO
+      // dia, só a primeira conta; se mudar em dias DIFERENTES dentro do
+      // período, cada dia conta separado (por isso pode "duplicar" o deal
+      // se ele passou pela mesma etapa em dois dias diferentes).
+      const primeiroPorDia = {};
+      for (const e of entradasFiltradas) {
+        if (!(e.dia in primeiroPorDia)) primeiroPorDia[e.dia] = e.stageId;
+      }
+      for (const dia in primeiroPorDia) {
+        const sn = stagesMap[primeiroPorDia[dia]] || '';
+        const fKey = stageFunnelKey(sn);
+        if (fKey) {
+          c.funilCounts[fKey]++;
+          funilGlobalCounts_[fKey]++;
+        }
+      }
+
+      // Mantido à parte — usado só pra conexao/agendamento/vr (não exibidos
+      // na tabela/funil, mas ainda calculados internamente)
+      let maxLevel=0, passoiContatado=false;
       for(const e of entradasFiltradas){
         const sn=stagesMap[e.stageId]||'';
         const lvl=stageLevel(sn);
         if(lvl>maxLevel) maxLevel=lvl;
         if(sn.toLowerCase().includes('contatado')) passoiContatado=true;
-
-        // Marca em qual etapa do funil fixo esse deal passou (sem duplicar)
-        const fKey = stageFunnelKey(sn);
-        if (fKey) {
-          c.funilSets[fKey].add(deal.id);
-          funilGlobalSets[fKey].add(deal.id);
-        }
       }
       if(passoiContatado) c.conexao++;
       if(maxLevel>=6) c.agendamento++;
@@ -646,19 +663,15 @@ async function atualizar() {
       setProgress(pct,`Changelog: ${i+1} / ${candidatos.length}`,nome.substring(0,40));
     }
 
-    // Converte os Sets (deduplicados) em contagens simples
-    funilGlobalCounts = {};
-    FUNNEL_STAGES.forEach(f => funilGlobalCounts[f.key] = funilGlobalSets[f.key].size);
+    funilGlobalCounts = funilGlobalCounts_;
 
     dadosCamp=Object.values(campMap).map(c=>{
-      const funilCounts = {};
-      FUNNEL_STAGES.forEach(f => funilCounts[f.key] = c.funilSets[f.key].size);
       const stageProps = {};
-      FUNNEL_STAGES.forEach(f => stageProps[f.prop] = funilCounts[f.key]);
+      FUNNEL_STAGES.forEach(f => stageProps[f.prop] = c.funilCounts[f.key]);
       return {
         ...c,
         ...stageProps,
-        funilCounts,
+        funilCounts: c.funilCounts,
         txConexao:calcTx(c.conexao,c.total),
         txAgendamento:calcTx(c.agendamento,c.total),
         txVR:calcTx(c.vr,c.total),
