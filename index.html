@@ -99,6 +99,21 @@
   .c-green{color:#4a9eed;} .c-mid{color:#8ab8dd;} .c-red{color:#c0392b;}
 
   .empty{text-align:center;padding:80px 24px;color:var(--gray);font-family:'DM Mono',monospace;font-size:13px;}
+  .orcamento-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:1px;background:var(--border);border:1px solid var(--border);margin-bottom:48px;}
+  .orc-card{background:var(--panel);padding:18px;}
+  .orc-produto{font-family:'DM Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray);margin-bottom:10px;}
+  .orc-linha{display:flex;justify-content:space-between;align-items:baseline;font-size:13px;margin-bottom:6px;}
+  .orc-linha .lbl{color:var(--gray);}
+  .orc-linha .val{font-family:'DM Mono',monospace;}
+  .orc-gasto-input{width:110px;background:#0a0a0a;border:1px solid var(--border);color:var(--white);font-family:'DM Mono',monospace;font-size:13px;padding:3px 6px;text-align:right;outline:none;}
+  .orc-gasto-input:focus{border-color:var(--blue);}
+  .orc-restante{font-family:'Bebas Neue',sans-serif;font-size:26px;margin-top:8px;}
+  .orc-bar{height:4px;background:var(--border);border-radius:2px;overflow:hidden;margin-top:10px;}
+  .orc-bar-fill{height:100%;border-radius:2px;}
+  .orc-meta{font-family:'DM Mono',monospace;font-size:10px;color:var(--gray);margin-top:6px;}
+  .orc-salvo{color:var(--blue);font-size:10px;font-family:'DM Mono',monospace;margin-left:6px;opacity:0;transition:opacity .3s;}
+  .orc-salvo.show{opacity:1;}
+
   .funil-wrap{background:var(--panel);border:1px solid var(--border);padding:24px;margin-bottom:48px;}
   .funil-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;}
   .funil-titulo{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:.02em;}
@@ -153,6 +168,9 @@
   </div>
 
   <div class="status-bar" id="statusBar">Selecione o mês e clique em Atualizar.</div>
+
+  <div class="sec-title">Orçamento do Mês <span class="tag" id="orcamentoStatus">CARREGANDO</span></div>
+  <div class="orcamento-row" id="orcamentoRow"></div>
 
   <div class="funil-wrap">
     <div class="funil-header">
@@ -231,7 +249,8 @@ window.addEventListener('pagehide', () => flushEvents(true));
 
 logEvent('page_view');
 
-const FILTER_MOV  = 1669190;
+const FILTER_LEADS      = 1670363; // todos os funis — usado pro Total de MQLs / "Aplicação"
+const FILTER_LEADS_MOV  = 1668998; // só 87/88/46 — usado pras etapas do funil (changelog)
 const CARGO_KEY   = "718c8aba81211c883ffd9f4616f75ee22a10b2da";
 const APLIC_KEY   = "23de049432e523993f69ecd456a3f755c0f07f3d";
 const UTM_KEY     = "ae03fa460a108b8cdfa87e97ebca24379d2779d6";
@@ -275,6 +294,80 @@ let escopoFunilAtivo = null; // null = agregado; senão, key da campanha
 
 let stagesMap = {}, dadosCamp = [], filtroAtivo = 'todos', sortCol = 'total', sortAsc = false, chartInst = null, funilChartInst = null;
 
+function formatarReal(v) {
+  return (v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+async function carregarOrcamento() {
+  const statusEl = document.getElementById('orcamentoStatus');
+  try {
+    const r = await fetch('/api/budget', { headers: { Authorization: `Bearer ${SESSION_TOKEN}` } });
+    if (r.status === 401) { logout(); return; }
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Erro ao carregar orçamento');
+    renderOrcamento(data.produtos || []);
+    statusEl.textContent = 'ATUALIZADO';
+  } catch (err) {
+    statusEl.textContent = 'ERRO AO CARREGAR';
+    console.error(err);
+  }
+}
+
+function renderOrcamento(produtos) {
+  const wrap = document.getElementById('orcamentoRow');
+  if (!produtos.length) {
+    wrap.innerHTML = '<div class="orc-card" style="grid-column:1/-1;color:var(--gray);font-family:\'DM Mono\',monospace;font-size:12px;">Nenhum produto configurado na aba ORCAMENTO ainda.</div>';
+    return;
+  }
+  wrap.innerHTML = produtos.map(p => {
+    const restante = p.orcamento - p.gasto;
+    const pctUsado = p.orcamento ? Math.min((p.gasto / p.orcamento) * 100, 100) : 0;
+    const cor = pctUsado >= 100 ? '#c0392b' : pctUsado >= 85 ? '#d9a441' : '#4a9eed';
+    return `
+      <div class="orc-card">
+        <div class="orc-produto">${p.produto}</div>
+        <div class="orc-linha"><span class="lbl">Orçamento</span><span class="val">${formatarReal(p.orcamento)}</span></div>
+        <div class="orc-linha">
+          <span class="lbl">Gasto</span>
+          <span>
+            <input type="text" class="orc-gasto-input" id="gasto-${p.linha}" value="${p.gasto.toFixed(2).replace('.', ',')}"
+              onblur="salvarGasto('${p.produto.replace(/'/g, "\\'")}', ${p.linha})"
+              onkeydown="if(event.key==='Enter') this.blur()">
+            <span class="orc-salvo" id="salvo-${p.linha}">✓ salvo</span>
+          </span>
+        </div>
+        <div class="orc-restante" style="color:${cor}">${formatarReal(restante)}</div>
+        <div class="orc-meta">restante · ${pctUsado.toFixed(0)}% usado</div>
+        <div class="orc-bar"><div class="orc-bar-fill" style="width:${pctUsado}%;background:${cor}"></div></div>
+      </div>`;
+  }).join('');
+}
+
+async function salvarGasto(produto, linha) {
+  const input = document.getElementById(`gasto-${linha}`);
+  const valor = parseFloat(input.value.replace(/\./g, '').replace(',', '.'));
+  if (isNaN(valor)) { alert('Valor inválido.'); return; }
+
+  try {
+    const r = await fetch('/api/budget', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SESSION_TOKEN}` },
+      body: JSON.stringify({ produto, gasto: valor }),
+    });
+    if (r.status === 401) { logout(); return; }
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Erro ao salvar');
+
+    logEvent('atualizar_orcamento', { produto, gasto: valor });
+    const badge = document.getElementById(`salvo-${linha}`);
+    badge.classList.add('show');
+    setTimeout(() => badge.classList.remove('show'), 2000);
+    carregarOrcamento(); // recarrega pra atualizar a barra/restante com o valor confirmado
+  } catch (err) {
+    alert('Não foi possível salvar: ' + err.message);
+  }
+}
+
 function montarCabecalhoTabela() {
   const tr = document.getElementById('tableHeadRow');
   const colunas = [
@@ -287,7 +380,10 @@ function montarCabecalhoTabela() {
     `<th${c.num ? ' class="num"' : ''} onclick="sortBy('${c.sortKey}')">${c.label}${c.num || c.sortKey==='nome' ? ' ↕' : ''}</th>`
   ).join('');
 }
-window.addEventListener('DOMContentLoaded', montarCabecalhoTabela);
+window.addEventListener('DOMContentLoaded', () => {
+  montarCabecalhoTabela();
+  carregarOrcamento();
+});
 
 function colunasExport() {
   return [
@@ -603,6 +699,19 @@ function renderChart() {
   });
 }
 
+function isCandidato(deal, datas) {
+  const utm=(deal[UTM_KEY]||'').trim();
+  const cargo=deal[CARGO_KEY]||'';
+  const aplic=deal[APLIC_KEY]||'';
+  const src=(deal[UTM_SRC_KEY]||'').toLowerCase();
+  return isMQL(cargo)
+    && isCampanhaValida(utm)
+    && !utm.toLowerCase().includes('workshop')
+    && utm.toLowerCase()!=='org'
+    && src!=='org'
+    && datas.some(d => aplic.includes(d.diaStr));
+}
+
 async function atualizar() {
   const btn=document.getElementById('btnAtualizar');
   btn.disabled=true; btn.textContent='Carregando…';
@@ -621,51 +730,52 @@ async function atualizar() {
       (d.data||[]).forEach(s=>stagesMap[s.id]=s.name);
     }
 
-    setProgress(15,'Carregando deals de movimentação...','');
-    const deals=await fetchAll('deals', { filter_id: FILTER_MOV });
-    setProgress(30,`${deals.length} deals. Filtrando candidatos...`,'');
+    setProgress(15,'Carregando leads (todos os funis)...','');
+    const dealsAmplo = await fetchAll('deals', { filter_id: FILTER_LEADS });
+    setProgress(22,`${dealsAmplo.length} deals. Filtrando MQLs/leads...`,'');
+    const candidatosAmplo = dealsAmplo.filter(d => isCandidato(d, datas));
 
-    const candidatos=deals.filter(d=>{
-      const utm=(d[UTM_KEY]||'').trim();
-      const cargo=d[CARGO_KEY]||'';
-      const aplic=d[APLIC_KEY]||'';
-      const src=(d[UTM_SRC_KEY]||'').toLowerCase();
-      return isMQL(cargo)
-        && isCampanhaValida(utm)
-        && !utm.toLowerCase().includes('workshop')
-        && utm.toLowerCase()!=='org'
-        && src!=='org'
-        && datas.some(d => aplic.includes(d.diaStr));
-    });
-
-    setProgress(35,`${candidatos.length} candidatos. Buscando changelog...`,'0 / '+candidatos.length);
+    setProgress(28,'Carregando leads de movimentação (87/88/46)...','');
+    const dealsMov = await fetchAll('deals', { filter_id: FILTER_LEADS_MOV });
+    setProgress(35,`${dealsMov.length} deals. Filtrando candidatos do funil...`,'');
+    const candidatosMov = dealsMov.filter(d => isCandidato(d, datas));
 
     const campMap={};
     const funilGlobalCounts_ = {};
     FUNNEL_STAGES.forEach(f => funilGlobalCounts_[f.key] = 0);
 
-    for(let i=0;i<candidatos.length;i++){
-      const deal=candidatos[i];
+    function getOrCreateCamp(deal) {
       const utm=(deal[UTM_KEY]||'').trim();
       const nome=normCamp(utm);
       const canal=getCanal(utm);
-
       if(!campMap[utm]) {
         campMap[utm]={nome,canal,utm,total:0,conexao:0,agendamento:0,vr:0,ganho:0,perdido:0,dealIds:[]};
         campMap[utm].funilCounts = {};
         FUNNEL_STAGES.forEach(f => campMap[utm].funilCounts[f.key] = 0);
       }
-      const c=campMap[utm];
-      if(c.dealIds.includes(deal.id)) continue;
+      return campMap[utm];
+    }
+
+    // ── Passo 1: Total de MQLs / Aplicação — independente de pipeline ──
+    // (equivalente ao mqls_dia/leads_dia do LEADS-DIA, filtro 1670363)
+    for (const deal of candidatosAmplo) {
+      const c = getOrCreateCamp(deal);
+      if (c.dealIds.includes(deal.id)) continue;
       c.dealIds.push(deal.id);
       c.total++;
-
-      // Aplicação: 1 por deal candidato (dedupe por deal, igual ao "candidatos_mes" do Python)
       c.funilCounts['aplicacao']++;
       funilGlobalCounts_['aplicacao']++;
+      if (deal.status==='won') c.ganho++;
+      else if (deal.status==='lost') c.perdido++;
+    }
 
-      if(deal.status==='won'){c.ganho++;c.conexao++;c.agendamento++;c.vr++;}
-      else if(deal.status==='lost'){c.perdido++;}
+    setProgress(40,`${candidatosMov.length} candidatos do funil. Buscando changelog...`,'0 / '+candidatosMov.length);
+
+    // ── Passo 2: Etapas do funil — só 87/88/46 (equivalente ao candidatos_mes do Python, filtro 1668998) ──
+    for(let i=0;i<candidatosMov.length;i++){
+      const deal=candidatosMov[i];
+      const nome=normCamp((deal[UTM_KEY]||'').trim());
+      const c = getOrCreateCamp(deal);
 
       const mesesUnicos = [...new Set(datas.map(d=>d.diaIso.substring(0,7)))];
       let entradas = [];
@@ -710,8 +820,8 @@ async function atualizar() {
       if(maxLevel>=6) c.agendamento++;
       if(maxLevel>=7) c.vr++;
 
-      const pct=Math.round(((i+1)/candidatos.length)*65)+35;
-      setProgress(pct,`Changelog: ${i+1} / ${candidatos.length}`,nome.substring(0,40));
+      const pct=Math.round(((i+1)/candidatosMov.length)*58)+40;
+      setProgress(pct,`Changelog: ${i+1} / ${candidatosMov.length}`,nome.substring(0,40));
     }
 
     funilGlobalCounts = funilGlobalCounts_;
@@ -739,8 +849,8 @@ async function atualizar() {
     renderChart();
     renderFunil(null);
 
-    document.getElementById('statusBar').textContent=`✅ ${dadosCamp.length} campanhas | ${candidatos.length} MQLs | ${label} | via changelog`;
-    logEvent('atualizacao_concluida', { campanhas: dadosCamp.length, mqls: candidatos.length, periodo: label });
+    document.getElementById('statusBar').textContent=`✅ ${dadosCamp.length} campanhas | ${candidatosAmplo.length} MQLs | ${label} | via changelog`;
+    logEvent('atualizacao_concluida', { campanhas: dadosCamp.length, mqls: candidatosAmplo.length, periodo: label });
 
   }catch(e){
     document.getElementById('statusBar').textContent=`❌ Erro: ${e.message}`;
