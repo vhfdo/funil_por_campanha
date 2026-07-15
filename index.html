@@ -191,17 +191,45 @@
 // proxy serverless em /api/pipedrive, que injeta o PIPEDRIVE_TOKEN no servidor.
 
 // --- Gate de sessão: sem login válido, não entra ---
-const SESSION_TOKEN = localStorage.getItem('funil_token');
+const SESSION_TOKEN = sessionStorage.getItem('funil_token');
 if (!SESSION_TOKEN) {
   window.location.href = '/login.html';
 }
-document.getElementById('userInfo').textContent = localStorage.getItem('funil_user') || '';
+document.getElementById('userInfo').textContent = sessionStorage.getItem('funil_user') || '';
 
 function logout() {
-  localStorage.removeItem('funil_token');
-  localStorage.removeItem('funil_user');
+  flushEvents(true);
+  sessionStorage.removeItem('funil_token');
+  sessionStorage.removeItem('funil_user');
   window.location.href = '/login.html';
 }
+
+// --- Rastreamento de uso: fila local + envio em lote ---
+let eventQueue = [];
+
+function logEvent(type, details = {}) {
+  eventQueue.push({ type, details, timestamp: new Date().toISOString() });
+  if (eventQueue.length >= 20) flushEvents();
+}
+
+function flushEvents(isUnloading = false) {
+  if (!eventQueue.length) return;
+  const batch = eventQueue.splice(0, eventQueue.length);
+  const payload = JSON.stringify({ events: batch });
+
+  fetch('/api/track', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SESSION_TOKEN}` },
+    body: payload,
+    keepalive: isUnloading, // garante que a requisição sobrevive mesmo se a aba fechar
+  }).catch(() => { /* perder log de clique não deve travar o app */ });
+}
+
+setInterval(() => flushEvents(), 20000);
+window.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushEvents(true); });
+window.addEventListener('pagehide', () => flushEvents(true));
+
+logEvent('page_view');
 
 const FILTER_MOV  = 1669190;
 const CARGO_KEY   = "718c8aba81211c883ffd9f4616f75ee22a10b2da";
@@ -335,6 +363,7 @@ async function getChangelog(dealId, mesIso) {
 
 function setFiltro(f, btn) {
   filtroAtivo=f;
+  logEvent('filtro_canal', { canal: f });
   document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
   renderTabela();
@@ -344,6 +373,7 @@ function setFiltro(f, btn) {
 function sortBy(col) {
   if(sortCol===col) sortAsc=!sortAsc;
   else{sortCol=col;sortAsc=false;}
+  logEvent('ordenar_tabela', { coluna: col, ascendente: sortAsc });
   renderTabela();
 }
 
@@ -376,6 +406,8 @@ function toggleDeals(utmKey) {
   const campRow   = document.getElementById('camp-'+utmKey);
   const dealsRow  = document.getElementById('deals-'+utmKey);
   if(!campRow||!dealsRow) return;
+  const abrindo = !campRow.classList.contains('open');
+  logEvent('expandir_campanha', { campanha_key: utmKey, abrindo });
   campRow.classList.toggle('open');
   dealsRow.classList.toggle('open');
 }
@@ -441,6 +473,7 @@ async function atualizar() {
     const periodo = getPeriodo();
     if (!periodo) { btn.disabled=false; btn.textContent='⟳ Atualizar'; document.getElementById('progressWrap').style.display='none'; return; }
     const {datas, label} = periodo;
+    logEvent('clicar_atualizar', { periodo: label });
     setProgress(5,'Carregando etapas...','');
     stagesMap={};
     for(const pid of [87,88,46]){
@@ -523,6 +556,7 @@ async function atualizar() {
     renderChart();
 
     document.getElementById('statusBar').textContent=`✅ ${dadosCamp.length} campanhas | ${candidatos.length} MQLs | ${label} | via changelog`;
+    logEvent('atualizacao_concluida', { campanhas: dadosCamp.length, mqls: candidatos.length, periodo: label });
 
   }catch(e){
     document.getElementById('statusBar').textContent=`❌ Erro: ${e.message}`;
