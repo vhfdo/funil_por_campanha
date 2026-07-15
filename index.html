@@ -249,8 +249,7 @@ window.addEventListener('pagehide', () => flushEvents(true));
 
 logEvent('page_view');
 
-const FILTER_LEADS      = 1670363; // todos os funis — usado pro Total de MQLs / "Aplicação"
-const FILTER_LEADS_MOV  = 1668998; // só 87/88/46 — usado pras etapas do funil (changelog)
+const FILTER_MOV = 1669190; // único filtro, restrito aos 3 pipelines (87/88/46)
 const CARGO_KEY   = "718c8aba81211c883ffd9f4616f75ee22a10b2da";
 const APLIC_KEY   = "23de049432e523993f69ecd456a3f755c0f07f3d";
 const UTM_KEY     = "ae03fa460a108b8cdfa87e97ebca24379d2779d6";
@@ -730,52 +729,40 @@ async function atualizar() {
       (d.data||[]).forEach(s=>stagesMap[s.id]=s.name);
     }
 
-    setProgress(15,'Carregando leads (todos os funis)...','');
-    const dealsAmplo = await fetchAll('deals', { filter_id: FILTER_LEADS });
-    setProgress(22,`${dealsAmplo.length} deals. Filtrando MQLs/leads...`,'');
-    const candidatosAmplo = dealsAmplo.filter(d => isCandidato(d, datas));
+    setProgress(15,'Carregando deals de movimentação...','');
+    const deals=await fetchAll('deals', { filter_id: FILTER_MOV });
+    setProgress(30,`${deals.length} deals. Filtrando candidatos...`,'');
 
-    setProgress(28,'Carregando leads de movimentação (87/88/46)...','');
-    const dealsMov = await fetchAll('deals', { filter_id: FILTER_LEADS_MOV });
-    setProgress(35,`${dealsMov.length} deals. Filtrando candidatos do funil...`,'');
-    const candidatosMov = dealsMov.filter(d => isCandidato(d, datas));
+    const candidatos = deals.filter(d => isCandidato(d, datas));
+
+    setProgress(35,`${candidatos.length} candidatos. Buscando changelog...`,'0 / '+candidatos.length);
 
     const campMap={};
     const funilGlobalCounts_ = {};
     FUNNEL_STAGES.forEach(f => funilGlobalCounts_[f.key] = 0);
 
-    function getOrCreateCamp(deal) {
+    for(let i=0;i<candidatos.length;i++){
+      const deal=candidatos[i];
       const utm=(deal[UTM_KEY]||'').trim();
       const nome=normCamp(utm);
       const canal=getCanal(utm);
+
       if(!campMap[utm]) {
         campMap[utm]={nome,canal,utm,total:0,conexao:0,agendamento:0,vr:0,ganho:0,perdido:0,dealIds:[]};
         campMap[utm].funilCounts = {};
         FUNNEL_STAGES.forEach(f => campMap[utm].funilCounts[f.key] = 0);
       }
-      return campMap[utm];
-    }
-
-    // ── Passo 1: Total de MQLs / Aplicação — independente de pipeline ──
-    // (equivalente ao mqls_dia/leads_dia do LEADS-DIA, filtro 1670363)
-    for (const deal of candidatosAmplo) {
-      const c = getOrCreateCamp(deal);
-      if (c.dealIds.includes(deal.id)) continue;
+      const c=campMap[utm];
+      if(c.dealIds.includes(deal.id)) continue;
       c.dealIds.push(deal.id);
       c.total++;
+
+      // Aplicação: 1 por deal candidato (dedupe por deal, igual ao "candidatos_mes" do Python)
       c.funilCounts['aplicacao']++;
       funilGlobalCounts_['aplicacao']++;
-      if (deal.status==='won') c.ganho++;
-      else if (deal.status==='lost') c.perdido++;
-    }
 
-    setProgress(40,`${candidatosMov.length} candidatos do funil. Buscando changelog...`,'0 / '+candidatosMov.length);
-
-    // ── Passo 2: Etapas do funil — só 87/88/46 (equivalente ao candidatos_mes do Python, filtro 1668998) ──
-    for(let i=0;i<candidatosMov.length;i++){
-      const deal=candidatosMov[i];
-      const nome=normCamp((deal[UTM_KEY]||'').trim());
-      const c = getOrCreateCamp(deal);
+      if(deal.status==='won'){c.ganho++;c.conexao++;c.agendamento++;c.vr++;}
+      else if(deal.status==='lost'){c.perdido++;}
 
       const mesesUnicos = [...new Set(datas.map(d=>d.diaIso.substring(0,7)))];
       let entradas = [];
@@ -820,8 +807,8 @@ async function atualizar() {
       if(maxLevel>=6) c.agendamento++;
       if(maxLevel>=7) c.vr++;
 
-      const pct=Math.round(((i+1)/candidatosMov.length)*58)+40;
-      setProgress(pct,`Changelog: ${i+1} / ${candidatosMov.length}`,nome.substring(0,40));
+      const pct=Math.round(((i+1)/candidatos.length)*65)+35;
+      setProgress(pct,`Changelog: ${i+1} / ${candidatos.length}`,nome.substring(0,40));
     }
 
     funilGlobalCounts = funilGlobalCounts_;
@@ -849,8 +836,8 @@ async function atualizar() {
     renderChart();
     renderFunil(null);
 
-    document.getElementById('statusBar').textContent=`✅ ${dadosCamp.length} campanhas | ${candidatosAmplo.length} MQLs | ${label} | via changelog`;
-    logEvent('atualizacao_concluida', { campanhas: dadosCamp.length, mqls: candidatosAmplo.length, periodo: label });
+    document.getElementById('statusBar').textContent=`✅ ${dadosCamp.length} campanhas | ${candidatos.length} MQLs | ${label} | via changelog`;
+    logEvent('atualizacao_concluida', { campanhas: dadosCamp.length, mqls: candidatos.length, periodo: label });
 
   }catch(e){
     document.getElementById('statusBar').textContent=`❌ Erro: ${e.message}`;
