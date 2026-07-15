@@ -99,7 +99,14 @@
   .c-green{color:#4a9eed;} .c-mid{color:#8ab8dd;} .c-red{color:#c0392b;}
 
   .empty{text-align:center;padding:80px 24px;color:var(--gray);font-family:'DM Mono',monospace;font-size:13px;}
-  @media(max-width:768px){.kpi-row{grid-template-columns:repeat(2,1fr);}}
+  .funil-wrap{background:var(--panel);border:1px solid var(--border);padding:24px;margin-bottom:48px;}
+  .funil-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;}
+  .funil-titulo{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:.02em;}
+  .funil-titulo span{color:var(--blue);}
+  .funil-reset{font-family:'DM Mono',monospace;font-size:11px;color:var(--blue);background:transparent;border:1px solid var(--blue);padding:5px 12px;cursor:pointer;display:none;}
+  .funil-reset:hover{background:var(--blue);color:var(--bg);}
+  .funil-reset.show{display:inline-block;}
+  .funil-inner{position:relative;height:420px;}
 
   /* DATE RANGE */
   .date-range{display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--border);padding:8px 14px;}
@@ -146,13 +153,12 @@
 
   <div class="status-bar" id="statusBar">Selecione o mês e clique em Atualizar.</div>
 
-  <div class="kpi-row">
-    <div class="kpi"><div class="klabel">Total MQLs</div><div class="kval blue" id="kTotal">—</div><div class="ksub">período selecionado</div></div>
-    <div class="kpi"><div class="klabel">Taxa de Conexão</div><div class="kval" id="kConexao">—</div><div class="ksub">entraram em Contatado</div></div>
-    <div class="kpi"><div class="klabel">Taxa de Agendamento</div><div class="kval" id="kAgendamento">—</div><div class="ksub">chegaram em Agendados</div></div>
-    <div class="kpi"><div class="klabel">VR%</div><div class="kval" id="kValidacao">—</div><div class="ksub">Validação de Reunião</div></div>
-    <div class="kpi"><div class="klabel">Taxa de Descarte</div><div class="kval" id="kDescarte">—</div><div class="ksub">% perdidos</div></div>
-    <div class="kpi"><div class="klabel">Campanhas</div><div class="kval blue" id="kCamp">—</div><div class="ksub">no período</div></div>
+  <div class="funil-wrap">
+    <div class="funil-header">
+      <div class="funil-titulo">FUNIL — <span id="funilEscopo">Todas as campanhas</span></div>
+      <button class="funil-reset" id="btnResetFunil" onclick="resetFunil()">← Ver todas as campanhas</button>
+    </div>
+    <div class="funil-inner"><canvas id="chartFunil"></canvas></div>
   </div>
 
   <div class="filters">
@@ -170,17 +176,10 @@
   <div class="table-wrap">
     <table>
       <thead>
-        <tr>
-          <th onclick="sortBy('nome')">Campanha</th>
-          <th class="num" onclick="sortBy('total')">MQLs ↕</th>
-          <th class="num" onclick="sortBy('txConexao')">Conexão ↕</th>
-          <th class="num" onclick="sortBy('txAgendamento')">Agendamento ↕</th>
-          <th class="num" onclick="sortBy('txVR')">VR% ↕</th>
-          <th class="num" onclick="sortBy('txDescarte')">Descarte ↕</th>
-        </tr>
+        <tr id="tableHeadRow"></tr>
       </thead>
       <tbody id="tabelaBody">
-        <tr><td colspan="7" class="empty">Selecione o mês e clique em Atualizar.</td></tr>
+        <tr><td colspan="13" class="empty">Selecione o mês e clique em Atualizar.</td></tr>
       </tbody>
     </table>
   </div>
@@ -243,7 +242,51 @@ const PALAVRAS_MQL = ["diretor","director","founder","fundador","propr","socio",
 const STAGE_LEVEL = {"aplicação":1,"aplicacao":1,"contatado":2,"etapa 1":3,"etapa 2":4,"etapa 3":5,"oportunidade":3,"reabertura":2,"agendados":6,"no show":6,"validação de reunião":7,"validacao de reuniao":7,"negociação":8,"negociacao":8,"inscrição em andamento":9,"inscricao em andamento":9};
 const MESES_PT = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
 
-let stagesMap = {}, dadosCamp = [], filtroAtivo = 'todos', sortCol = 'total', sortAsc = false, chartInst = null;
+function normalizeText(s) {
+  return (s||'').toLowerCase().trim().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+}
+
+// Ordem fixa do funil, conforme pedido — "Aplicação" é o próprio MQL entrando,
+// as demais são etapas reais do Pipedrive (comparadas de forma normalizada).
+const FUNNEL_STAGES = [
+  { key: 'aplicacao',              label: 'Aplicação',              prop: 'aplicacao' },
+  { key: 'etapa 1',                label: 'Etapa 1',                prop: 'etapa1' },
+  { key: 'etapa 2',                label: 'Etapa 2',                prop: 'etapa2' },
+  { key: 'etapa 3',                label: 'Etapa 3',                prop: 'etapa3' },
+  { key: 'contatado',              label: 'Contatado',              prop: 'contatado' },
+  { key: 'oportunidade',           label: 'Oportunidade',           prop: 'oportunidade' },
+  { key: 'agendados',              label: 'Agendados',              prop: 'agendados' },
+  { key: 'no show',                label: 'No Show',                prop: 'noshow' },
+  { key: 'validacao de reuniao',   label: 'Validação de Reunião',   prop: 'validacao' },
+  { key: 'negociacao',             label: 'Negociação',             prop: 'negociacao' },
+  { key: 'inscricao em andamento', label: 'Inscrição em Andamento', prop: 'inscricao' },
+];
+
+function stageFunnelKey(stageName) {
+  const n = normalizeText(stageName);
+  const found = FUNNEL_STAGES.find(f => f.key !== 'aplicacao' && n.includes(f.key));
+  return found ? found.key : null;
+}
+
+let funilGlobalCounts = {};
+let campanhaPorKey = {};
+let escopoFunilAtivo = null; // null = agregado; senão, key da campanha
+
+let stagesMap = {}, dadosCamp = [], filtroAtivo = 'todos', sortCol = 'total', sortAsc = false, chartInst = null, funilChartInst = null;
+
+function montarCabecalhoTabela() {
+  const tr = document.getElementById('tableHeadRow');
+  const colunas = [
+    { label: 'Campanha', sortKey: 'nome', num: false },
+    { label: 'MQLs', sortKey: 'total', num: true },
+    ...FUNNEL_STAGES.filter(f => f.key !== 'aplicacao').map(f => ({ label: f.label, sortKey: f.prop, num: true })),
+    { label: 'Descarte', sortKey: 'perdido', num: true },
+  ];
+  tr.innerHTML = colunas.map(c =>
+    `<th${c.num ? ' class="num"' : ''} onclick="sortBy('${c.sortKey}')">${c.label}${c.num || c.sortKey==='nome' ? ' ↕' : ''}</th>`
+  ).join('');
+}
+window.addEventListener('DOMContentLoaded', montarCabecalhoTabela);
 
 function getPeriodo() {
   const ini = document.getElementById('dataInicio').value;
@@ -410,30 +453,86 @@ function toggleDeals(utmKey) {
   logEvent('expandir_campanha', { campanha_key: utmKey, abrindo });
   campRow.classList.toggle('open');
   dealsRow.classList.toggle('open');
+  escopoFunilAtivo = utmKey;
+  renderFunil(utmKey);
+}
+
+function resetFunil() {
+  escopoFunilAtivo = null;
+  logEvent('resetar_funil');
+  renderFunil(null);
+}
+
+function renderFunil(scopeKey) {
+  let counts, titulo;
+  if (!scopeKey || !campanhaPorKey[scopeKey]) {
+    counts = funilGlobalCounts;
+    titulo = 'Todas as campanhas';
+    document.getElementById('btnResetFunil').classList.remove('show');
+  } else {
+    const c = campanhaPorKey[scopeKey];
+    counts = c.funilCounts;
+    titulo = c.nome;
+    document.getElementById('btnResetFunil').classList.add('show');
+  }
+  document.getElementById('funilEscopo').textContent = titulo;
+
+  const labels = FUNNEL_STAGES.map(f => f.label);
+  const data = FUNNEL_STAGES.map(f => counts[f.key] || 0);
+  const paleta = ['#4a9eed','#459be0','#4098d4','#3b95c8','#3792bd','#328fb1','#2e8ba6','#29889a','#25858f','#208284','#1c7f78'];
+
+  if (funilChartInst) funilChartInst.destroy();
+  funilChartInst = new Chart(document.getElementById('chartFunil'), {
+    type: 'bar',
+    data: { labels, datasets: [{ data, backgroundColor: paleta, borderWidth: 0, borderRadius: 2 }] },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: { label: ctx => ` ${ctx.raw.toLocaleString('pt-BR')} negócios` },
+          backgroundColor: '#1a1a1a', borderColor: '#222', borderWidth: 1,
+          titleFont: { family: 'DM Mono' }, bodyFont: { family: 'DM Mono' }
+        }
+      },
+      scales: {
+        x: { ticks: { color: '#666', font: { family: 'DM Mono', size: 10 } }, grid: { color: '#1a1a1a' }, beginAtZero: true },
+        y: { ticks: { color: '#999', font: { family: 'DM Mono', size: 11 } }, grid: { display: false } }
+      }
+    }
+  });
 }
 
 function renderTabela() {
   const tbody = document.getElementById('tabelaBody');
   const dados = dadosFiltrados();
-  if(!dados.length){ tbody.innerHTML='<tr><td colspan="7" class="empty">Nenhuma campanha encontrada.</td></tr>'; return; }
+  const TOTAL_COLS = 2 + FUNNEL_STAGES.length; // Campanha + MQLs + (11 etapas, sem contar aplicação já=MQLs) + Descarte
+  if(!dados.length){ tbody.innerHTML=`<tr><td colspan="${TOTAL_COLS}" class="empty">Nenhuma campanha encontrada.</td></tr>`; return; }
 
   tbody.innerHTML = dados.flatMap(c => {
     const key = btoa(c.utm).replace(/[^a-z0-9]/gi,'').substring(0,20);
+    campanhaPorKey[key] = c;
     const dealsHtml = c.dealIds.map(id => {
       const nomeEscapado = JSON.stringify(c.nome).replace(/"/g, '&quot;');
       return `<a class="deal-link" href="https://boardacademy.pipedrive.com/deal/${id}" target="_blank" onclick="logEvent('clicar_deal', {deal_id: ${id}, campanha: ${nomeEscapado}})">${id}</a>`;
     }).join('');
+
+    const stageCells = FUNNEL_STAGES
+      .filter(f => f.key !== 'aplicacao')
+      .map(f => `<td class="num">${(c.funilCounts[f.key] || 0).toLocaleString('pt-BR')}</td>`)
+      .join('');
+
     return [
       `<tr class="camp-row" id="camp-${key}" onclick="toggleDeals('${key}')">
         <td class="camp-name"><span class="expand-arrow">▶</span>${c.nome}${tagCanal(c.canal)}</td>
-        <td class="num" style="color:var(--blue);font-size:15px;font-weight:700">${c.total}</td>
-        <td>${rateBar(c.txConexao)}</td>
-        <td>${rateBar(c.txAgendamento)}</td>
-        <td>${rateBar(c.txVR)}</td>
-        <td>${rateBar(c.txDescarte,true)}</td>
+        <td class="num" style="color:var(--blue);font-size:15px;font-weight:700">${c.total.toLocaleString('pt-BR')}</td>
+        ${stageCells}
+        <td class="num" style="color:var(--red)">${(c.perdido||0).toLocaleString('pt-BR')}</td>
       </tr>`,
       `<tr class="deals-row" id="deals-${key}">
-        <td colspan="7">
+        <td colspan="${TOTAL_COLS}">
           <div class="deals-label">Negócios (${c.dealIds.length}) — clique para abrir no Pipedrive</div>
           <div class="deals-grid">${dealsHtml}</div>
         </td>
@@ -451,17 +550,6 @@ function renderChart() {
     data:{labels,datasets:[{data:dados.map(d=>d.total),backgroundColor:dados.map(d=>d.canal==='google'?'#2980b9':d.canal==='meta'?'#4a6dd4':d.canal==='linkedin'?'#0e76a8':'#4a9eed'),borderWidth:0,borderRadius:2}]},
     options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>` ${ctx.raw} MQLs`},backgroundColor:'#1a1a1a',borderColor:'#222',borderWidth:1,titleFont:{family:'DM Mono'},bodyFont:{family:'DM Mono'}}},scales:{x:{ticks:{color:'#666',font:{family:'DM Mono',size:10}},grid:{color:'#1a1a1a'}},y:{ticks:{color:'#666',font:{family:'DM Mono',size:10}},grid:{color:'#1c1c1c'}}}}
   });
-}
-
-function atualizarKPIs() {
-  const all=dadosCamp;
-  const total=all.reduce((s,c)=>s+c.total,0);
-  document.getElementById('kTotal').textContent=total.toLocaleString('pt-BR');
-  document.getElementById('kConexao').textContent=calcTx(all.reduce((s,c)=>s+c.conexao,0),total)+'%';
-  document.getElementById('kAgendamento').textContent=calcTx(all.reduce((s,c)=>s+c.agendamento,0),total)+'%';
-  document.getElementById('kValidacao').textContent=calcTx(all.reduce((s,c)=>s+c.vr,0),total)+'%';
-  document.getElementById('kDescarte').textContent=calcTx(all.reduce((s,c)=>s+c.perdido,0),total)+'%';
-  document.getElementById('kCamp').textContent=dadosCamp.length;
 }
 
 async function atualizar() {
@@ -502,17 +590,28 @@ async function atualizar() {
     setProgress(35,`${candidatos.length} candidatos. Buscando changelog...`,'0 / '+candidatos.length);
 
     const campMap={};
+    const funilGlobalSets = {};
+    FUNNEL_STAGES.forEach(f => funilGlobalSets[f.key] = new Set());
+
     for(let i=0;i<candidatos.length;i++){
       const deal=candidatos[i];
       const utm=(deal[UTM_KEY]||'').trim();
       const nome=normCamp(utm);
       const canal=getCanal(utm);
 
-      if(!campMap[utm]) campMap[utm]={nome,canal,utm,total:0,conexao:0,agendamento:0,vr:0,ganho:0,perdido:0,dealIds:[]};
+      if(!campMap[utm]) {
+        campMap[utm]={nome,canal,utm,total:0,conexao:0,agendamento:0,vr:0,ganho:0,perdido:0,dealIds:[]};
+        campMap[utm].funilSets = {};
+        FUNNEL_STAGES.forEach(f => campMap[utm].funilSets[f.key] = new Set());
+      }
       const c=campMap[utm];
       if(c.dealIds.includes(deal.id)) continue;
       c.dealIds.push(deal.id);
       c.total++;
+
+      // Toda vez que um deal entra como candidato, ele conta como "Aplicação"
+      c.funilSets['aplicacao'].add(deal.id);
+      funilGlobalSets['aplicacao'].add(deal.id);
 
       if(deal.status==='won'){c.ganho++;c.conexao++;c.agendamento++;c.vr++;}
       else if(deal.status==='lost'){c.perdido++;}
@@ -531,6 +630,13 @@ async function atualizar() {
         const lvl=stageLevel(sn);
         if(lvl>maxLevel) maxLevel=lvl;
         if(sn.toLowerCase().includes('contatado')) passoiContatado=true;
+
+        // Marca em qual etapa do funil fixo esse deal passou (sem duplicar)
+        const fKey = stageFunnelKey(sn);
+        if (fKey) {
+          c.funilSets[fKey].add(deal.id);
+          funilGlobalSets[fKey].add(deal.id);
+        }
       }
       if(passoiContatado) c.conexao++;
       if(maxLevel>=6) c.agendamento++;
@@ -540,21 +646,34 @@ async function atualizar() {
       setProgress(pct,`Changelog: ${i+1} / ${candidatos.length}`,nome.substring(0,40));
     }
 
-    dadosCamp=Object.values(campMap).map(c=>({
-      ...c,
-      txConexao:calcTx(c.conexao,c.total),
-      txAgendamento:calcTx(c.agendamento,c.total),
-      txVR:calcTx(c.vr,c.total),
-      txConversao:calcTx(c.ganho,c.total),
-      txDescarte:calcTx(c.perdido,c.total),
-    })).sort((a,b)=>b.total-a.total);
+    // Converte os Sets (deduplicados) em contagens simples
+    funilGlobalCounts = {};
+    FUNNEL_STAGES.forEach(f => funilGlobalCounts[f.key] = funilGlobalSets[f.key].size);
+
+    dadosCamp=Object.values(campMap).map(c=>{
+      const funilCounts = {};
+      FUNNEL_STAGES.forEach(f => funilCounts[f.key] = c.funilSets[f.key].size);
+      const stageProps = {};
+      FUNNEL_STAGES.forEach(f => stageProps[f.prop] = funilCounts[f.key]);
+      return {
+        ...c,
+        ...stageProps,
+        funilCounts,
+        txConexao:calcTx(c.conexao,c.total),
+        txAgendamento:calcTx(c.agendamento,c.total),
+        txVR:calcTx(c.vr,c.total),
+        txConversao:calcTx(c.ganho,c.total),
+        txDescarte:calcTx(c.perdido,c.total),
+      };
+    }).sort((a,b)=>b.total-a.total);
 
     setProgress(100,'Concluído!','');
     setTimeout(()=>{document.getElementById('progressWrap').style.display='none';},1500);
 
-    atualizarKPIs();
+    escopoFunilAtivo = null;
     renderTabela();
     renderChart();
+    renderFunil(null);
 
     document.getElementById('statusBar').textContent=`✅ ${dadosCamp.length} campanhas | ${candidatos.length} MQLs | ${label} | via changelog`;
     logEvent('atualizacao_concluida', { campanhas: dadosCamp.length, mqls: candidatos.length, periodo: label });
