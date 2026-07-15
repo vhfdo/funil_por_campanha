@@ -57,8 +57,8 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Erro ao entrar.');
 
-    localStorage.setItem('funil_token', data.token);
-    localStorage.setItem('funil_user', data.username);
+    sessionStorage.setItem('funil_token', data.token);
+    sessionStorage.setItem('funil_user', data.username);
     window.location.href = '/index.html';
   } catch (err) {
     errorMsg.textContent = '❌ ' + err.message;
