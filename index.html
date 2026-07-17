@@ -99,6 +99,13 @@
   .c-green{color:#4a9eed;} .c-mid{color:#8ab8dd;} .c-red{color:#c0392b;}
 
   .empty{text-align:center;padding:80px 24px;color:var(--gray);font-family:'DM Mono',monospace;font-size:13px;}
+  .retrato-lista{display:flex;flex-direction:column;gap:8px;}
+  .retrato-item{display:flex;align-items:center;gap:12px;}
+  .retrato-nome{width:220px;flex-shrink:0;font-size:13px;color:var(--gray-light);}
+  .retrato-bar-track{flex:1;height:10px;background:var(--border);border-radius:2px;overflow:hidden;}
+  .retrato-bar-fill{height:100%;background:var(--blue);border-radius:2px;}
+  .retrato-qtd{width:44px;text-align:right;font-family:'DM Mono',monospace;font-size:13px;color:var(--white);flex-shrink:0;}
+
   .orcamento-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:1px;background:var(--border);border:1px solid var(--border);margin-bottom:48px;}
   .orc-card{background:var(--panel);padding:18px;}
   .orc-produto{font-family:'DM Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray);margin-bottom:10px;}
@@ -168,6 +175,12 @@
   </div>
 
   <div class="status-bar" id="statusBar">Selecione o mês e clique em Atualizar.</div>
+
+  <div class="sec-title">Retrato do Dia <span class="tag" id="retratoStatus">CARREGANDO</span></div>
+  <div class="orcamento-row" id="retratoResumo"></div>
+  <div class="chart-wrap" style="margin-bottom:48px;">
+    <div class="retrato-lista" id="retratoLista"></div>
+  </div>
 
   <div class="sec-title">Orçamento do Mês <span class="tag" id="orcamentoStatus">CARREGANDO</span></div>
   <div class="orcamento-row" id="orcamentoRow"></div>
@@ -297,6 +310,99 @@ function formatarReal(v) {
   return (v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
+async function carregarRetratoDia() {
+  const statusEl = document.getElementById('retratoStatus');
+  try {
+    statusEl.textContent = 'CARREGANDO';
+    // Reaproveita o mesmo filtro/carregamento de etapas usado no resto do dashboard
+    if (Object.keys(stagesMap).length === 0) {
+      for (const pid of [87,88,46]) {
+        const d = await pdFetch('stages', { pipeline_id: pid });
+        (d.data||[]).forEach(s => stagesMap[s.id] = s.name);
+      }
+    }
+    const deals = await fetchAll('deals', { filter_id: FILTER_MOV });
+
+    // ── Retrato do dia: deals ABERTOS agora, agrupados pela etapa ATUAL ──
+    // (réplica exata do retrato_dia.py — sem checagem de source, só como o script original)
+    const hoje = new Date();
+    const mesAtual = `${String(hoje.getMonth()+1).padStart(2,'0')}/${hoje.getFullYear()}`;
+
+    const contagemEtapa = {};
+    let retratoTotal = 0;
+    let mqlsMes = 0;
+
+    for (const deal of deals) {
+      const cargo = deal[CARGO_KEY] || '';
+      const utm = (deal[UTM_KEY] || '').trim();
+      const aplic = deal[APLIC_KEY] || '';
+      const src = (deal[UTM_SRC_KEY] || '').toLowerCase();
+
+      const mqlOk = isMQL(cargo);
+      const campanhaOk = isCampanhaValida(utm);
+      const naoWorkshop = !utm.toLowerCase().includes('workshop');
+      const naoOrgCampanha = utm.toLowerCase() !== 'org';
+
+      if (!(mqlOk && campanhaOk && naoWorkshop && naoOrgCampanha)) continue;
+
+      // Retrato do dia: só os que estão ABERTOS agora
+      if (deal.status === 'open') {
+        const stageName = stagesMap[deal.stage_id] || `Etapa ${deal.stage_id}`;
+        contagemEtapa[stageName] = (contagemEtapa[stageName] || 0) + 1;
+        retratoTotal++;
+      }
+
+      // MQLs criados no mês: qualquer status, desde que a aplicação seja nesse mês
+      // (aqui sim aplicamos a checagem de source=org, igual ao resto do dashboard)
+      if (src !== 'org' && aplic.includes(mesAtual)) {
+        mqlsMes++;
+      }
+    }
+
+    const taxaConexao = mqlsMes ? (retratoTotal / mqlsMes * 100) : 0;
+
+    renderRetratoDia(contagemEtapa, retratoTotal, mqlsMes, taxaConexao);
+    statusEl.textContent = 'ATUALIZADO';
+  } catch (err) {
+    statusEl.textContent = 'ERRO AO CARREGAR';
+    console.error(err);
+  }
+}
+
+function renderRetratoDia(contagemEtapa, retratoTotal, mqlsMes, taxaConexao) {
+  const resumo = document.getElementById('retratoResumo');
+  resumo.innerHTML = `
+    <div class="orc-card">
+      <div class="orc-produto">Em aberto agora (funil)</div>
+      <div class="orc-restante" style="color:var(--blue)">${retratoTotal.toLocaleString('pt-BR')}</div>
+      <div class="orc-meta">deals abertos · MQL + campanha válida</div>
+    </div>
+    <div class="orc-card">
+      <div class="orc-produto">MQLs criados no mês</div>
+      <div class="orc-restante" style="color:var(--blue)">${mqlsMes.toLocaleString('pt-BR')}</div>
+      <div class="orc-meta">aplicação dentro do mês atual</div>
+    </div>
+    <div class="orc-card">
+      <div class="orc-produto">Taxa de Conexão</div>
+      <div class="orc-restante" style="color:${taxaConexao>=50?'#4a9eed':taxaConexao>=25?'#d9a441':'#c0392b'}">${taxaConexao.toFixed(1)}%</div>
+      <div class="orc-meta">em aberto agora ÷ MQLs do mês</div>
+    </div>`;
+
+  const lista = document.getElementById('retratoLista');
+  const etapas = Object.entries(contagemEtapa).sort((a,b) => b[1]-a[1]);
+  if (!etapas.length) {
+    lista.innerHTML = '<div style="color:var(--gray);font-family:\'DM Mono\',monospace;font-size:12px;">Nenhum deal aberto encontrado.</div>';
+    return;
+  }
+  const max = Math.max(...etapas.map(e => e[1]));
+  lista.innerHTML = etapas.map(([nome, qtd]) => `
+    <div class="retrato-item">
+      <div class="retrato-nome">${nome}</div>
+      <div class="retrato-bar-track"><div class="retrato-bar-fill" style="width:${(qtd/max*100)}%"></div></div>
+      <div class="retrato-qtd">${qtd}</div>
+    </div>`).join('');
+}
+
 async function carregarOrcamento() {
   const statusEl = document.getElementById('orcamentoStatus');
   try {
@@ -381,6 +487,7 @@ function montarCabecalhoTabela() {
 }
 window.addEventListener('DOMContentLoaded', () => {
   montarCabecalhoTabela();
+  carregarRetratoDia();
   carregarOrcamento();
 });
 
