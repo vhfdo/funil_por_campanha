@@ -178,9 +178,10 @@
 
   <div class="sec-title">Retrato do Dia <span class="tag" id="retratoStatus">CARREGANDO</span></div>
   <div class="orcamento-row" id="retratoResumo"></div>
-  <div class="chart-wrap" style="margin-bottom:48px;">
+  <div class="chart-wrap" style="margin-bottom:24px;">
     <div class="retrato-lista" id="retratoLista"></div>
   </div>
+  <div class="orcamento-row" id="retratoTaxas" style="margin-bottom:48px;"></div>
 
   <div class="sec-title">Orçamento do Mês <span class="tag" id="orcamentoStatus">CARREGANDO</span></div>
   <div class="orcamento-row" id="orcamentoRow"></div>
@@ -314,54 +315,11 @@ async function carregarRetratoDia() {
   const statusEl = document.getElementById('retratoStatus');
   try {
     statusEl.textContent = 'CARREGANDO';
-    // Reaproveita o mesmo filtro/carregamento de etapas usado no resto do dashboard
-    if (Object.keys(stagesMap).length === 0) {
-      for (const pid of [87,88,46]) {
-        const d = await pdFetch('stages', { pipeline_id: pid });
-        (d.data||[]).forEach(s => stagesMap[s.id] = s.name);
-      }
-    }
-    const deals = await fetchAll('deals', { filter_id: FILTER_MOV });
-
-    // ── Retrato do dia: deals ABERTOS agora, agrupados pela etapa ATUAL ──
-    // (réplica exata do retrato_dia.py — sem checagem de source, só como o script original)
-    const hoje = new Date();
-    const mesAtual = `${String(hoje.getMonth()+1).padStart(2,'0')}/${hoje.getFullYear()}`;
-
-    const contagemEtapa = {};
-    let retratoTotal = 0;
-    let mqlsMes = 0;
-
-    for (const deal of deals) {
-      const cargo = deal[CARGO_KEY] || '';
-      const utm = (deal[UTM_KEY] || '').trim();
-      const aplic = deal[APLIC_KEY] || '';
-      const src = (deal[UTM_SRC_KEY] || '').toLowerCase();
-
-      const mqlOk = isMQL(cargo);
-      const campanhaOk = isCampanhaValida(utm);
-      const naoWorkshop = !utm.toLowerCase().includes('workshop');
-      const naoOrgCampanha = utm.toLowerCase() !== 'org';
-
-      if (!(mqlOk && campanhaOk && naoWorkshop && naoOrgCampanha)) continue;
-
-      // Retrato do dia: só os que estão ABERTOS agora
-      if (deal.status === 'open') {
-        const stageName = stagesMap[deal.stage_id] || `Etapa ${deal.stage_id}`;
-        contagemEtapa[stageName] = (contagemEtapa[stageName] || 0) + 1;
-        retratoTotal++;
-      }
-
-      // MQLs criados no mês: qualquer status, desde que a aplicação seja nesse mês
-      // (aqui sim aplicamos a checagem de source=org, igual ao resto do dashboard)
-      if (src !== 'org' && aplic.includes(mesAtual)) {
-        mqlsMes++;
-      }
-    }
-
-    const taxaConexao = mqlsMes ? (retratoTotal / mqlsMes * 100) : 0;
-
-    renderRetratoDia(contagemEtapa, retratoTotal, mqlsMes, taxaConexao);
+    const r = await fetch('/api/retrato', { headers: { Authorization: `Bearer ${SESSION_TOKEN}` } });
+    if (r.status === 401) { logout(); return; }
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Erro ao carregar retrato');
+    renderRetratoDia(data);
     statusEl.textContent = 'ATUALIZADO';
   } catch (err) {
     statusEl.textContent = 'ERRO AO CARREGAR';
@@ -369,38 +327,92 @@ async function carregarRetratoDia() {
   }
 }
 
-function renderRetratoDia(contagemEtapa, retratoTotal, mqlsMes, taxaConexao) {
-  const resumo = document.getElementById('retratoResumo');
-  resumo.innerHTML = `
-    <div class="orc-card">
-      <div class="orc-produto">Em aberto agora (funil)</div>
-      <div class="orc-restante" style="color:var(--blue)">${retratoTotal.toLocaleString('pt-BR')}</div>
-      <div class="orc-meta">deals abertos · MQL + campanha válida</div>
-    </div>
-    <div class="orc-card">
-      <div class="orc-produto">MQLs criados no mês</div>
-      <div class="orc-restante" style="color:var(--blue)">${mqlsMes.toLocaleString('pt-BR')}</div>
-      <div class="orc-meta">aplicação dentro do mês atual</div>
-    </div>
-    <div class="orc-card">
-      <div class="orc-produto">Taxa de Conexão</div>
-      <div class="orc-restante" style="color:${taxaConexao>=50?'#4a9eed':taxaConexao>=25?'#d9a441':'#c0392b'}">${taxaConexao.toFixed(1)}%</div>
-      <div class="orc-meta">em aberto agora ÷ MQLs do mês</div>
-    </div>`;
+function renderRetratoDia(d) {
+  const fmt = (v, tipo='num') => {
+    if (v === null || v === undefined) return '—';
+    if (tipo === 'pct') return v.toFixed(1) + '%';
+    if (tipo === 'brl') return v.toLocaleString('pt-BR', { style:'currency', currency:'BRL', minimumFractionDigits:0, maximumFractionDigits:0 });
+    return v.toLocaleString('pt-BR');
+  };
 
-  const lista = document.getElementById('retratoLista');
-  const etapas = Object.entries(contagemEtapa).sort((a,b) => b[1]-a[1]);
-  if (!etapas.length) {
-    lista.innerHTML = '<div style="color:var(--gray);font-family:\'DM Mono\',monospace;font-size:12px;">Nenhum deal aberto encontrado.</div>';
-    return;
+  const pctMeta = (v, m) => {
+    if (!m || v === null) return null;
+    return Math.min((v / m) * 100, 200);
+  };
+
+  function barColor(pct, inverso=false) {
+    if (pct === null) return '#444';
+    const ok = inverso ? pct <= 100 : pct >= 100;
+    const mid = inverso ? pct <= 130 : pct >= 70;
+    return ok ? '#4a9eed' : mid ? '#d9a441' : '#c0392b';
   }
-  const max = Math.max(...etapas.map(e => e[1]));
-  lista.innerHTML = etapas.map(([nome, qtd]) => `
-    <div class="retrato-item">
-      <div class="retrato-nome">${nome}</div>
-      <div class="retrato-bar-track"><div class="retrato-bar-fill" style="width:${(qtd/max*100)}%"></div></div>
-      <div class="retrato-qtd">${qtd}</div>
-    </div>`).join('');
+
+  function cardTaxa(label, obj, tipo='pct', inverso=false) {
+    const pct = pctMeta(obj.valor, obj.meta);
+    const cor = barColor(pct, inverso);
+    const barW = pct !== null ? Math.min(pct, 100) : 0;
+    return `
+      <div class="orc-card">
+        <div class="orc-produto">${label}</div>
+        <div class="orc-linha"><span class="lbl">Realizado</span><span class="val" style="color:${cor}">${fmt(obj.valor, tipo)}</span></div>
+        ${obj.meta !== null ? `<div class="orc-linha"><span class="lbl">Meta</span><span class="val">${fmt(obj.meta, tipo)}</span></div>` : ''}
+        <div class="orc-bar"><div class="orc-bar-fill" style="width:${barW}%;background:${cor}"></div></div>
+        ${pct !== null ? `<div class="orc-meta">${pct.toFixed(0)}% da meta</div>` : ''}
+      </div>`;
+  }
+
+  // ── Etapas do funil: lista com barras ──
+  const ETAPAS_LABELS = [
+    ['aplicacao',    'Aplicação'],
+    ['etapa1',       'Etapa 1'],
+    ['etapa2',       'Etapa 2'],
+    ['etapa3',       'Etapa 3'],
+    ['contatado',    'Contatado'],
+    ['oportunidade', 'Oportunidade'],
+    ['agendados',    'Agendados'],
+    ['noshow',       'No Show'],
+    ['validacao',    'Validação de Reunião'],
+    ['negociacao',   'Negociação'],
+    ['inscricao',    'Inscrição em Andamento'],
+    ['descarte',     'Descarte'],
+  ];
+  const maxEtapa = Math.max(...ETAPAS_LABELS.map(([k]) => d.etapas[k]?.valor || 0));
+  const listaHTML = ETAPAS_LABELS.map(([k, label]) => {
+    const v = d.etapas[k]?.valor ?? null;
+    const m = d.etapas[k]?.meta ?? null;
+    const barW = maxEtapa ? ((v||0) / maxEtapa * 100) : 0;
+    const cor = (m && v !== null) ? barColor(pctMeta(v, m)) : 'var(--blue)';
+    const metaStr = m !== null ? ` <span style="color:var(--gray);font-size:11px">/ meta ${fmt(m)}</span>` : '';
+    return `
+      <div class="retrato-item">
+        <div class="retrato-nome">${label}</div>
+        <div class="retrato-bar-track"><div class="retrato-bar-fill" style="width:${barW}%;background:${cor}"></div></div>
+        <div class="retrato-qtd">${fmt(v)}${metaStr}</div>
+      </div>`;
+  }).join('');
+
+  // ── Renderiza resumo (cards) ──
+  document.getElementById('retratoResumo').innerHTML =
+    cardTaxa('Investimento', d.investimento, 'brl') +
+    cardTaxa('Faturamento', d.faturamento, 'brl') +
+    cardTaxa('ROAS', d.roas, 'num');
+
+  // ── Lista de etapas ──
+  document.getElementById('retratoLista').innerHTML = listaHTML;
+
+  // ── Taxas ──
+  const taxasDiv = document.getElementById('retratoTaxas');
+  if (taxasDiv) {
+    taxasDiv.innerHTML =
+      cardTaxa('Taxa de Conexão',           d.taxas.conexao,           'pct') +
+      cardTaxa('Taxa de Descarte',          d.taxas.descarte,          'pct', true) +
+      cardTaxa('Taxa SQL',                  d.taxas.sql,               'pct') +
+      cardTaxa('Taxa de Agendamento',       d.taxas.agendamento,       'pct') +
+      cardTaxa('No Show',                   d.taxas.noshow,            'pct', true) +
+      cardTaxa('Tx Vendas em Call',         d.taxas.vendasEmCall,      'pct') +
+      cardTaxa('Tx Vendas / MQLs Totais',   d.taxas.vendasEmMqlsTotal, 'pct') +
+      cardTaxa('Tx Vendas / MQLs Reais',    d.taxas.vendasEmMqlsReais, 'pct');
+  }
 }
 
 async function carregarOrcamento() {
