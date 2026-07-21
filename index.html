@@ -251,6 +251,22 @@
     </table>
   </div>
 
+  <div class="sec-title">Visão por Canal</div>
+  <div class="table-wrap" id="tabelaRedeWrap" style="display:none;">
+    <table>
+      <thead>
+        <tr>
+          <th>Canal</th>
+          <th class="num">MQLs</th>
+          <th class="num">Contatado</th>
+          <th class="num">Taxa de Conexão</th>
+        </tr>
+      </thead>
+      <tbody id="tabelaRedeBody">
+      </tbody>
+    </table>
+  </div>
+
 </div>
 <script>
 // ⚠️ O TOKEN DO PIPEDRIVE NÃO FICA MAIS AQUI. Todas as chamadas passam pelo
@@ -879,6 +895,7 @@ function setFiltro(f, btn) {
   btn.classList.add('active');
   renderTabela();
   renderChart();
+  renderTabelaRede();
 }
 
 function sortBy(col) {
@@ -971,6 +988,52 @@ function renderFunil(scopeKey) {
       }
     }
   });
+}
+
+function renderTabelaRede() {
+  const wrap = document.getElementById('tabelaRedeWrap');
+  const tbody = document.getElementById('tabelaRedeBody');
+  if (!dadosCamp.length) { wrap.style.display='none'; return; }
+
+  const canais = ['google', 'meta', 'linkedin', 'outros'];
+  const labels = { google: 'Google', meta: 'Meta', linkedin: 'LinkedIn', outros: 'Outros' };
+
+  const agg = {};
+  canais.forEach(c => agg[c] = { total: 0, conexao: 0 });
+
+  dadosCamp.forEach(camp => {
+    const c = camp.canal in agg ? camp.canal : 'outros';
+    agg[c].total   += camp.total   || 0;
+    agg[c].conexao += camp.conexao || 0;
+  });
+
+  const linhas = canais
+    .filter(c => agg[c].total > 0)
+    .map(c => {
+      const tx = agg[c].total ? Math.round(agg[c].conexao / agg[c].total * 1000) / 10 : 0;
+      const cor = tx >= 50 ? '#4a9eed' : tx >= 25 ? '#8ab8dd' : '#c0392b';
+      return `<tr>
+        <td style="font-weight:600">${labels[c]}</td>
+        <td class="num">${agg[c].total.toLocaleString('pt-BR')}</td>
+        <td class="num">${agg[c].conexao.toLocaleString('pt-BR')}</td>
+        <td class="num" style="color:${cor};font-family:'DM Mono',monospace">${tx}%</td>
+      </tr>`;
+    });
+
+  // Linha de total geral
+  const totTotal   = canais.reduce((s,c) => s + agg[c].total,   0);
+  const totConexao = canais.reduce((s,c) => s + agg[c].conexao, 0);
+  const totTx = totTotal ? Math.round(totConexao / totTotal * 1000) / 10 : 0;
+  const totCor = totTx >= 50 ? '#4a9eed' : totTx >= 25 ? '#8ab8dd' : '#c0392b';
+  linhas.push(`<tr style="border-top:2px solid var(--blue)">
+    <td style="font-family:'DM Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray)">Total</td>
+    <td class="num" style="color:var(--blue);font-weight:700">${totTotal.toLocaleString('pt-BR')}</td>
+    <td class="num">${totConexao.toLocaleString('pt-BR')}</td>
+    <td class="num" style="color:${totCor};font-family:'DM Mono',monospace">${totTx}%</td>
+  </tr>`);
+
+  tbody.innerHTML = linhas.join('');
+  wrap.style.display = 'block';
 }
 
 function renderTabela() {
@@ -1157,6 +1220,7 @@ async function atualizar() {
     renderTabela();
     renderChart();
     renderFunil(null);
+    renderTabelaRede();
 
     document.getElementById('statusBar').textContent=`✅ ${dadosCamp.length} campanhas | ${candidatos.length} MQLs | ${label} | via changelog`;
     logEvent('atualizacao_concluida', { campanhas: dadosCamp.length, mqls: candidatos.length, periodo: label });
