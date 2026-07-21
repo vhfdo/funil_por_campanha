@@ -64,7 +64,6 @@ export default async function handler(req, res) {
       investimento: {
         valor: parseNum(H(6)),
         meta:  parseNum(E(6)),
-        eraPraEstar: eraPraEstar(parseNum(E(6))),
       },
 
       // ── Etapas do funil ──
@@ -111,7 +110,6 @@ export default async function handler(req, res) {
       roas: {
         valor: (parseNum(H(79)) || 0) + (parseNum(H(80)) || 0),
         meta:  (parseNum(E(79)) || 0) + (parseNum(E(80)) || 0),
-        eraPraEstar: eraPraEstar((parseNum(E(79)) || 0) + (parseNum(E(80)) || 0)),
       },
 
       // ── Ticket médio ──
