@@ -44,6 +44,12 @@ export default async function handler(req, res) {
     const E = (linha) => cel(linha, 0); // coluna E (metas)
 
     const data = {
+      // ── MQLs totais ──
+      mqls: {
+        valor: parseNum(H(36)),
+        meta:  parseNum(E(36)),
+      },
+
       // ── Investimento ──
       investimento:    { valor: parseNum(H(6)),  meta: parseNum(E(6))  },
 
