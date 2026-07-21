@@ -99,6 +99,14 @@
   .c-green{color:#4a9eed;} .c-mid{color:#8ab8dd;} .c-red{color:#c0392b;}
 
   .empty{text-align:center;padding:80px 24px;color:var(--gray);font-family:'DM Mono',monospace;font-size:13px;}
+  .charts-grid{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border);margin-bottom:48px;}
+  .chart-card{background:var(--panel);padding:24px;}
+  .chart-card-wide{grid-column:1/-1;}
+  .chart-card-title{font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:.04em;margin-bottom:16px;display:flex;align-items:center;gap:10px;color:var(--white);}
+  .chart-tag{font-family:'DM Mono',monospace;font-size:10px;background:var(--blue);color:var(--bg);padding:3px 8px;letter-spacing:.06em;font-weight:400;}
+  .chart-card-inner{position:relative;height:220px;}
+  @media(max-width:768px){.charts-grid{grid-template-columns:1fr;}.chart-card-wide{grid-column:1;}}
+
   .retrato-lista{display:flex;flex-direction:column;gap:8px;}
   .retrato-item{display:flex;align-items:center;gap:12px;}
   .retrato-nome{width:220px;flex-shrink:0;font-size:13px;color:var(--gray-light);}
@@ -185,6 +193,22 @@
 
   <div class="sec-title">Orçamento do Mês <span class="tag" id="orcamentoStatus">CARREGANDO</span></div>
   <div class="orcamento-row" id="orcamentoRow"></div>
+
+  <div class="sec-title">Performance do Mês</div>
+  <div class="charts-grid" id="chartsGrid">
+    <div class="chart-card">
+      <div class="chart-card-title">MQLS POR DIA <span class="chart-tag" id="mqlsTag"></span></div>
+      <div class="chart-card-inner"><canvas id="chartMqls"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-card-title">ROAS POR DIA <span class="chart-tag">META 3x</span></div>
+      <div class="chart-card-inner"><canvas id="chartRoas"></canvas></div>
+    </div>
+    <div class="chart-card chart-card-wide">
+      <div class="chart-card-title">VENDAS MTD <span class="chart-tag" id="vendasTag"></span></div>
+      <div class="chart-card-inner"><canvas id="chartVendas"></canvas></div>
+    </div>
+  </div>
 
   <div class="funil-wrap">
     <div class="funil-header">
@@ -310,6 +334,155 @@ let stagesMap = {}, dadosCamp = [], filtroAtivo = 'todos', sortCol = 'total', so
 function formatarReal(v) {
   return (v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
+
+let chartMqlsInst = null, chartRoasInst = null, chartVendasInst = null;
+
+function fmtBRL(v) {
+  return v.toLocaleString('pt-BR', { style:'currency', currency:'BRL', minimumFractionDigits:0, maximumFractionDigits:0 });
+}
+
+async function carregarGraficos() {
+  try {
+    const r = await fetch('/api/charts', { headers: { Authorization: `Bearer ${SESSION_TOKEN}` } });
+    if (r.status === 401) { logout(); return; }
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Erro ao carregar gráficos');
+    renderGraficos(data);
+  } catch (err) {
+    console.error('Erro gráficos:', err);
+  }
+}
+
+function chartDefaults() {
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: '#1a1a1a', borderColor: '#333', borderWidth: 1,
+        titleFont: { family: 'DM Mono', size: 11 },
+        bodyFont: { family: 'DM Mono', size: 11 },
+      }
+    },
+    scales: {
+      x: { ticks: { color: '#666', font: { family: 'DM Mono', size: 10 }, maxRotation: 45 }, grid: { color: '#1a1a1a' } },
+      y: { ticks: { color: '#666', font: { family: 'DM Mono', size: 10 } }, grid: { color: '#1c1c1c' }, beginAtZero: true }
+    }
+  };
+}
+
+function linhaTracejada(label, data, color) {
+  return {
+    label, data,
+    type: 'line',
+    borderColor: color,
+    borderWidth: 2,
+    borderDash: [6, 4],
+    pointRadius: 0,
+    fill: false,
+    tension: 0,
+  };
+}
+
+function renderGraficos(d) {
+  const { labels, mqls, roas, vendas } = d;
+
+  // Tag de MQLs
+  const totalMqlsAtual = mqls.dados.reduce((a,b)=>a+b,0);
+  document.getElementById('mqlsTag').textContent =
+    `${totalMqlsAtual.toLocaleString('pt-BR')} / META ${mqls.totalMes.toLocaleString('pt-BR')}`;
+
+  // Tag de Vendas
+  const vendasAtual = vendas.dados[vendas.dados.length-1] || 0;
+  document.getElementById('vendasTag').textContent =
+    `${fmtBRL(vendasAtual)} / META ${fmtBRL(vendas.totalMes)}`;
+
+  // ── Gráfico 1: MQLs por dia ──
+  if (chartMqlsInst) chartMqlsInst.destroy();
+  chartMqlsInst = new Chart(document.getElementById('chartMqls'), {
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'MQLs', data: mqls.dados, type: 'bar',
+          backgroundColor: mqls.dados.map(v => v >= (META_MQLS_MES/31) ? '#4a9eed' : '#c0392b'),
+          borderRadius: 2, borderWidth: 0,
+        },
+        linhaTracejada('Meta', mqls.meta, '#ffffff55'),
+      ]
+    },
+    options: {
+      ...chartDefaults(),
+      plugins: { ...chartDefaults().plugins,
+        tooltip: { ...chartDefaults().plugins.tooltip,
+          callbacks: { label: ctx => ` ${ctx.raw} MQLs` }
+        }
+      }
+    }
+  });
+
+  // ── Gráfico 2: ROAS por dia ──
+  if (chartRoasInst) chartRoasInst.destroy();
+  chartRoasInst = new Chart(document.getElementById('chartRoas'), {
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'ROAS', data: roas.dados, type: 'bar',
+          backgroundColor: roas.dados.map(v => v >= META_ROAS ? '#4a9eed' : '#c0392b'),
+          borderRadius: 2, borderWidth: 0,
+        },
+        linhaTracejada('Meta 3x', roas.meta, '#ffffff55'),
+      ]
+    },
+    options: {
+      ...chartDefaults(),
+      plugins: { ...chartDefaults().plugins,
+        tooltip: { ...chartDefaults().plugins.tooltip,
+          callbacks: { label: ctx => ` ${ctx.raw}x` }
+        }
+      }
+    }
+  });
+
+  // ── Gráfico 3: Vendas MTD ──
+  if (chartVendasInst) chartVendasInst.destroy();
+  chartVendasInst = new Chart(document.getElementById('chartVendas'), {
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Realizado', data: vendas.dados, type: 'line',
+          borderColor: '#4a9eed', borderWidth: 2.5,
+          pointRadius: 3, pointBackgroundColor: '#4a9eed',
+          fill: false, tension: 0.3,
+        },
+        linhaTracejada('Meta', vendas.meta, '#ffffff55'),
+      ]
+    },
+    options: {
+      ...chartDefaults(),
+      plugins: { ...chartDefaults().plugins,
+        tooltip: { ...chartDefaults().plugins.tooltip,
+          callbacks: { label: ctx => ` ${fmtBRL(ctx.raw)}` }
+        }
+      },
+      scales: {
+        ...chartDefaults().scales,
+        y: { ...chartDefaults().scales.y,
+          ticks: { ...chartDefaults().scales.y.ticks,
+            callback: v => fmtBRL(v)
+          }
+        }
+      }
+    }
+  });
+}
+
+const META_MQLS_MES = 1900;
+const META_ROAS = 3;
+const META_VENDAS = 1444000;
 
 async function carregarRetratoDia() {
   const statusEl = document.getElementById('retratoStatus');
@@ -499,6 +672,7 @@ function montarCabecalhoTabela() {
 }
 window.addEventListener('DOMContentLoaded', () => {
   montarCabecalhoTabela();
+  carregarGraficos();
   carregarRetratoDia();
   carregarOrcamento();
 });
