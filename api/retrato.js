@@ -43,15 +43,29 @@ export default async function handler(req, res) {
     const H = (linha) => cel(linha, 3); // coluna H
     const E = (linha) => cel(linha, 0); // coluna E (metas)
 
+    const hoje = new Date();
+    const diaAtual = hoje.getDate();
+    const diasNoMes = 31;
+
+    function eraPraEstar(meta) {
+      if (!meta) return null;
+      return Math.round(meta / diasNoMes * diaAtual);
+    }
+
     const data = {
       // ── MQLs totais ──
       mqls: {
         valor: parseNum(H(36)),
         meta:  parseNum(E(36)),
+        eraPraEstar: eraPraEstar(parseNum(E(36))),
       },
 
       // ── Investimento ──
-      investimento:    { valor: parseNum(H(6)),  meta: parseNum(E(6))  },
+      investimento: {
+        valor: parseNum(H(6)),
+        meta:  parseNum(E(6)),
+        eraPraEstar: eraPraEstar(parseNum(E(6))),
+      },
 
       // ── Etapas do funil ──
       etapas: {
@@ -85,17 +99,27 @@ export default async function handler(req, res) {
       vendas: {
         valor: (parseNum(H(57)) || 0) + (parseNum(H(58)) || 0),
         meta:  76,
-        eraPraEstar: Math.round(76 / 31 * new Date().getDate()),
+        eraPraEstar: eraPraEstar(76),
       },
 
       // ── Faturamento e ROAS ──
       faturamento: {
         valor: (parseNum(H(73)) || 0) + (parseNum(H(74)) || 0),
         meta:  (parseNum(E(73)) || 0) + (parseNum(E(74)) || 0),
+        eraPraEstar: eraPraEstar((parseNum(E(73)) || 0) + (parseNum(E(74)) || 0)),
       },
       roas: {
         valor: (parseNum(H(79)) || 0) + (parseNum(H(80)) || 0),
         meta:  (parseNum(E(79)) || 0) + (parseNum(E(80)) || 0),
+        eraPraEstar: eraPraEstar((parseNum(E(79)) || 0) + (parseNum(E(80)) || 0)),
+      },
+
+      // ── Ticket médio ──
+      ticketMedio: {
+        valor: parseNum(H(75)) !== null && parseNum(H(76)) !== null
+          ? ((parseNum(H(75)) || 0) + (parseNum(H(76)) || 0)) / 2
+          : null,
+        meta: parseNum(E(76)),
       },
     };
 
