@@ -107,6 +107,14 @@
   .chart-card-inner{position:relative;height:220px;}
   @media(max-width:768px){.charts-grid{grid-template-columns:1fr;}.chart-card-wide{grid-column:1;}}
 
+  .funil-visual{display:flex;flex-direction:column;gap:6px;padding:8px 0;}
+  .funil-step{display:grid;grid-template-columns:180px 1fr 90px;align-items:center;gap:12px;}
+  .funil-label{font-size:14px;color:var(--white);text-align:right;white-space:nowrap;}
+  .funil-bar-wrap{display:flex;align-items:center;}
+  .funil-bar{height:32px;border-radius:2px;display:flex;align-items:center;justify-content:center;min-width:40px;transition:width .3s;}
+  .funil-val{font-family:'Bebas Neue',sans-serif;font-size:18px;color:#fff;padding:0 10px;white-space:nowrap;}
+  .funil-meta{font-family:'DM Mono',monospace;font-size:11px;color:var(--gray);white-space:nowrap;}
+
   .retrato-lista{display:flex;flex-direction:column;gap:8px;}
   .retrato-item{display:flex;align-items:center;gap:12px;}
   .retrato-nome{width:220px;flex-shrink:0;font-size:15px;color:var(--white);}
@@ -546,29 +554,43 @@ function renderRetratoDia(d) {
     ['inscricao',    'Inscrição em Andamento'],
     ['descarte',     'Descarte'],
   ];
-  const maxEtapa = Math.max(...ETAPAS_LABELS.map(([k]) => d.etapas[k]?.valor || 0));
-  const listaHTML = ETAPAS_LABELS.map(([k, label]) => {
-    const v = d.etapas[k]?.valor ?? null;
-    const m = d.etapas[k]?.meta ?? null;
-    const barW = maxEtapa ? ((v||0) / maxEtapa * 100) : 0;
-    const cor = (m && v !== null) ? barColor(pctMeta(v, m)) : 'var(--blue)';
-    const metaStr = m !== null ? ` <span style="color:var(--gray);font-size:11px">/ meta ${fmt(m)}</span>` : '';
-    return `
-      <div class="retrato-item">
-        <div class="retrato-nome">${label}</div>
-        <div class="retrato-bar-track"><div class="retrato-bar-fill" style="width:${barW}%;background:${cor}"></div></div>
-        <div class="retrato-qtd">${fmt(v)}${metaStr}</div>
-      </div>`;
-  }).join('');
-
   // ── Renderiza resumo (cards) ──
   document.getElementById('retratoResumo').innerHTML =
     cardTaxa('Investimento', d.investimento, 'brl') +
     cardTaxa('Faturamento', d.faturamento, 'brl') +
-    cardTaxa('ROAS', d.roas, 'num');
+    cardTaxa('ROAS', d.roas, 'num') +
+    `<div class="orc-card">
+      <div class="orc-produto">Vendas do Mês</div>
+      <div class="orc-linha"><span class="lbl">Realizadas</span><span class="val" style="color:${d.vendas.valor >= d.vendas.eraPraEstar ? '#4a9eed' : '#c0392b'}">${d.vendas.valor}</span></div>
+      <div class="orc-linha"><span class="lbl">Era pra estar</span><span class="val">${d.vendas.eraPraEstar}</span></div>
+      <div class="orc-linha"><span class="lbl">Meta do mês</span><span class="val">${d.vendas.meta}</span></div>
+      <div class="orc-bar"><div class="orc-bar-fill" style="width:${Math.min((d.vendas.valor/d.vendas.meta*100),100)}%;background:${d.vendas.valor >= d.vendas.eraPraEstar ? '#4a9eed' : '#c0392b'}"></div></div>
+      <div class="orc-meta">${((d.vendas.valor/d.vendas.meta)*100).toFixed(0)}% da meta</div>
+    </div>`;
 
-  // ── Lista de etapas ──
-  document.getElementById('retratoLista').innerHTML = listaHTML;
+  // ── Funil visual ──
+  const lista = document.getElementById('retratoLista');
+  const maiorValor = Math.max(...ETAPAS_LABELS.map(([k]) => d.etapas[k]?.valor || 0));
+
+  lista.innerHTML = `<div class="funil-visual">` +
+    ETAPAS_LABELS.map(([k, label], i) => {
+      const v = d.etapas[k]?.valor ?? 0;
+      const m = d.etapas[k]?.meta ?? null;
+      const pctLargura = maiorValor ? Math.max((v / maiorValor) * 100, 4) : 4;
+      const cor = (m && v !== null) ? barColor(pctMeta(v, m)) : 'var(--blue)';
+      const metaStr = m !== null ? `<span class="funil-meta">meta ${fmt(m)}</span>` : '';
+      return `
+        <div class="funil-step">
+          <div class="funil-label">${label}</div>
+          <div class="funil-bar-wrap">
+            <div class="funil-bar" style="width:${pctLargura}%;background:${cor};">
+              <span class="funil-val">${fmt(v)}</span>
+            </div>
+          </div>
+          ${metaStr}
+        </div>`;
+    }).join('') +
+  `</div>`;
 
   // ── Taxas ──
   const taxasDiv = document.getElementById('retratoTaxas');
