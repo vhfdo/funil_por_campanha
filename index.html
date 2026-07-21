@@ -27,6 +27,8 @@
   .wrap{max-width:1400px;margin:0 auto;padding:40px 24px 80px;}
 
   .header{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid var(--blue);padding-bottom:24px;margin-bottom:40px;flex-wrap:wrap;gap:16px;}
+  .header-left{display:flex;align-items:center;gap:20px;}
+  .header-logo{height:56px;width:auto;filter:brightness(0) invert(1);opacity:.9;}
   .header-left .eyebrow{font-family:'DM Mono',monospace;font-size:11px;color:var(--blue);letter-spacing:.15em;text-transform:uppercase;margin-bottom:8px;}
   .header-left h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(36px,5vw,60px);line-height:1;}
   .header-left h1 span{color:var(--blue);}
@@ -162,8 +164,11 @@
 
   <div class="header">
     <div class="header-left">
-      <div class="eyebrow">Board Academy · Marketing · PFCC Brasil</div>
-      <h1>FUNIL POR <span>CAMPANHA</span></h1>
+      <img src="/logo.png" alt="Board Academy" class="header-logo">
+      <div>
+        <div class="eyebrow">Board Academy · Marketing · PFCC Brasil</div>
+        <h1>FUNIL POR <span>CAMPANHA</span></h1>
+      </div>
     </div>
     <div class="header-right">
       <div class="date-range">
