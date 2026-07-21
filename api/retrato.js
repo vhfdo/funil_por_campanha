@@ -75,6 +75,13 @@ export default async function handler(req, res) {
         vendasEmMqlsReais: { valor: parseNum(H(72)), meta: parseNum(E(72)) },
       },
 
+      // ── Vendas (quantidade) ──
+      vendas: {
+        valor: (parseNum(H(57)) || 0) + (parseNum(H(58)) || 0),
+        meta:  76,
+        eraPraEstar: Math.round(76 / 31 * new Date().getDate()),
+      },
+
       // ── Faturamento e ROAS ──
       faturamento: {
         valor: (parseNum(H(73)) || 0) + (parseNum(H(74)) || 0),
