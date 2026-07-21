@@ -534,10 +534,14 @@ function renderRetratoDia(d) {
     const pct = pctMeta(obj.valor, obj.meta);
     const cor = barColor(pct, inverso);
     const barW = pct !== null ? Math.min(pct, 100) : 0;
+    const eraPraEstarHtml = obj.eraPraEstar != null
+      ? `<div class="orc-linha"><span class="lbl">Era pra estar</span><span class="val">${fmt(obj.eraPraEstar, tipo)}</span></div>`
+      : '';
     return `
       <div class="orc-card">
         <div class="orc-produto">${label}</div>
         <div class="orc-linha"><span class="lbl">Realizado</span><span class="val" style="color:${cor}">${fmt(obj.valor, tipo)}</span></div>
+        ${eraPraEstarHtml}
         ${obj.meta !== null ? `<div class="orc-linha"><span class="lbl">Meta</span><span class="val">${fmt(obj.meta, tipo)}</span></div>` : ''}
         <div class="orc-bar"><div class="orc-bar-fill" style="width:${barW}%;background:${cor}"></div></div>
         ${pct !== null ? `<div class="orc-meta">${pct.toFixed(0)}% da meta</div>` : ''}
@@ -565,6 +569,7 @@ function renderRetratoDia(d) {
     cardTaxa('Investimento', d.investimento, 'brl') +
     cardTaxa('Faturamento', d.faturamento, 'brl') +
     cardTaxa('ROAS', d.roas, 'num') +
+    cardTaxa('Ticket Médio', d.ticketMedio, 'brl') +
     `<div class="orc-card">
       <div class="orc-produto">Vendas do Mês</div>
       <div class="orc-linha"><span class="lbl">Realizadas</span><span class="val" style="color:${d.vendas.valor >= d.vendas.eraPraEstar ? '#4a9eed' : '#c0392b'}">${d.vendas.valor}</span></div>
