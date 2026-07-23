@@ -109,15 +109,40 @@
   .chart-card-inner{position:relative;height:220px;}
   @media(max-width:768px){.charts-grid{grid-template-columns:1fr;}.chart-card-wide{grid-column:1;}}
 
-  .funil-visual{display:flex;flex-direction:column;gap:6px;padding:8px 0;}
-  .funil-step{display:grid;grid-template-columns:180px 1fr 90px;align-items:center;gap:12px;}
-  .funil-label{font-size:14px;color:var(--white);text-align:right;white-space:nowrap;}
-  .funil-bar-wrap{display:flex;align-items:center;}
-  .funil-bar{height:32px;border-radius:2px;display:flex;align-items:center;justify-content:center;min-width:40px;transition:width .3s;}
-  .funil-val{font-family:'Bebas Neue',sans-serif;font-size:18px;color:#fff;padding:0 10px;white-space:nowrap;}
-  .funil-meta{font-family:'DM Mono',monospace;font-size:11px;color:var(--gray);white-space:nowrap;}
+  /* ── KPI strip — linha única de cards ── */
+  .kpi-strip{display:grid;grid-template-columns:repeat(6,1fr);gap:1px;background:var(--border);border:1px solid var(--border);margin-bottom:32px;}
+  .kpi-card{background:var(--panel);padding:20px 18px 16px;}
+  .kpi-card-label{font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--gray);margin-bottom:10px;}
+  .kpi-card-val{font-family:'Bebas Neue',sans-serif;font-size:36px;line-height:1;margin-bottom:6px;}
+  .kpi-card-row{display:flex;justify-content:space-between;font-family:'DM Mono',monospace;font-size:11px;color:var(--gray);margin-top:4px;}
+  .kpi-card-row span{color:var(--white);}
+  .kpi-card-bar{height:3px;background:var(--border);border-radius:2px;overflow:hidden;margin-top:10px;}
+  .kpi-card-bar-fill{height:100%;border-radius:2px;}
 
-  .retrato-lista{display:flex;flex-direction:column;gap:8px;}
+  /* ── Retrato body — funil + taxas lado a lado ── */
+  .retrato-body{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border);margin-bottom:48px;}
+  .retrato-funil-col,.retrato-taxas-col{background:var(--panel);padding:24px;}
+  .retrato-col-title{font-family:'DM Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--gray);margin-bottom:20px;}
+
+  /* ── Funil visual ── */
+  .funil-visual{display:flex;flex-direction:column;gap:0;}
+  .funil-step{display:grid;grid-template-columns:160px 1fr 60px;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);}
+  .funil-step:last-child{border-bottom:none;}
+  .funil-label{font-size:13px;color:var(--white);text-align:right;}
+  .funil-bar-wrap{position:relative;height:24px;background:var(--border);border-radius:2px;overflow:hidden;}
+  .funil-bar{height:100%;border-radius:2px;display:flex;align-items:center;justify-content:flex-end;padding-right:8px;min-width:28px;}
+  .funil-val{font-family:'DM Mono',monospace;font-size:12px;color:#fff;font-weight:500;}
+  .funil-meta{font-family:'DM Mono',monospace;font-size:10px;color:var(--gray);text-align:right;}
+
+  /* ── Taxas ── */
+  .taxa-item{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);}
+  .taxa-item:last-child{border-bottom:none;}
+  .taxa-nome{font-size:13px;color:var(--white);}
+  .taxa-valores{text-align:right;}
+  .taxa-val{font-family:'Bebas Neue',sans-serif;font-size:22px;line-height:1;}
+  .taxa-meta{font-family:'DM Mono',monospace;font-size:10px;color:var(--gray);margin-top:2px;}
+
+  @media(max-width:900px){.kpi-strip{grid-template-columns:repeat(3,1fr);}.retrato-body{grid-template-columns:1fr;}}
   .retrato-item{display:flex;align-items:center;gap:12px;}
   .retrato-nome{width:220px;flex-shrink:0;font-size:15px;color:var(--white);}
   .retrato-bar-track{flex:1;height:10px;background:var(--border);border-radius:2px;overflow:hidden;}
@@ -198,11 +223,19 @@
   <div class="status-bar" id="statusBar">Selecione o mês e clique em Atualizar.</div>
 
   <div class="sec-title">Retrato do Dia <span class="tag" id="retratoStatus">CARREGANDO</span></div>
-  <div class="orcamento-row" id="retratoResumo"></div>
-  <div class="chart-wrap" style="margin-bottom:24px;">
-    <div class="retrato-lista" id="retratoLista"></div>
+
+  <div id="retratoResumo" class="kpi-strip"></div>
+
+  <div class="retrato-body">
+    <div class="retrato-funil-col">
+      <div class="retrato-col-title">Funil em aberto</div>
+      <div id="retratoLista"></div>
+    </div>
+    <div class="retrato-taxas-col">
+      <div class="retrato-col-title">Taxas</div>
+      <div id="retratoTaxas"></div>
+    </div>
   </div>
-  <div class="orcamento-row" id="retratoTaxas" style="margin-bottom:48px;"></div>
 
   <div class="sec-title">Performance do Mês</div>
   <div class="orcamento-row" id="mqlsV2CardWrap" style="display:none;margin-bottom:16px;"></div>
@@ -627,58 +660,80 @@ function renderRetratoDia(d) {
     ['inscricao',    'Inscrição em Andamento'],
     ['descarte',     'Descarte'],
   ];
-  // ── Renderiza resumo (cards) ──
+  // ── KPI Strip ──
+  function kpiCard(label, obj, tipo='num') {
+    if (!obj) return '';
+    const pct  = obj.meta ? Math.min((obj.valor / obj.meta) * 100, 100) : null;
+    const cor  = pct === null ? 'var(--blue)' : pct >= 100 ? '#4a9eed' : pct >= 70 ? '#d9a441' : '#c0392b';
+    const barW = pct !== null ? pct : 0;
+    return `<div class="kpi-card">
+      <div class="kpi-card-label">${label}</div>
+      <div class="kpi-card-val" style="color:${cor}">${fmt(obj.valor, tipo)}</div>
+      ${obj.eraPraEstar != null ? `<div class="kpi-card-row"><span style="color:var(--gray)">Era pra estar</span><span>${fmt(obj.eraPraEstar, tipo)}</span></div>` : ''}
+      ${obj.meta != null ? `<div class="kpi-card-row"><span style="color:var(--gray)">Meta</span><span>${fmt(obj.meta, tipo)}</span></div>` : ''}
+      <div class="kpi-card-bar"><div class="kpi-card-bar-fill" style="width:${barW}%;background:${cor}"></div></div>
+    </div>`;
+  }
+
   document.getElementById('retratoResumo').innerHTML =
-    cardTaxa('MQLs Totais', d.mqls, 'num') +
-    cardTaxa('Investimento', d.investimento, 'brl') +
-    cardTaxa('Faturamento', d.faturamento, 'brl') +
-    cardTaxa('ROAS', d.roas, 'num') +
-    cardTaxa('Ticket Médio', d.ticketMedio, 'brl') +
-    `<div class="orc-card">
-      <div class="orc-produto">Vendas do Mês</div>
-      <div class="orc-linha"><span class="lbl">Realizadas</span><span class="val" style="color:${d.vendas.valor >= d.vendas.eraPraEstar ? '#4a9eed' : '#c0392b'}">${d.vendas.valor}</span></div>
-      <div class="orc-linha"><span class="lbl">Era pra estar</span><span class="val">${d.vendas.eraPraEstar}</span></div>
-      <div class="orc-linha"><span class="lbl">Meta do mês</span><span class="val">${d.vendas.meta}</span></div>
-      <div class="orc-bar"><div class="orc-bar-fill" style="width:${Math.min((d.vendas.valor/d.vendas.meta*100),100)}%;background:${d.vendas.valor >= d.vendas.eraPraEstar ? '#4a9eed' : '#c0392b'}"></div></div>
-      <div class="orc-meta">${((d.vendas.valor/d.vendas.meta)*100).toFixed(0)}% da meta</div>
+    kpiCard('MQLs Totais', d.mqls, 'num') +
+    kpiCard('Investimento', d.investimento, 'brl') +
+    kpiCard('Faturamento', d.faturamento, 'brl') +
+    kpiCard('ROAS', d.roas, 'num') +
+    kpiCard('Ticket Médio', d.ticketMedio, 'brl') +
+    `<div class="kpi-card">
+      <div class="kpi-card-label">Vendas do Mês</div>
+      <div class="kpi-card-val" style="color:${d.vendas.valor >= d.vendas.eraPraEstar ? '#4a9eed' : '#c0392b'}">${d.vendas.valor}</div>
+      <div class="kpi-card-row"><span style="color:var(--gray)">Era pra estar</span><span>${d.vendas.eraPraEstar}</span></div>
+      <div class="kpi-card-row"><span style="color:var(--gray)">Meta</span><span>${d.vendas.meta}</span></div>
+      <div class="kpi-card-bar"><div class="kpi-card-bar-fill" style="width:${Math.min(d.vendas.valor/d.vendas.meta*100,100)}%;background:${d.vendas.valor >= d.vendas.eraPraEstar ? '#4a9eed' : '#c0392b'}"></div></div>
     </div>`;
 
   // ── Funil visual ──
-  const lista = document.getElementById('retratoLista');
   const maiorValor = Math.max(...ETAPAS_LABELS.map(([k]) => d.etapas[k]?.valor || 0));
-
-  lista.innerHTML = `<div class="funil-visual">` +
-    ETAPAS_LABELS.map(([k, label], i) => {
+  document.getElementById('retratoLista').innerHTML = `<div class="funil-visual">` +
+    ETAPAS_LABELS.map(([k, label]) => {
       const v = d.etapas[k]?.valor ?? 0;
       const m = d.etapas[k]?.meta ?? null;
-      const pctLargura = maiorValor ? Math.max((v / maiorValor) * 100, 4) : 4;
-      const cor = (m && v !== null) ? barColor(pctMeta(v, m)) : 'var(--blue)';
-      const metaStr = m !== null ? `<span class="funil-meta">meta ${fmt(m)}</span>` : '';
-      return `
-        <div class="funil-step">
-          <div class="funil-label">${label}</div>
-          <div class="funil-bar-wrap">
-            <div class="funil-bar" style="width:${pctLargura}%;background:${cor};">
-              <span class="funil-val">${fmt(v)}</span>
-            </div>
+      const pctW = maiorValor ? Math.max((v / maiorValor) * 100, 3) : 3;
+      const pctMt = (m && v !== null) ? pctMeta(v, m) : null;
+      const cor = pctMt !== null ? barColor(pctMt) : 'var(--blue)';
+      return `<div class="funil-step">
+        <div class="funil-label">${label}</div>
+        <div class="funil-bar-wrap">
+          <div class="funil-bar" style="width:${pctW}%;background:${cor}">
+            <span class="funil-val">${fmt(v)}</span>
           </div>
-          ${metaStr}
-        </div>`;
-    }).join('') +
-  `</div>`;
+        </div>
+        <div class="funil-meta">${m !== null ? `meta ${fmt(m)}` : ''}</div>
+      </div>`;
+    }).join('') + `</div>`;
 
   // ── Taxas ──
   const taxasDiv = document.getElementById('retratoTaxas');
   if (taxasDiv) {
-    taxasDiv.innerHTML =
-      cardTaxa('Taxa de Conexão',           d.taxas.conexao,           'pct') +
-      cardTaxa('Taxa de Descarte',          d.taxas.descarte,          'pct', true) +
-      cardTaxa('Taxa SQL',                  d.taxas.sql,               'pct') +
-      cardTaxa('Taxa de Agendamento',       d.taxas.agendamento,       'pct') +
-      cardTaxa('No Show',                   d.taxas.noshow,            'pct', true) +
-      cardTaxa('Tx Vendas em Call',         d.taxas.vendasEmCall,      'pct') +
-      cardTaxa('Tx Vendas / MQLs Totais',   d.taxas.vendasEmMqlsTotal, 'pct') +
-      cardTaxa('Tx Vendas / MQLs Reais',    d.taxas.vendasEmMqlsReais, 'pct');
+    const TAXAS = [
+      ['Taxa de Conexão',         d.taxas.conexao,           'pct', false],
+      ['Taxa de Descarte',        d.taxas.descarte,          'pct', true],
+      ['Taxa SQL',                d.taxas.sql,               'pct', false],
+      ['Taxa de Agendamento',     d.taxas.agendamento,       'pct', false],
+      ['No Show',                 d.taxas.noshow,            'pct', true],
+      ['Tx Vendas em Call',       d.taxas.vendasEmCall,      'pct', false],
+      ['Tx Vendas / MQLs Totais', d.taxas.vendasEmMqlsTotal, 'pct', false],
+      ['Tx Vendas / MQLs Reais',  d.taxas.vendasEmMqlsReais, 'pct', false],
+    ];
+    taxasDiv.innerHTML = `<div>` + TAXAS.map(([label, obj, tipo, inv]) => {
+      if (!obj || obj.valor === null) return '';
+      const pct = obj.meta ? pctMeta(obj.valor, obj.meta) : null;
+      const cor = pct !== null ? barColor(pct, inv) : 'var(--white)';
+      return `<div class="taxa-item">
+        <div class="taxa-nome">${label}</div>
+        <div class="taxa-valores">
+          <div class="taxa-val" style="color:${cor}">${fmt(obj.valor, tipo)}</div>
+          ${obj.meta != null ? `<div class="taxa-meta">meta ${fmt(obj.meta, tipo)}</div>` : ''}
+        </div>
+      </div>`;
+    }).join('') + `</div>`;
   }
 }
 
