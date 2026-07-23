@@ -33,7 +33,7 @@ export default async function handler(req, res) {
     // Busca os dois ranges em paralelo
     const [rowsPerp, rowsLeads] = await Promise.all([
       getValues({ spreadsheetId: SPREADSHEET_ID,      range: `'${ABA}'!N4:AM80` }),
-      getValues({ spreadsheetId: SPREADSHEET_ID_PIPE, range: `${ABA_LEADS_DIA}!A:L`  }),
+      getValues({ spreadsheetId: SPREADSHEET_ID_PIPE, range: `${ABA_LEADS_DIA}!A:N`  }),
     ]);
 
     const row = (linhaReal) => rowsPerp[linhaReal - 4] || [];
@@ -44,18 +44,20 @@ export default async function handler(req, res) {
     const roas2  = row(80);
     const vend1  = row(73);
     const vend2  = row(74);
+    const inv    = row(6);  // investimento por dia
 
-    // Monta mapa de dd/mm → mqls_v2 da aba LEADS-DIA
-    // Coluna A = data no formato "dd/mm/yyyy", coluna L = mqls_v2
-    const mqlsV2PorDia = {};
+    // Monta mapa de dd/mm → {mqlsV2, mqlsN} da aba LEADS-DIA
+    // Coluna A = data "dd/mm/yyyy", L = mqls_v2 (idx 11), N = mqls_all_v2 (idx 13)
+    const leadsPorDia = {};
     for (const r of rowsLeads) {
-      const dataStr = String(r[0] || '').trim();  // ex: "01/07/2026"
-      const mqlsV2  = parseNum(r[11]);            // coluna L = índice 11
-      if (dataStr.includes('/') && mqlsV2 !== null) {
-        const partes = dataStr.split('/');
-        const ddmm = `${partes[0]}/${partes[1]}`; // pega só "dd/mm"
-        mqlsV2PorDia[ddmm] = mqlsV2;
-      }
+      const dataStr = String(r[0] || '').trim();
+      if (!dataStr.includes('/')) continue;
+      const partes = dataStr.split('/');
+      const ddmm = `${partes[0]}/${partes[1]}`;
+      leadsPorDia[ddmm] = {
+        mqlsV2: parseNum(r[11]),  // coluna L
+        mqlsN:  parseNum(r[13]),  // coluna N — todos os funis, sem gerente/prof. liberal
+      };
     }
 
     // Descobre até qual coluna tem dado
@@ -67,6 +69,7 @@ export default async function handler(req, res) {
     const labels = [], mqlsDia = [], metaMqls = [], mqlsV2Dia = [];
     const raosDia = [], metaRoas = [];
     const vendasMtd = [], metaVendasMtd = [];
+    const cpmqlDia = [];
     const metaMqlDia  = Math.round(META_MQLS_MES / DIAS_NO_MES);
     const metaVendDia = META_VENDAS / DIAS_NO_MES;
 
@@ -79,7 +82,15 @@ export default async function handler(req, res) {
 
       mqlsDia.push(parseNum(mqls[i]) ?? 0);
       metaMqls.push(metaMqlDia);
-      mqlsV2Dia.push(mqlsV2PorDia[label] ?? null);
+
+      const ld = leadsPorDia[label] || {};
+      mqlsV2Dia.push(ld.mqlsV2 ?? null);
+
+      // CPMQL = investimento do dia ÷ MQLs coluna N do dia
+      const invDia  = parseNum(inv[i]) ?? 0;
+      const mqlsNDia = ld.mqlsN ?? null;
+      const cpmql = (mqlsNDia && mqlsNDia > 0) ? Math.round(invDia / mqlsNDia) : null;
+      cpmqlDia.push(cpmql);
 
       const r = (parseNum(roas1[i]) ?? 0) + (parseNum(roas2[i]) ?? 0);
       raosDia.push(parseFloat(r.toFixed(2)));
@@ -99,6 +110,7 @@ export default async function handler(req, res) {
       mqlsV2:  { dados: mqlsV2Dia, totalMes: totalV2 },
       roas:    { dados: raosDia,   meta: metaRoas },
       vendas:  { dados: vendasMtd, meta: metaVendasMtd, totalMes: META_VENDAS },
+      cpmql:   { dados: cpmqlDia },
     });
 
   } catch (err) {
