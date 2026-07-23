@@ -25,17 +25,6 @@ function parseNum(v) {
   return isNaN(n) ? null : n;
 }
 
-// Converte serial do Excel pra "dd/mm" pra bater com os labels do gráfico
-function serialParaDDMM(serial) {
-  if (!serial) return null;
-  const n = parseNum(serial);
-  if (!n) return null;
-  const d = new Date(Date.UTC(1899, 11, 30) + n * 86400000);
-  const dia = String(d.getUTCDate()).padStart(2, '0');
-  const mes = String(d.getUTCMonth() + 1).padStart(2, '0');
-  return `${dia}/${mes}`;
-}
-
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Metodo nao permitido.' });
   if (!checkAuth(req)) return res.status(401).json({ error: 'Sessao invalida.' });
@@ -56,13 +45,17 @@ export default async function handler(req, res) {
     const vend1  = row(73);
     const vend2  = row(74);
 
-    // Monta mapa de dd/mm → mqls_v2 da aba LEADS-DIA (col A=serial, col L=mqls_v2)
+    // Monta mapa de dd/mm → mqls_v2 da aba LEADS-DIA
+    // Coluna A = data no formato "dd/mm/yyyy", coluna L = mqls_v2
     const mqlsV2PorDia = {};
-    for (const row of rowsLeads) {
-      const serial  = row[0];
-      const mqlsV2  = parseNum(row[11]); // coluna L = índice 11
-      const ddmm    = serialParaDDMM(serial);
-      if (ddmm && mqlsV2 !== null) mqlsV2PorDia[ddmm] = mqlsV2;
+    for (const r of rowsLeads) {
+      const dataStr = String(r[0] || '').trim();  // ex: "01/07/2026"
+      const mqlsV2  = parseNum(r[11]);            // coluna L = índice 11
+      if (dataStr.includes('/') && mqlsV2 !== null) {
+        const partes = dataStr.split('/');
+        const ddmm = `${partes[0]}/${partes[1]}`; // pega só "dd/mm"
+        mqlsV2PorDia[ddmm] = mqlsV2;
+      }
     }
 
     // Descobre até qual coluna tem dado
