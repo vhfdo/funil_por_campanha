@@ -205,10 +205,15 @@
   <div class="orcamento-row" id="retratoTaxas" style="margin-bottom:48px;"></div>
 
   <div class="sec-title">Performance do Mês</div>
+  <div class="orcamento-row" id="mqlsV2CardWrap" style="display:none;margin-bottom:16px;"></div>
   <div class="charts-grid" id="chartsGrid">
     <div class="chart-card">
       <div class="chart-card-title">MQLS POR DIA <span class="chart-tag" id="mqlsTag"></span></div>
       <div class="chart-card-inner"><canvas id="chartMqls"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-card-title">MQLS V2 (SEM GERENTE/PROF. LIBERAL) <span class="chart-tag" id="mqlsV2Tag"></span></div>
+      <div class="chart-card-inner"><canvas id="chartMqlsV2"></canvas></div>
     </div>
     <div class="chart-card">
       <div class="chart-card-title">ROAS POR DIA <span class="chart-tag">META 3x</span></div>
@@ -361,7 +366,7 @@ function formatarReal(v) {
   return (v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
-let chartMqlsInst = null, chartRoasInst = null, chartVendasInst = null;
+let chartMqlsInst = null, chartMqlsV2Inst = null, chartRoasInst = null, chartVendasInst = null;
 
 function fmtBRL(v) {
   return v.toLocaleString('pt-BR', { style:'currency', currency:'BRL', minimumFractionDigits:0, maximumFractionDigits:0 });
@@ -412,12 +417,17 @@ function linhaTracejada(label, data, color) {
 }
 
 function renderGraficos(d) {
-  const { labels, mqls, roas, vendas } = d;
+  const { labels, mqls, mqlsV2, roas, vendas } = d;
 
   // Tag de MQLs
   const totalMqlsAtual = mqls.dados.reduce((a,b)=>a+b,0);
   document.getElementById('mqlsTag').textContent =
     `${totalMqlsAtual.toLocaleString('pt-BR')} / META ${mqls.totalMes.toLocaleString('pt-BR')}`;
+
+  // Tag de MQLs v2
+  const totalV2Atual = (mqlsV2?.dados || []).reduce((a,b)=>a+(b??0),0);
+  const mqlsV2TagEl = document.getElementById('mqlsV2Tag');
+  if (mqlsV2TagEl) mqlsV2TagEl.textContent = `${totalV2Atual.toLocaleString('pt-BR')} acumulado`;
 
   // Tag de Vendas
   const vendasAtual = vendas.dados[vendas.dados.length-1] || 0;
@@ -447,6 +457,44 @@ function renderGraficos(d) {
       }
     }
   });
+
+  // Card resumo MQLs v2
+  const mqlsV2CardWrap = document.getElementById('mqlsV2CardWrap');
+  if (mqlsV2CardWrap && mqlsV2?.dados) {
+    const metaMqlDia = Math.round(META_MQLS_MES / 31);
+    mqlsV2CardWrap.innerHTML = `
+      <div class="orc-card">
+        <div class="orc-produto">MQLs V2 (sem gerente/prof. liberal)</div>
+        <div class="orc-linha"><span class="lbl">Acumulado mês</span><span class="val" style="color:var(--blue)">${totalV2Atual.toLocaleString('pt-BR')}</span></div>
+        <div class="orc-linha"><span class="lbl">vs MQLs totais</span><span class="val">${totalMqlsAtual.toLocaleString('pt-BR')}</span></div>
+        <div class="orc-linha"><span class="lbl">Diferença</span><span class="val" style="color:#d9a441">-${(totalMqlsAtual - totalV2Atual).toLocaleString('pt-BR')}</span></div>
+      </div>`;
+    mqlsV2CardWrap.style.display = 'block';
+  }
+  if (chartMqlsV2Inst) chartMqlsV2Inst.destroy();
+  if (mqlsV2?.dados && document.getElementById('chartMqlsV2')) {
+    chartMqlsV2Inst = new Chart(document.getElementById('chartMqlsV2'), {
+      data: {
+        labels,
+        datasets: [
+          {
+            label: 'MQLs v2', data: mqlsV2.dados, type: 'bar',
+            backgroundColor: mqlsV2.dados.map(v => v === null ? '#333' : v >= (META_MQLS_MES/31) ? '#4a9eed' : '#c0392b'),
+            borderRadius: 2, borderWidth: 0,
+          },
+          linhaTracejada('Meta', mqls.meta, '#ffffff55'),
+        ]
+      },
+      options: {
+        ...chartDefaults(),
+        plugins: { ...chartDefaults().plugins,
+          tooltip: { ...chartDefaults().plugins.tooltip,
+            callbacks: { label: ctx => ctx.raw === null ? ' sem dados' : ` ${ctx.raw} MQLs v2` }
+          }
+        }
+      }
+    });
+  }
 
   // ── Gráfico 2: ROAS por dia ──
   if (chartRoasInst) chartRoasInst.destroy();
