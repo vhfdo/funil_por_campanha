@@ -252,6 +252,10 @@
       <div class="chart-card-title">ROAS POR DIA <span class="chart-tag">META 3x</span></div>
       <div class="chart-card-inner"><canvas id="chartRoas"></canvas></div>
     </div>
+    <div class="chart-card">
+      <div class="chart-card-title">CPMQL POR DIA <span class="chart-tag" id="cpmqlTag"></span></div>
+      <div class="chart-card-inner"><canvas id="chartCpmql"></canvas></div>
+    </div>
     <div class="chart-card chart-card-wide">
       <div class="chart-card-title">VENDAS MTD <span class="chart-tag" id="vendasTag"></span></div>
       <div class="chart-card-inner"><canvas id="chartVendas"></canvas></div>
@@ -399,7 +403,7 @@ function formatarReal(v) {
   return (v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
-let chartMqlsInst = null, chartMqlsV2Inst = null, chartRoasInst = null, chartVendasInst = null;
+let chartMqlsInst = null, chartMqlsV2Inst = null, chartRoasInst = null, chartVendasInst = null, chartCpmqlInst = null;
 
 function fmtBRL(v) {
   return v.toLocaleString('pt-BR', { style:'currency', currency:'BRL', minimumFractionDigits:0, maximumFractionDigits:0 });
@@ -450,7 +454,7 @@ function linhaTracejada(label, data, color) {
 }
 
 function renderGraficos(d) {
-  const { labels, mqls, mqlsV2, roas, vendas } = d;
+  const { labels, mqls, mqlsV2, roas, vendas, cpmql } = d;
 
   // Tag de MQLs
   const totalMqlsAtual = mqls.dados.reduce((a,b)=>a+b,0);
@@ -552,6 +556,44 @@ function renderGraficos(d) {
       }
     }
   });
+
+  // ── Gráfico 4: CPMQL por dia ──
+  if (chartCpmqlInst) chartCpmqlInst.destroy();
+  if (cpmql?.dados && document.getElementById('chartCpmql')) {
+    const dadosValidos = cpmql.dados.filter(v => v !== null);
+    const mediaCpmql = dadosValidos.length
+      ? Math.round(dadosValidos.reduce((a,b)=>a+b,0) / dadosValidos.length)
+      : null;
+    if (document.getElementById('cpmqlTag') && mediaCpmql !== null) {
+      document.getElementById('cpmqlTag').textContent = `MÉDIA R$ ${mediaCpmql.toLocaleString('pt-BR')}`;
+    }
+    chartCpmqlInst = new Chart(document.getElementById('chartCpmql'), {
+      data: {
+        labels,
+        datasets: [{
+          label: 'CPMQL', data: cpmql.dados, type: 'bar',
+          backgroundColor: cpmql.dados.map(v => v === null ? '#222' : '#4a9eed'),
+          borderRadius: 2, borderWidth: 0,
+        }]
+      },
+      options: {
+        ...chartDefaults(),
+        plugins: { ...chartDefaults().plugins,
+          tooltip: { ...chartDefaults().plugins.tooltip,
+            callbacks: { label: ctx => ctx.raw === null ? ' sem dados' : ` R$ ${ctx.raw.toLocaleString('pt-BR')}` }
+          }
+        },
+        scales: {
+          ...chartDefaults().scales,
+          y: { ...chartDefaults().scales.y,
+            ticks: { ...chartDefaults().scales.y.ticks,
+              callback: v => `R$ ${v.toLocaleString('pt-BR')}`
+            }
+          }
+        }
+      }
+    });
+  }
 
   // ── Gráfico 3: Vendas MTD ──
   if (chartVendasInst) chartVendasInst.destroy();
