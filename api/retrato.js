@@ -35,7 +35,8 @@ export default async function handler(req, res) {
     // Busca os dois em paralelo
     const [rows, rowsRetrato] = await Promise.all([
       getValues({ spreadsheetId: SPREADSHEET_ID,      range: `'${ABA}'!E6:H80` }),
-      getValues({ spreadsheetId: SPREADSHEET_ID_PIPE, range: `${ABA_RETRATO}!A:B`  }),
+      // ✅ A:B — Python agora grava só nome (A) + qtd (B), sem data
+      getValues({ spreadsheetId: SPREADSHEET_ID_PIPE, range: `${ABA_RETRATO}!A:B` }),
     ]);
 
     // Helper: busca célula pelo índice de linha real (1-based) e coluna (E=0, F=1, G=2, H=3)
