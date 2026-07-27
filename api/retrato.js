@@ -6,8 +6,10 @@
 import { verifyToken } from '../lib/auth.js';
 import { getValues } from '../lib/sheets.js';
 
-const SPREADSHEET_ID = '1sFLWhfBAeGmDnJ22TadZ0ZMC5AOZXBODXBrwKClENJk';
-const ABA = '[PERPÉTUO] Julho PFCC';
+const SPREADSHEET_ID      = '1sFLWhfBAeGmDnJ22TadZ0ZMC5AOZXBODXBrwKClENJk';
+const SPREADSHEET_ID_PIPE = '1Evtto8jEIQ6_239Ad-4jP_pYa1twc8iY4XWfIjgEARo';
+const ABA                 = '[PERPÉTUO] Julho PFCC';
+const ABA_RETRATO         = 'RETRATO DIA';
 
 function checkAuth(req) {
   const secret = process.env.SESSION_SECRET;
@@ -30,9 +32,11 @@ export default async function handler(req, res) {
   if (!username) return res.status(401).json({ error: 'Sessão inválida ou expirada.' });
 
   try {
-    // Busca tudo de E6:H80 de uma vez só (1 chamada à API do Google)
-    const range = `'${ABA}'!E6:H80`;
-    const rows = await getValues({ spreadsheetId: SPREADSHEET_ID, range });
+    // Busca os dois em paralelo
+    const [rows, rowsRetrato] = await Promise.all([
+      getValues({ spreadsheetId: SPREADSHEET_ID,      range: `'${ABA}'!E6:H80` }),
+      getValues({ spreadsheetId: SPREADSHEET_ID_PIPE, range: `${ABA_RETRATO}!A:B`  }),
+    ]);
 
     // Helper: busca célula pelo índice de linha real (1-based) e coluna (E=0, F=1, G=2, H=3)
     function cel(linhaReal, col) {
@@ -42,6 +46,21 @@ export default async function handler(req, res) {
 
     const H = (linha) => cel(linha, 3); // coluna H
     const E = (linha) => cel(linha, 0); // coluna E (metas)
+
+    // Monta mapa de etapa → quantidade do RETRATO DIA
+    // Formato: col A = nome da etapa, col B = quantidade
+    const retratoMap = {};
+    for (const r of rowsRetrato) {
+      const etapa = String(r[0] || '').trim().toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+      const qtd = parseNum(r[1]);
+      if (etapa && qtd !== null) retratoMap[etapa] = qtd;
+    }
+
+    function retratoVal(nomeEtapa) {
+      const key = nomeEtapa.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+      return retratoMap[key] ?? null;
+    }
 
     const hoje = new Date();
     const diaAtual = hoje.getDate();
@@ -66,20 +85,20 @@ export default async function handler(req, res) {
         meta:  parseNum(E(6)),
       },
 
-      // ── Etapas do funil ──
+      // ── Etapas do funil — vêm do RETRATO DIA (snapshot atual) ──
       etapas: {
-        aplicacao:   { valor: parseNum(H(46)), meta: parseNum(E(46)) },
-        etapa1:      { valor: parseNum(H(47)), meta: parseNum(E(47)) },
-        etapa2:      { valor: parseNum(H(48)), meta: parseNum(E(48)) },
-        etapa3:      { valor: parseNum(H(49)), meta: parseNum(E(49)) },
-        contatado:   { valor: parseNum(H(50)), meta: parseNum(E(50)) },
-        oportunidade:{ valor: parseNum(H(51)), meta: parseNum(E(51)) },
-        agendados:   { valor: parseNum(H(52)), meta: parseNum(E(52)) },
-        noshow:      { valor: parseNum(H(53)), meta: parseNum(E(53)) },
-        validacao:   { valor: parseNum(H(54)), meta: parseNum(E(54)) },
-        negociacao:  { valor: parseNum(H(55)), meta: parseNum(E(55)) },
-        inscricao:   { valor: parseNum(H(56)), meta: parseNum(E(56)) },
-        descarte:    { valor: parseNum(H(62)), meta: parseNum(E(62)) },
+        aplicacao:   { valor: retratoVal('aplicacao'),                   meta: parseNum(E(46)) },
+        etapa1:      { valor: retratoVal('etapa 1'),                     meta: parseNum(E(47)) },
+        etapa2:      { valor: retratoVal('etapa 2'),                     meta: parseNum(E(48)) },
+        etapa3:      { valor: retratoVal('etapa 3'),                     meta: parseNum(E(49)) },
+        contatado:   { valor: retratoVal('contatado'),                   meta: parseNum(E(50)) },
+        oportunidade:{ valor: retratoVal('oportunidade'),                meta: parseNum(E(51)) },
+        agendados:   { valor: retratoVal('agendados'),                   meta: parseNum(E(52)) },
+        noshow:      { valor: retratoVal('no show'),                     meta: parseNum(E(53)) },
+        validacao:   { valor: retratoVal('validacao de reuniao'),        meta: parseNum(E(54)) },
+        negociacao:  { valor: retratoVal('negociacao'),                  meta: parseNum(E(55)) },
+        inscricao:   { valor: retratoVal('inscricao em andamento'),      meta: parseNum(E(56)) },
+        descarte:    { valor: retratoVal('descarte'),                    meta: parseNum(E(62)) },
       },
 
       // ── Taxas ──
