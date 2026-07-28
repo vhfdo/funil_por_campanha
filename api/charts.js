@@ -32,7 +32,7 @@ export default async function handler(req, res) {
   try {
     // Busca os dois ranges em paralelo
     const [rowsPerp, rowsLeads] = await Promise.all([
-      getValues({ spreadsheetId: SPREADSHEET_ID,      range: `'${ABA}'!N4:AM80` }),
+      getValues({ spreadsheetId: SPREADSHEET_ID,      range: `'${ABA}'!N4:AR80` }),
       getValues({ spreadsheetId: SPREADSHEET_ID_PIPE, range: `${ABA_LEADS_DIA}!A:N`  }),
     ]);
 
