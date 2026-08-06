@@ -4,7 +4,7 @@ import { getValues } from '../lib/sheets.js';
 
 const SPREADSHEET_ID      = '1sFLWhfBAeGmDnJ22TadZ0ZMC5AOZXBODXBrwKClENJk';
 const SPREADSHEET_ID_PIPE = '1Evtto8jEIQ6_239Ad-4jP_pYa1twc8iY4XWfIjgEARo';
-const ABA                 = '[PERPÉTUO] Julho PFCC';
+const ABA                 = "[PERPÉTUO] Julho PFCC";
 const ABA_RETRATO         = 'RETRATO DIA';
 
 function checkAuth(req) {
@@ -28,9 +28,13 @@ export default async function handler(req, res) {
   if (!username) return res.status(401).json({ error: 'Sessão inválida ou expirada.' });
 
   try {
+    // Nome da aba com caracteres especiais: escapa aspas simples internas
+    // e envolve em aspas simples no range
+    const abaEscapada = ABA.replace(/'/g, "''");
+
     const [rows, rowsRetrato] = await Promise.all([
-      getValues({ spreadsheetId: SPREADSHEET_ID,      range: `'${ABA}'!F6:K70` }),
-      getValues({ spreadsheetId: SPREADSHEET_ID_PIPE, range: `${ABA_RETRATO}!A:B` }),
+      getValues({ spreadsheetId: SPREADSHEET_ID,      range: `'${abaEscapada}'!F6:K70` }),
+      getValues({ spreadsheetId: SPREADSHEET_ID_PIPE, range: `'${ABA_RETRATO}'!A:B` }),
     ]);
 
     // Range F6:K70 → F=0, G=1, H=2, I=3, J=4, K=5
