@@ -1,8 +1,4 @@
 // api/retrato.js
-// Lê as células específicas da aba "[PERPÉTUO] Julho PFCC" e retorna
-// os dados estruturados pro dashboard exibir no Retrato do Dia.
-// Exige sessão válida.
-
 import { verifyToken } from '../lib/auth.js';
 import { getValues } from '../lib/sheets.js';
 
@@ -32,24 +28,21 @@ export default async function handler(req, res) {
   if (!username) return res.status(401).json({ error: 'Sessão inválida ou expirada.' });
 
   try {
-    // Busca os dois em paralelo
     const [rows, rowsRetrato] = await Promise.all([
-      getValues({ spreadsheetId: SPREADSHEET_ID,      range: `'${ABA}'!E6:H80` }),
-      // ✅ A:B — Python agora grava só nome (A) + qtd (B), sem data
+      getValues({ spreadsheetId: SPREADSHEET_ID,      range: `'${ABA}'!F6:K70` }),
       getValues({ spreadsheetId: SPREADSHEET_ID_PIPE, range: `${ABA_RETRATO}!A:B` }),
     ]);
 
-    // Helper: busca célula pelo índice de linha real (1-based) e coluna (E=0, F=1, G=2, H=3)
+    // Range F6:K70 → F=0, G=1, H=2, I=3, J=4, K=5
     function cel(linhaReal, col) {
-      const idx = linhaReal - 6; // offset: E6 = índice 0
+      const idx = linhaReal - 6;
       return rows[idx]?.[col] ?? '';
     }
 
-    const H = (linha) => cel(linha, 3); // coluna H
-    const E = (linha) => cel(linha, 0); // coluna E (metas)
+    const K = (linha) => cel(linha, 5); // valores
+    const F = (linha) => cel(linha, 0); // metas
 
-    // Monta mapa de etapa → quantidade do RETRATO DIA
-    // Formato: col A = nome da etapa, col B = quantidade
+    // Monta mapa do RETRATO DIA
     const retratoMap = {};
     for (const r of rowsRetrato) {
       const etapa = String(r[0] || '').trim().toLowerCase()
@@ -73,71 +66,72 @@ export default async function handler(req, res) {
     }
 
     const data = {
-      // ── MQLs totais ──
-      mqls: {
-        valor: parseNum(H(36)),
-        meta:  parseNum(E(36)),
-        eraPraEstar: eraPraEstar(parseNum(E(36))),
-      },
-
       // ── Investimento ──
       investimento: {
-        valor: parseNum(H(6)),
-        meta:  parseNum(E(6)),
+        valor: parseNum(K(6)),
+        meta:  parseNum(F(6)),
       },
 
-      // ── Etapas do funil — vêm do RETRATO DIA (snapshot atual) ──
+      // ── MQLs ──
+      mqls: {
+        valor: parseNum(K(31)),
+        meta:  parseNum(F(31)),
+        eraPraEstar: eraPraEstar(parseNum(F(31))),
+      },
+
+      // ── Etapas do funil ──
       etapas: {
-        aplicacao:   { valor: retratoVal('aplicacao'),                   meta: parseNum(E(46)) },
-        etapa1:      { valor: retratoVal('etapa 1'),                     meta: parseNum(E(47)) },
-        etapa2:      { valor: retratoVal('etapa 2'),                     meta: parseNum(E(48)) },
-        etapa3:      { valor: retratoVal('etapa 3'),                     meta: parseNum(E(49)) },
-        contatado:   { valor: retratoVal('contatado'),                   meta: parseNum(E(50)) },
-        oportunidade:{ valor: retratoVal('oportunidade'),                meta: parseNum(E(51)) },
-        agendados:   { valor: retratoVal('agendados'),                   meta: parseNum(E(52)) },
-        noshow:      { valor: retratoVal('no show'),                     meta: parseNum(E(53)) },
-        validacao:   { valor: retratoVal('validacao de reuniao'),        meta: parseNum(E(54)) },
-        negociacao:  { valor: retratoVal('negociacao'),                  meta: parseNum(E(55)) },
-        inscricao:   { valor: retratoVal('inscricao em andamento'),      meta: parseNum(E(56)) },
-        descarte:    { valor: retratoVal('descarte'),                    meta: parseNum(E(62)) },
+        aplicacao:   { valor: parseNum(K(32)),  meta: parseNum(F(32)) },
+        etapa1:      { valor: parseNum(K(33)),  meta: null            },
+        etapa2:      { valor: parseNum(K(34)),  meta: null            },
+        etapa3:      { valor: parseNum(K(35)),  meta: null            },
+        contatado:   { valor: parseNum(K(36)),  meta: parseNum(F(36)) },
+        oportunidade:{ valor: parseNum(K(37)),  meta: parseNum(F(37)) },
+        agendados:   { valor: parseNum(K(38)),  meta: parseNum(F(38)) },
+        noshow:      { valor: parseNum(K(39)),  meta: parseNum(F(39)) },
+        validacao:   { valor: parseNum(K(40)),  meta: parseNum(F(40)) },
+        negociacao:  { valor: parseNum(K(41)),  meta: parseNum(F(41)) },
+        inscricao:   { valor: parseNum(K(42)),  meta: parseNum(F(42)) },
+      },
+
+      // ── Vendas ──
+      vendas: {
+        valor: parseNum(K(48)),
+        meta:  parseNum(F(48)),
+        eraPraEstar: eraPraEstar(parseNum(F(48))),
       },
 
       // ── Taxas ──
       taxas: {
-        conexao:           { valor: parseNum(H(65)), meta: parseNum(E(65)) },
-        descarte:          { valor: parseNum(H(66)), meta: parseNum(E(66)) },
-        sql:               { valor: parseNum(H(67)), meta: parseNum(E(67)) },
-        agendamento:       { valor: parseNum(H(68)), meta: parseNum(E(68)) },
-        noshow:            { valor: parseNum(H(69)), meta: parseNum(E(69)) },
-        vendasEmCall:      { valor: parseNum(H(70)), meta: parseNum(E(70)) },
-        vendasEmMqlsTotal: { valor: parseNum(H(71)), meta: parseNum(E(71)) },
-        vendasEmMqlsReais: { valor: parseNum(H(72)), meta: parseNum(E(72)) },
+        conversaoPagina:   { valor: parseNum(K(50)), meta: parseNum(F(50)) },
+        qualificacao:      { valor: parseNum(K(51)), meta: parseNum(F(51)) },
+        conexao:           { valor: parseNum(K(52)), meta: parseNum(F(52)) },
+        descarte:          { valor: parseNum(K(53)), meta: parseNum(F(53)) },
+        sql:               { valor: parseNum(K(54)), meta: parseNum(F(54)) },
+        agendamento:       { valor: parseNum(K(55)), meta: parseNum(F(55)) },
+        noshow:            { valor: parseNum(K(56)), meta: parseNum(F(56)) },
+        vendasEmCall:      { valor: parseNum(K(57)), meta: parseNum(F(57)) },
+        vendasEmMqlsTotal: { valor: parseNum(K(58)), meta: parseNum(F(58)) },
+        vendasEmMqlsReais: { valor: parseNum(K(59)), meta: parseNum(F(59)) },
       },
 
-      // ── Vendas (quantidade) ──
-      vendas: {
-        valor: (parseNum(H(57)) || 0) + (parseNum(H(58)) || 0),
-        meta:  76,
-        eraPraEstar: eraPraEstar(76),
-      },
-
-      // ── Faturamento e ROAS ──
+      // ── Faturamento ──
       faturamento: {
-        valor: (parseNum(H(73)) || 0) + (parseNum(H(74)) || 0),
-        meta:  (parseNum(E(73)) || 0) + (parseNum(E(74)) || 0),
-        eraPraEstar: eraPraEstar((parseNum(E(73)) || 0) + (parseNum(E(74)) || 0)),
+        valor: parseNum(K(61)),
+        meta:  parseNum(F(61)),
+        eraPraEstar: eraPraEstar(parseNum(F(61))),
       },
+
+      // ── ROAS ──
       roas: {
-        valor: (parseNum(H(79)) || 0) + (parseNum(H(80)) || 0),
-        meta:  (parseNum(E(79)) || 0) + (parseNum(E(80)) || 0),
+        valor: parseNum(K(70)),
+        meta:  parseNum(F(70)),
       },
 
       // ── Ticket médio ──
       ticketMedio: {
-        valor: parseNum(H(75)) !== null && parseNum(H(76)) !== null
-          ? ((parseNum(H(75)) || 0) + (parseNum(H(76)) || 0)) / 2
-          : null,
-        meta: parseNum(E(76)),
+        valor: parseNum(K(65)),
+        meta:  parseNum(F(65)),
       },
     };
 
