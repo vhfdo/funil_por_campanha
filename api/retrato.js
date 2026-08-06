@@ -4,7 +4,7 @@ import { getValues } from '../lib/sheets.js';
 
 const SPREADSHEET_ID      = '1sFLWhfBAeGmDnJ22TadZ0ZMC5AOZXBODXBrwKClENJk';
 const SPREADSHEET_ID_PIPE = '1Evtto8jEIQ6_239Ad-4jP_pYa1twc8iY4XWfIjgEARo';
-const ABA                 = "[PERPÉTUO] Julho PFCC";
+const ABA                 = "[PERPÉTUO] Agosto PFCC";
 const ABA_RETRATO         = 'RETRATO DIA';
 
 function checkAuth(req) {
