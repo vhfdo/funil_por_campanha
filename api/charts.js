@@ -4,7 +4,7 @@ import { getValues } from '../lib/sheets.js';
 
 const SPREADSHEET_ID      = '1sFLWhfBAeGmDnJ22TadZ0ZMC5AOZXBODXBrwKClENJk';
 const SPREADSHEET_ID_PIPE = '1Evtto8jEIQ6_239Ad-4jP_pYa1twc8iY4XWfIjgEARo';
-const ABA                 = '[PERPÉTUO] Agosto PFCC';
+const ABA                 = "[PERPÉTUO] Agosto PFCC";
 const ABA_LEADS_DIA       = 'LEADS-DIA';
 
 const META_MQLS_MES = 1900;
@@ -30,10 +30,11 @@ export default async function handler(req, res) {
   if (!checkAuth(req)) return res.status(401).json({ error: 'Sessao invalida.' });
 
   try {
-    // Busca os dois ranges em paralelo
+    const abaEscapada = ABA.replace(/'/g, "''");
+
     const [rowsPerp, rowsLeads] = await Promise.all([
-      getValues({ spreadsheetId: SPREADSHEET_ID,      range: `'${ABA}'!N4:AR80` }),
-      getValues({ spreadsheetId: SPREADSHEET_ID_PIPE, range: `${ABA_LEADS_DIA}!A:N`  }),
+      getValues({ spreadsheetId: SPREADSHEET_ID,      range: `'${abaEscapada}'!N4:AR80` }),
+      getValues({ spreadsheetId: SPREADSHEET_ID_PIPE, range: `'${ABA_LEADS_DIA}'!A:N`  }),
     ]);
 
     const row = (linhaReal) => rowsPerp[linhaReal - 4] || [];
@@ -44,10 +45,8 @@ export default async function handler(req, res) {
     const roas2  = row(80);
     const vend1  = row(73);
     const vend2  = row(74);
-    const inv    = row(6);  // investimento por dia
+    const inv    = row(6);
 
-    // Monta mapa de dd/mm → {mqlsV2, mqlsN} da aba LEADS-DIA
-    // Coluna A = data "dd/mm/yyyy", L = mqls_v2 (idx 11), N = mqls_all_v2 (idx 13)
     const leadsPorDia = {};
     for (const r of rowsLeads) {
       const dataStr = String(r[0] || '').trim();
@@ -55,12 +54,11 @@ export default async function handler(req, res) {
       const partes = dataStr.split('/');
       const ddmm = `${partes[0]}/${partes[1]}`;
       leadsPorDia[ddmm] = {
-        mqlsV2: parseNum(r[11]),  // coluna L
-        mqlsN:  parseNum(r[13]),  // coluna N — todos os funis, sem gerente/prof. liberal
+        mqlsV2: parseNum(r[11]),
+        mqlsN:  parseNum(r[13]),
       };
     }
 
-    // Descobre até qual coluna tem dado
     let ultimoDia = 0;
     for (let i = 0; i < datas.length; i++) {
       if (datas[i] && parseNum(mqls[i]) !== null) ultimoDia = i + 1;
@@ -86,8 +84,7 @@ export default async function handler(req, res) {
       const ld = leadsPorDia[label] || {};
       mqlsV2Dia.push(ld.mqlsV2 ?? null);
 
-      // CPMQL = investimento do dia ÷ MQLs coluna N do dia
-      const invDia  = parseNum(inv[i]) ?? 0;
+      const invDia   = parseNum(inv[i]) ?? 0;
       const mqlsNDia = ld.mqlsN ?? null;
       const cpmql = (mqlsNDia && mqlsNDia > 0) ? Math.round(invDia / mqlsNDia) : null;
       cpmqlDia.push(cpmql);
