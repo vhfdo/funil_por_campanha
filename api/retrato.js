@@ -100,9 +100,8 @@ export default async function handler(req, res) {
 
       // ── Vendas ──
       vendas: {
-        valor: parseNum(K(48)),
-        meta:  parseNum(F(48)),
-        eraPraEstar: eraPraEstar(parseNum(F(48))),
+        valor: parseNum(K(44)),
+        meta:  parseNum(F(44)),
       },
 
       // ── Taxas ──
