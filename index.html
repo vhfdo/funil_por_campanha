@@ -755,15 +755,17 @@ function renderRetratoDia(d) {
   const taxasDiv = document.getElementById('retratoTaxas');
   if (taxasDiv) {
     const TAXAS = [
-      ['Taxa de Conexão',         d.taxas.conexao,           'pct', false],
-      ['Taxa de Descarte',        d.taxas.descarte,          'pct', true],
-      ['Taxa SQL',                d.taxas.sql,               'pct', false],
-      ['Taxa de Agendamento',     d.taxas.agendamento,       'pct', false],
-      ['No Show',                 d.taxas.noshow,            'pct', true],
-      ['Tx Vendas em Call',       d.taxas.vendasEmCall,      'pct', false],
-      ['Tx Vendas / MQLs Totais', d.taxas.vendasEmMqlsTotal, 'pct', false],
-      ['Tx Vendas / MQLs Reais',  d.taxas.vendasEmMqlsReais, 'pct', false],
-    ];
+  ['Tx de Conversão Página',        d.taxas.conversaoPagina,   'pct', false],
+  ['Tx de Qualificação',            d.taxas.qualificacao,      'pct', false],
+  ['Tx de Conexão',                 d.taxas.conexao,           'pct', false],
+  ['Tx de Descarte',                d.taxas.descarte,          'pct', true],
+  ['Tx de SQL',                     d.taxas.sql,               'pct', false],
+  ['Tx de Agendamento',             d.taxas.agendamento,       'pct', false],
+  ['No Show',                       d.taxas.noshow,            'pct', true],
+  ['Tx Vendas em Call',             d.taxas.vendasEmCall,      'pct', false],
+  ['Tx Vendas / MQLs Totais',       d.taxas.vendasEmMqlsTotal, 'pct', false],
+  ['Tx Vendas / MQLs Reais',        d.taxas.vendasEmMqlsReais, 'pct', false],
+];
     taxasDiv.innerHTML = `<div>` + TAXAS.map(([label, obj, tipo, inv]) => {
       if (!obj || obj.valor === null) return '';
       const pct = obj.meta ? pctMeta(obj.valor, obj.meta) : null;
