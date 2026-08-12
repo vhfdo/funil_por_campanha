@@ -43,8 +43,8 @@ export default async function handler(req, res) {
     const mqls   = row(36);
     const roas1  = row(79);
     const roas2  = row(80);
-    const vend1  = row(73);
-    const vend2  = row(74);
+    const vend1  = row(65);
+    const vend2  = null;
     const inv    = row(6);
 
     const leadsPorDia = {};
@@ -93,7 +93,7 @@ export default async function handler(req, res) {
       raosDia.push(parseFloat(r.toFixed(2)));
       metaRoas.push(META_ROAS);
 
-      vendasAcum += (parseNum(vend1[i]) ?? 0) + (parseNum(vend2[i]) ?? 0);
+      vendasAcum += parseNum(vend1[i]) ?? 0;
       vendasMtd.push(Math.round(vendasAcum));
       metaVendAcum += metaVendDia;
       metaVendasMtd.push(Math.round(metaVendAcum));
