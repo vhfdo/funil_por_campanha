@@ -33,7 +33,7 @@ export default async function handler(req, res) {
     const abaEscapada = ABA.replace(/'/g, "''");
 
     const [rows, rowsRetrato] = await Promise.all([
-      getValues({ spreadsheetId: SPREADSHEET_ID,      range: `'${abaEscapada}'!F6:K70` }),
+      getValues({ spreadsheetId: SPREADSHEET_ID,      range: `'${abaEscapada}'!F6:K73` }),
       getValues({ spreadsheetId: SPREADSHEET_ID_PIPE, range: `'${ABA_RETRATO}'!A:B` }),
     ]);
 
@@ -85,56 +85,56 @@ export default async function handler(req, res) {
 
       // ── Etapas do funil ──
       etapas: {
-        aplicacao:   { valor: parseNum(K(32)),  meta: parseNum(F(32)) },
-        etapa1:      { valor: parseNum(K(33)),  meta: null            },
-        etapa2:      { valor: parseNum(K(34)),  meta: null            },
-        etapa3:      { valor: parseNum(K(35)),  meta: null            },
-        contatado:   { valor: parseNum(K(36)),  meta: parseNum(F(36)) },
-        oportunidade:{ valor: parseNum(K(37)),  meta: parseNum(F(37)) },
-        agendados:   { valor: parseNum(K(38)),  meta: parseNum(F(38)) },
-        noshow:      { valor: parseNum(K(39)),  meta: parseNum(F(39)) },
-        validacao:   { valor: parseNum(K(40)),  meta: parseNum(F(40)) },
-        negociacao:  { valor: parseNum(K(41)),  meta: parseNum(F(41)) },
-        inscricao:   { valor: parseNum(K(42)),  meta: parseNum(F(42)) },
+        aplicacao:   { valor: parseNum(K(34)),  meta: null            },
+        etapa1:      { valor: parseNum(K(35)),  meta: null            },
+        etapa2:      { valor: parseNum(K(36)),  meta: null            },
+        etapa3:      { valor: parseNum(K(37)),  meta: null            },
+        contatado:   { valor: parseNum(K(38)),  meta: parseNum(F(38)) },
+        oportunidade:{ valor: parseNum(K(39)),  meta: parseNum(F(39)) },
+        agendados:   { valor: parseNum(K(40)),  meta: parseNum(F(40)) },
+        noshow:      { valor: parseNum(K(41)),  meta: parseNum(F(41)) },
+        validacao:   { valor: parseNum(K(42)),  meta: parseNum(F(42)) },
+        negociacao:  { valor: parseNum(K(43)),  meta: parseNum(F(43)) },
+        inscricao:   { valor: parseNum(K(44)),  meta: parseNum(F(44)) },
       },
 
       // ── Vendas ──
       vendas: {
-        valor: parseNum(K(44)),
-        meta:  parseNum(F(44)),
+        valor: parseNum(K(49)),
+        meta:  parseNum(F(48)),
+        eraPraEstar: eraPraEstar(parseNum(F(48))),
       },
 
       // ── Taxas ──
       taxas: {
-        conversaoPagina:   { valor: parseNum(K(50)), meta: parseNum(F(50)) },
-        qualificacao:      { valor: parseNum(K(51)), meta: parseNum(F(51)) },
-        conexao:           { valor: parseNum(K(52)), meta: parseNum(F(52)) },
-        descarte:          { valor: parseNum(K(53)), meta: parseNum(F(53)) },
-        sql:               { valor: parseNum(K(54)), meta: parseNum(F(54)) },
-        agendamento:       { valor: parseNum(K(55)), meta: parseNum(F(55)) },
-        noshow:            { valor: parseNum(K(56)), meta: parseNum(F(56)) },
-        vendasEmCall:      { valor: parseNum(K(57)), meta: parseNum(F(57)) },
-        vendasEmMqlsTotal: { valor: parseNum(K(58)), meta: parseNum(F(58)) },
-        vendasEmMqlsReais: { valor: parseNum(K(59)), meta: parseNum(F(59)) },
+        conversaoPagina:   { valor: parseNum(K(52)), meta: parseNum(F(52)) },
+        qualificacao:      { valor: parseNum(K(53)), meta: parseNum(F(53)) },
+        conexao:           { valor: parseNum(K(54)), meta: parseNum(F(54)) },
+        descarte:          { valor: parseNum(K(55)), meta: parseNum(F(55)) },
+        sql:               { valor: parseNum(K(56)), meta: parseNum(F(56)) },
+        agendamento:       { valor: parseNum(K(57)), meta: parseNum(F(57)) },
+        noshow:            { valor: parseNum(K(58)), meta: parseNum(F(58)) },
+        vendasEmCall:      { valor: parseNum(K(59)), meta: parseNum(F(59)) },
+        vendasEmMqlsTotal: { valor: parseNum(K(60)), meta: parseNum(F(60)) },
+        vendasEmMqlsReais: { valor: parseNum(K(61)), meta: parseNum(F(61)) },
       },
 
       // ── Faturamento ──
       faturamento: {
-        valor: parseNum(K(61)),
-        meta:  parseNum(F(61)),
-        eraPraEstar: eraPraEstar(parseNum(F(61))),
+        valor: parseNum(K(65)),
+        meta:  parseNum(F(613)),
       },
 
       // ── ROAS ──
       roas: {
-        valor: parseNum(K(70)),
+        valor: parseNum(K(73)),
         meta:  parseNum(F(70)),
       },
 
       // ── Ticket médio ──
       ticketMedio: {
-        valor: parseNum(K(65)),
-        meta:  parseNum(F(65)),
+        valor: parseNum(K(67)),
+        meta:  parseNum(F(67)),
       },
     };
 
