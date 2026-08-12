@@ -15,7 +15,7 @@
   }
   *{margin:0;padding:0;box-sizing:border-box;}
   body{background:var(--bg);color:var(--white);font-family:'DM Sans',sans-serif;-webkit-font-smoothing:antialiased;}
-  .wrap{max-width:1500px;margin:0 auto;padding:32px 24px 80px;}
+  .wrap{max-width:1500px;margin:0 auto;padding:26px 22px 50px;}
 
   /* ── Cabeçalho ── */
   .header{display:flex;justify-content:space-between;align-items:flex-end;
@@ -61,61 +61,68 @@
 
   /* ── KPIs ── */
   .kpi-strip{display:grid;grid-template-columns:repeat(9,1fr);gap:1px;
-    background:var(--border);border:1px solid var(--border);margin-bottom:24px;}
-  .kpi-card{background:var(--panel);padding:16px 14px;}
+    background:var(--border);border:1px solid var(--border);margin-bottom:16px;}
+  .kpi-card{background:var(--panel);padding:13px 12px;}
   .kpi-label{font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;
     letter-spacing:.1em;color:var(--gray);margin-bottom:8px;}
-  .kpi-val{font-family:'Bebas Neue',sans-serif;font-size:30px;line-height:1;color:var(--white);}
+  .kpi-val{font-family:'Bebas Neue',sans-serif;font-size:26px;line-height:1;color:var(--white);}
   .kpi-val.blue{color:var(--blue);}
   @media(max-width:1200px){.kpi-strip{grid-template-columns:repeat(5,1fr);}}
   @media(max-width:700px){.kpi-strip{grid-template-columns:repeat(3,1fr);}}
 
   /* ── Grid principal ── */
-  .main-grid{display:grid;grid-template-columns:1fr 1.3fr;gap:20px;margin-bottom:24px;}
-  @media(max-width:1000px){.main-grid{grid-template-columns:1fr;}}
+  .grid-topo{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
+  .grid-meio{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px;}
+  .grid-base{display:grid;grid-template-columns:1.15fr 1fr;gap:16px;}
+  @media(max-width:1100px){
+    .grid-topo,.grid-meio,.grid-base{grid-template-columns:1fr;}
+  }
 
-  .col{display:flex;flex-direction:column;gap:20px;}
-
-  .card{background:var(--panel);border:1px solid var(--border);padding:20px;}
-  .card-title{font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:.04em;
-    margin-bottom:16px;display:flex;align-items:center;gap:10px;justify-content:space-between;}
-  .card-tag{font-family:'DM Mono',monospace;font-size:10px;background:var(--blue);
-    color:var(--bg);padding:2px 7px;letter-spacing:.06em;}
-  .chart-box{position:relative;height:200px;}
+  .card{background:var(--panel);border:1px solid var(--border);padding:16px 18px;
+    display:flex;flex-direction:column;min-width:0;}
+  .card-title{font-family:'Bebas Neue',sans-serif;font-size:17px;letter-spacing:.04em;
+    margin-bottom:12px;display:flex;align-items:center;gap:8px;justify-content:space-between;
+    flex-shrink:0;}
+  .card-tag{font-family:'DM Mono',monospace;font-size:9px;background:var(--blue);
+    color:var(--bg);padding:2px 6px;letter-spacing:.06em;white-space:nowrap;}
+  .card-body{flex:1;min-height:0;overflow:auto;}
+  .chart-box{position:relative;height:190px;flex-shrink:0;}
+  .chart-box.baixo{height:150px;}
 
   /* ── Tabela ── */
-  table{width:100%;border-collapse:collapse;font-size:12px;}
-  th{font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.06em;
-    color:var(--gray);padding:8px 10px;border-bottom:2px solid var(--blue);text-align:left;white-space:nowrap;}
+  table{width:100%;border-collapse:collapse;font-size:11px;}
+  th{font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.05em;
+    color:var(--gray);padding:7px 8px;border-bottom:2px solid var(--blue);text-align:left;
+    white-space:nowrap;position:sticky;top:0;background:var(--panel);}
   th.num{text-align:right;}
-  td{padding:9px 10px;border-bottom:1px solid var(--border);}
-  td.num{text-align:right;font-family:'DM Mono',monospace;font-size:11px;}
+  td{padding:7px 8px;border-bottom:1px solid var(--border);}
+  td.num{text-align:right;font-family:'DM Mono',monospace;font-size:10px;}
   tr.clicavel{cursor:pointer;}
   tr.clicavel:hover td{background:var(--panel2);}
   tr.selecionado td{background:#16283d;}
-  .table-scroll{overflow-x:auto;}
+  .table-scroll{overflow:auto;max-height:230px;}
 
   /* ── Funil ── */
-  .funil{display:flex;flex-direction:column;gap:3px;}
-  .funil-step{display:grid;grid-template-columns:150px 1fr 52px;align-items:center;gap:10px;
-    cursor:pointer;padding:3px 0;}
+  .funil{display:flex;flex-direction:column;gap:2px;}
+  .funil-step{display:grid;grid-template-columns:118px 1fr 42px;align-items:center;gap:8px;
+    cursor:pointer;}
   .funil-step:hover .funil-bar{filter:brightness(1.25);}
   .funil-step.selecionado .funil-label{color:var(--amber);}
-  .funil-label{font-size:12px;color:var(--white);text-align:right;
+  .funil-label{font-size:10.5px;color:var(--gray-light);text-align:right;
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-  .funil-track{height:22px;background:var(--border);border-radius:2px;overflow:hidden;}
+  .funil-track{height:17px;background:var(--border);border-radius:2px;overflow:hidden;}
   .funil-bar{height:100%;border-radius:2px;display:flex;align-items:center;
-    justify-content:flex-end;padding-right:7px;min-width:26px;transition:filter .12s;}
-  .funil-val{font-family:'DM Mono',monospace;font-size:11px;color:#fff;font-weight:500;}
-  .funil-pct{font-family:'DM Mono',monospace;font-size:10px;color:var(--gray);text-align:right;}
+    justify-content:flex-end;padding-right:6px;min-width:22px;transition:filter .12s;}
+  .funil-val{font-family:'DM Mono',monospace;font-size:10px;color:#fff;font-weight:500;}
+  .funil-pct{font-family:'DM Mono',monospace;font-size:9px;color:var(--gray);text-align:right;}
 
-  /* ── Taxas (placeholder) ── */
+  /* ── Taxas ── */
   .taxas{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;
-    background:var(--border);border:1px solid var(--border);}
-  .taxa{background:var(--panel);padding:14px;text-align:center;}
+    background:var(--border);border:1px solid var(--border);margin-bottom:16px;}
+  .taxa{background:var(--panel);padding:12px;text-align:center;}
   .taxa-nome{font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;
-    letter-spacing:.08em;color:var(--gray);margin-bottom:6px;}
-  .taxa-val{font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--gray);}
+    letter-spacing:.06em;color:var(--gray);margin-bottom:5px;}
+  .taxa-val{font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--gray);}
   @media(max-width:700px){.taxas{grid-template-columns:repeat(2,1fr);}}
 
   .empty{text-align:center;padding:40px 20px;color:var(--gray);
@@ -174,6 +181,28 @@ function logout() {
 // ── Estado ──────────────────────────────────────────────────────────────────
 const ORDEM_PRODUTOS = ['PFCC BRASIL', 'PFCC MÉXICO', 'PFCC CHILE', 'LEAN', 'CES'];
 const CORES_REDE = { Meta: '#4a6dd4', Google: '#2980b9', LinkedIn: '#0e76a8' };
+
+// Ordem em que as etapas aparecem no funil. O que não estiver aqui vai pro fim.
+const ORDEM_ETAPAS = [
+  'aplicacao', 'reaplicacao', 'em agendamento', 'contatado',
+  'etapa 1', 'etapa 2', 'etapa 3', 'oportunidade', 'proposta',
+  'agendados', 'no show', 'validacao de reuniao', 'reuniao',
+  'negociacao', 'inscricao em andamento', 'futuro'
+];
+
+const semAcento = s => (s || '').toLowerCase().trim()
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+function ordenarEtapas(etapas) {
+  return [...etapas].sort((a, b) => {
+    const ia = ORDEM_ETAPAS.findIndex(e => semAcento(a.etapa).includes(e));
+    const ib = ORDEM_ETAPAS.findIndex(e => semAcento(b.etapa).includes(e));
+    if (ia === -1 && ib === -1) return b.qtd - a.qtd;
+    if (ia === -1) return 1;
+    if (ib === -1) return -1;
+    return ia - ib;
+  });
+}
 
 let dados = null;            // resposta crua da API
 let produtoAtivo = 'PFCC BRASIL';
@@ -345,53 +374,53 @@ function render() {
         </div>`).join('')}
     </div>
 
-    <div class="main-grid">
-      <div class="col">
-        <div class="card">
-          <div class="card-title">Investimento · Leads · MQL</div>
-          <div class="chart-box"><canvas id="chartLeads"></canvas></div>
-        </div>
-        <div class="card">
-          <div class="card-title">
-            Leads por rede
-            <span class="card-tag">clique para filtrar</span>
-          </div>
-          <div class="chart-box"><canvas id="chartRedes"></canvas></div>
-        </div>
-        <div class="card">
-          <div class="card-title">Ganhos por dia</div>
-          <div class="chart-box"><canvas id="chartGanhos"></canvas></div>
-        </div>
+    <div class="grid-topo">
+      <div class="card">
+        <div class="card-title">Investimento · Leads · MQL</div>
+        <div class="chart-box"><canvas id="chartLeads"></canvas></div>
       </div>
-
-      <div class="col">
-        <div class="card">
-          <div class="card-title">Comparativo entre produtos</div>
-          <div class="table-scroll">${tabelaProdutos()}</div>
+      <div class="card">
+        <div class="card-title">
+          Funil
+          <span class="card-tag">clique numa etapa</span>
         </div>
-
-        <div class="card">
-          <div class="card-title">
-            Funil
-            <span class="card-tag">clique numa etapa</span>
-          </div>
-          ${funilHtml(v)}
-        </div>
-
-        <div class="taxas">
-          ${['Tx. Qualificação','Tx. Conexão','Tx. Agendamento','Tx. Vendas s/ Call']
-            .map(n => `<div class="taxa"><div class="taxa-nome">${n}</div><div class="taxa-val">—</div></div>`)
-            .join('')}
-        </div>
-
-        <div class="card">
-          <div class="card-title">
-            Volume por proprietário
-            <span class="card-tag">${fmtNum(v.backlog.length)} leads</span>
-          </div>
-          <div class="table-scroll">${tabelaProprietarios(v)}</div>
-        </div>
+        <div class="card-body">${funilHtml(v)}</div>
       </div>
+    </div>
+
+    <div class="grid-meio">
+      <div class="card">
+        <div class="card-title">
+          Investimento por rede
+          <span class="card-tag">filtra tudo</span>
+        </div>
+        <div class="chart-box baixo"><canvas id="chartRedes"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Faturamento acumulado</div>
+        <div class="chart-box baixo"><canvas id="chartGanhos"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-title">
+          Proprietários
+          <span class="card-tag">${fmtNum(v.backlog.length)} leads</span>
+        </div>
+        <div class="table-scroll" style="max-height:150px">${tabelaProprietarios(v)}</div>
+      </div>
+    </div>
+
+    <div class="taxas">
+      ${['Tx. Qualificação','Tx. Conexão','Tx. Agendamento','Tx. Vendas s/ Call']
+        .map(n => `<div class="taxa"><div class="taxa-nome">${n}</div><div class="taxa-val">—</div></div>`)
+        .join('')}
+    </div>
+
+    <div class="card">
+      <div class="card-title">
+        Comparativo entre produtos
+        <span class="card-tag">clique para trocar</span>
+      </div>
+      <div class="table-scroll">${tabelaProdutos()}</div>
     </div>
   `;
 
@@ -437,10 +466,11 @@ function tabelaProdutos() {
 // ── Funil ───────────────────────────────────────────────────────────────────
 function funilHtml(v) {
   if (!v.etapas.length) return '<div class="empty">Sem etapas para exibir.</div>';
-  const maior = Math.max(...v.etapas.map(e => e.qtd), 1);
-  const topo  = v.etapas[0]?.qtd || 1;
+  const etapas = ordenarEtapas(v.etapas);
+  const maior  = Math.max(...etapas.map(e => e.qtd), 1);
+  const topo   = etapas[0]?.qtd || 1;
 
-  return '<div class="funil">' + v.etapas.map((e, i) => {
+  return '<div class="funil">' + etapas.map((e, i) => {
     const larg = Math.max(e.qtd / maior * 100, 3);
     const pct  = (e.qtd / topo * 100).toFixed(0);
     const cor  = `hsl(${210 - i * 6}, ${62 - i * 3}%, ${58 - i * 2}%)`;
@@ -470,7 +500,7 @@ function tabelaProprietarios(v) {
 
   const linhas = Object.entries(agg)
     .sort((a, b) => b[1].leads - a[1].leads)
-    .slice(0, 12)
+    .slice(0, 8)
     .map(([dono, d]) => {
       const sel = filtros.proprietario === dono;
       return `<tr class="clicavel ${sel ? 'selecionado' : ''}"
@@ -576,9 +606,21 @@ function desenharGraficos(v) {
     },
   });
 
-  // Ganhos acumulados
+  // Ganhos acumulados. Se ninguém marcou "sim" ainda, mostra todos os ganhos
+  // pra tela não ficar vazia — o aviso fica no título do card.
+  const validados = v.ganhos.filter(x => x.vale === 'sim');
+  const usarTodos = validados.length === 0 && v.ganhos.length > 0;
+  const base = usarTodos ? v.ganhos : validados;
+
+  const tituloGanhos = document.querySelector('#chartGanhos')
+    ?.closest('.card')?.querySelector('.card-title');
+  if (tituloGanhos && usarTodos) {
+    tituloGanhos.innerHTML = 'Faturamento acumulado <span class="card-tag" ' +
+      'style="background:var(--amber)">sem validação</span>';
+  }
+
   const ganhosPorDia = {};
-  for (const g of v.ganhos.filter(x => x.vale === 'sim')) {
+  for (const g of base) {
     ganhosPorDia[g.data] = (ganhosPorDia[g.data] || 0) + g.valor;
   }
   const diasGanhos = Object.keys(ganhosPorDia).sort((a, b) => paraData(a) - paraData(b));
