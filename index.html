@@ -30,12 +30,12 @@
     cursor:pointer;transition:all .15s;}
   .btn:hover{background:var(--blue);color:var(--bg);}
   .btn:disabled{opacity:.4;cursor:not-allowed;}
-  .user-info{font-family:'DM Mono',monospace;font-size:11px;color:var(--gray);
+  .user-info{font-family:'DM Mono',monospace;font-size:11px;color:var(--white);
     text-transform:uppercase;letter-spacing:.06em;}
 
   .metrica-switch{display:flex;gap:1px;background:var(--border);border:1px solid var(--border);}
   .metrica-btn{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.08em;
-    text-transform:uppercase;padding:9px 16px;background:var(--panel);color:var(--gray);
+    text-transform:uppercase;padding:9px 16px;background:var(--panel);color:var(--white);
     border:none;cursor:pointer;transition:all .12s;}
   .metrica-btn:hover{color:var(--gray-light);}
   .metrica-btn.active{background:var(--blue);color:var(--bg);}
@@ -44,7 +44,7 @@
     border:1px solid var(--border);padding:8px 14px;}
   .date-range:focus-within{border-color:var(--blue);}
   .date-label{font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;
-    letter-spacing:.1em;color:var(--gray);}
+    letter-spacing:.1em;color:var(--white);}
   .date-sep{font-family:'DM Mono',monospace;font-size:12px;color:var(--blue);padding:0 4px;}
   .date-input{font-family:'DM Mono',monospace;font-size:12px;background:transparent;
     border:none;color:var(--white);outline:none;cursor:pointer;width:118px;}
@@ -58,14 +58,14 @@
   .produto-tab:hover{background:var(--panel2);}
   .produto-tab.active{background:var(--panel2);border-bottom-color:var(--blue);}
   .produto-tab .nome{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.08em;
-    text-transform:uppercase;color:var(--gray-light);}
+    text-transform:uppercase;color:var(--white);}
   .produto-tab.active .nome{color:var(--blue);}
   .produto-tab.consolidado{border-right:1px solid var(--blue);}
   .produto-tab.consolidado .nome{color:var(--amber);}
   .produto-tab.consolidado.active .nome{color:var(--blue);}
   .produto-tab .mini{font-family:'Bebas Neue',sans-serif;font-size:22px;margin-top:4px;color:var(--white);}
 
-  .status-bar{font-family:'DM Mono',monospace;font-size:11px;color:var(--gray);
+  .status-bar{font-family:'DM Mono',monospace;font-size:11px;color:var(--white);
     margin-bottom:24px;min-height:16px;display:flex;justify-content:space-between;align-items:center;gap:12px;}
   .filtro-ativo{color:var(--amber);cursor:pointer;}
   .filtro-ativo:hover{text-decoration:underline;}
@@ -75,11 +75,11 @@
     background:var(--border);border:1px solid var(--border);margin-bottom:16px;}
   .kpi-card{background:var(--panel);padding:13px 12px;}
   .kpi-label{font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;
-    letter-spacing:.1em;color:var(--gray);margin-bottom:8px;}
+    letter-spacing:.1em;color:var(--white);margin-bottom:8px;}
   .kpi-val{font-family:'Bebas Neue',sans-serif;font-size:26px;line-height:1;color:var(--white);}
   .kpi-val.blue{color:var(--blue);}
   .kpi-linha{display:flex;justify-content:space-between;font-family:'DM Mono',monospace;
-    font-size:9.5px;color:var(--gray);margin-top:5px;}
+    font-size:9.5px;color:var(--white);margin-top:5px;}
   .kpi-linha span:last-child{color:var(--white);}
   .kpi-barra{height:3px;background:var(--border);border-radius:2px;overflow:hidden;margin-top:7px;}
   .kpi-barra div{height:100%;border-radius:2px;}
@@ -107,10 +107,31 @@
   .chart-box{position:relative;height:190px;flex-shrink:0;}
   .chart-box.baixo{height:150px;}
 
+  /* ── Cards de rede ── */
+  .redes-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:16px;}
+  @media(max-width:900px){.redes-grid{grid-template-columns:1fr;}}
+  .rede-card{background:var(--panel);border:1px solid var(--border);padding:14px 16px;
+    cursor:pointer;transition:border-color .12s,background .12s;}
+  .rede-card:hover{background:var(--panel2);}
+  .rede-card.ativo{background:var(--panel2);}
+  .rede-card.vazio{cursor:default;opacity:.5;}
+  .rede-topo{display:flex;justify-content:space-between;align-items:baseline;
+    margin-bottom:12px;padding-bottom:9px;border-bottom:1px solid var(--border);}
+  .rede-nome{font-family:'Bebas Neue',sans-serif;font-size:19px;letter-spacing:.04em;}
+  .rede-inv{font-family:'DM Mono',monospace;font-size:12px;color:var(--white);}
+  .rede-nums{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:9px;}
+  .rede-nums div{display:flex;flex-direction:column;gap:2px;}
+  .rede-nums span{font-family:'DM Mono',monospace;font-size:8.5px;color:var(--white);
+    text-transform:uppercase;letter-spacing:.06em;}
+  .rede-nums strong{font-family:'DM Mono',monospace;font-size:12.5px;
+    font-weight:500;color:var(--white);}
+  .rede-barra{height:3px;background:var(--border);border-radius:2px;overflow:hidden;margin-top:4px;}
+  .rede-barra div{height:100%;border-radius:2px;}
+
   /* ── Tabela ── */
   table{width:100%;border-collapse:collapse;font-size:11px;}
   th{font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.05em;
-    color:var(--gray);padding:7px 8px;border-bottom:2px solid var(--blue);text-align:left;
+    color:var(--white);padding:7px 8px;border-bottom:2px solid var(--blue);text-align:left;
     white-space:nowrap;position:sticky;top:0;background:var(--panel);}
   th.num{text-align:right;}
   td{padding:7px 8px;border-bottom:1px solid var(--border);}
@@ -126,20 +147,20 @@
     cursor:pointer;}
   .funil-step:hover .funil-bar{filter:brightness(1.25);}
   .funil-step.selecionado .funil-label{color:var(--amber);}
-  .funil-label{font-size:10.5px;color:var(--gray-light);text-align:right;
+  .funil-label{font-size:10.5px;color:var(--white);text-align:right;
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .funil-track{height:17px;background:var(--border);border-radius:2px;overflow:hidden;}
   .funil-bar{height:100%;border-radius:2px;display:flex;align-items:center;
     justify-content:flex-end;padding-right:6px;min-width:22px;transition:filter .12s;}
   .funil-val{font-family:'DM Mono',monospace;font-size:10px;color:#fff;font-weight:500;}
-  .funil-pct{font-family:'DM Mono',monospace;font-size:9px;color:var(--gray);text-align:right;}
+  .funil-pct{font-family:'DM Mono',monospace;font-size:9px;color:var(--white);text-align:right;}
 
   /* ── Taxas ── */
   .taxas{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;
     background:var(--border);border:1px solid var(--border);margin-bottom:16px;}
   .taxa{background:var(--panel);padding:12px;text-align:center;}
   .taxa-nome{font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;
-    letter-spacing:.06em;color:var(--gray);margin-bottom:5px;}
+    letter-spacing:.06em;color:var(--white);margin-bottom:5px;}
   .taxa-val{font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--gray);}
   @media(max-width:700px){.taxas{grid-template-columns:repeat(2,1fr);}}
 
@@ -483,9 +504,10 @@ function dadosVisiveis() {
   }
   // CPL so existe onde ha investimento. Eventos e leads sem origem entram
   // no volume, mas ficam sem CPL — senao a linha despenca pra zero.
+  // MQL e' subconjunto de leads, entao o denominador e' so leads.
   for (const r of Object.values(porRede)) {
-    r.cpl = (r.investimento > 0 && (r.leads + r.mqls))
-      ? r.investimento / (r.leads + r.mqls)
+    r.cpl = (r.investimento > 0 && r.leads)
+      ? r.investimento / r.leads
       : null;
   }
 
@@ -512,7 +534,8 @@ function dadosVisiveis() {
       leads, mqls, investimento,
       ganhos: qtdGanhos, faturamento,
       roas:  investimento ? faturamento / investimento : 0,
-      cpl:   (leads + mqls) ? investimento / (leads + mqls) : 0,
+      // MQL ja esta contido em leads — dividir so por leads
+      cpl:   leads ? investimento / leads : 0,
       cpmql: mqls      ? investimento / mqls      : 0,
       cac:   qtdGanhos ? investimento / qtdGanhos : 0,
     },
@@ -579,6 +602,8 @@ function render() {
 
   document.getElementById('conteudo').innerHTML = `
     <div class="kpi-strip">${kpisHtml}</div>
+
+    <div class="redes-grid">${cardsRedes(v)}</div>
 
     <div class="grid-topo">
       <div class="card">
@@ -718,6 +743,52 @@ function funilHtml(v) {
   }).join('') + '</div>';
 }
 
+// ── Cards de rede ───────────────────────────────────────────────────────────
+function cardsRedes(v) {
+  const PAGAS = ['Meta', 'Google', 'LinkedIn'];
+  const CORES = { Meta: '#4a6dd4', Google: '#2980b9', LinkedIn: '#0e76a8' };
+
+  return PAGAS.map(rede => {
+    const d = v.porRede[rede];
+    const sel = filtros.rede === rede;
+    const cor = CORES[rede];
+
+    if (!d || (!d.leads && !d.investimento)) {
+      return `<div class="rede-card vazio">
+        <div class="rede-nome" style="color:${cor}">${rede}</div>
+        <div class="empty" style="padding:18px 0">Sem dados</div>
+      </div>`;
+    }
+
+    const taxa = d.leads ? (d.mqls / d.leads * 100) : 0;
+    const cpmql = d.mqls ? d.investimento / d.mqls : null;
+
+    return `<div class="rede-card ${sel ? 'ativo' : ''}"
+              style="${sel ? `border-color:${cor}` : ''}"
+              onclick="toggleFiltro('rede', ${JSON.stringify(rede)})">
+      <div class="rede-topo">
+        <span class="rede-nome" style="color:${cor}">${rede}</span>
+        <span class="rede-inv">${fmtBRL(d.investimento)}</span>
+      </div>
+      <div class="rede-nums">
+        <div><span>Leads</span><strong>${fmtNum(d.leads)}</strong></div>
+        <div><span>MQL</span><strong style="color:${cor}">${fmtNum(d.mqls)}</strong></div>
+        <div><span>Taxa MQL</span><strong>${taxa.toFixed(0)}%</strong></div>
+      </div>
+      <div class="rede-nums">
+        <div><span>CPL</span><strong>${d.cpl === null ? '—' : fmtBRL(d.cpl)}</strong></div>
+        <div><span>CPMQL</span><strong>${cpmql === null ? '—' : fmtBRL(cpmql)}</strong></div>
+        <div><span>Share</span><strong>${
+          v.kpis.investimento ? (d.investimento / v.kpis.investimento * 100).toFixed(0) : 0
+        }%</strong></div>
+      </div>
+      <div class="rede-barra"><div style="width:${
+        v.kpis.leads ? Math.min(d.leads / v.kpis.leads * 100, 100) : 0
+      }%;background:${cor}"></div></div>
+    </div>`;
+  }).join('');
+}
+
 // ── Funis (pipelines onde os leads estão) ───────────────────────────────────
 function tabelaFunis(v) {
   const agg = {};
@@ -836,9 +907,9 @@ function opcoesBase() {
       },
     },
     scales: {
-      x: { ticks: { color: '#666', font: { family: 'DM Mono', size: 9 }, maxRotation: 45 },
+      x: { ticks: { color: '#c8c8c8', font: { family: 'DM Mono', size: 9 }, maxRotation: 45 },
            grid: { color: '#1a1a1a' } },
-      y: { ticks: { color: '#666', font: { family: 'DM Mono', size: 9 } },
+      y: { ticks: { color: '#c8c8c8', font: { family: 'DM Mono', size: 9 } },
            grid: { color: '#1c1c1c' }, beginAtZero: true },
     },
   };
@@ -927,7 +998,7 @@ function desenharGraficos(v) {
     options: {
       ...opcoesBase(),
       plugins: { ...opcoesBase().plugins, legend: { display:true,
-        labels:{ color:'#999', font:{ family:'DM Mono', size:10 }, boxWidth:10 } } },
+        labels:{ color:'#e8e8e8', font:{ family:'DM Mono', size:10 }, boxWidth:10 } } },
       scales: {
         ...opcoesBase().scales,
         y1: { position:'right', beginAtZero:true, grid:{ display:false },
@@ -985,7 +1056,7 @@ function desenharGraficos(v) {
       onClick: (_, els) => { if (els.length) toggleFiltro('rede', redes[els[0].index]); },
       plugins: {
         ...opcoesBase().plugins,
-        legend: { display:true, labels:{ color:'#999',
+        legend: { display:true, labels:{ color:'#e8e8e8',
           font:{ family:'DM Mono', size:9 }, boxWidth:9 } },
         tooltip: { ...opcoesBase().plugins.tooltip, callbacks: {
           label: ctx => ctx.dataset.label === 'CPL'
@@ -998,8 +1069,8 @@ function desenharGraficos(v) {
         } },
       },
       scales: {
-        x: { ticks:{ color:'#999', font:{ family:'DM Mono', size:10 } }, grid:{ display:false } },
-        y: { beginAtZero:true, ticks:{ color:'#666', font:{ family:'DM Mono', size:9 } },
+        x: { ticks:{ color:'#e8e8e8', font:{ family:'DM Mono', size:10 } }, grid:{ display:false } },
+        y: { beginAtZero:true, ticks:{ color:'#c8c8c8', font:{ family:'DM Mono', size:9 } },
              grid:{ color:'#1c1c1c' } },
         y1:{ position:'right', beginAtZero:true, grid:{ display:false },
              ticks:{ color:'#d9a441', font:{ family:'DM Mono', size:9 },
