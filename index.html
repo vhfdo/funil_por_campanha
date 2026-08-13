@@ -33,6 +33,13 @@
   .user-info{font-family:'DM Mono',monospace;font-size:11px;color:var(--gray);
     text-transform:uppercase;letter-spacing:.06em;}
 
+  .metrica-switch{display:flex;gap:1px;background:var(--border);border:1px solid var(--border);}
+  .metrica-btn{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.08em;
+    text-transform:uppercase;padding:9px 16px;background:var(--panel);color:var(--gray);
+    border:none;cursor:pointer;transition:all .12s;}
+  .metrica-btn:hover{color:var(--gray-light);}
+  .metrica-btn.active{background:var(--blue);color:var(--bg);}
+
   .date-range{display:flex;align-items:center;gap:8px;background:var(--panel);
     border:1px solid var(--border);padding:8px 14px;}
   .date-range:focus-within{border-color:var(--blue);}
@@ -151,6 +158,12 @@
       <h1>PERFORMANCE</h1>
     </div>
     <div class="header-right">
+      <div class="metrica-switch">
+        <button class="metrica-btn active" data-metrica="leads"
+                onclick="trocarMetrica('leads')">Leads</button>
+        <button class="metrica-btn" data-metrica="mqls"
+                onclick="trocarMetrica('mqls')">MQL</button>
+      </div>
       <div class="date-range">
         <span class="date-label">De</span>
         <input type="date" class="date-input" id="dataInicio">
@@ -191,6 +204,9 @@ function logout() {
 
 // ── Estado ──────────────────────────────────────────────────────────────────
 const CONSOLIDADO = 'CONSOLIDADO';
+
+// Os tres funis de venda direta. Ganham barra propria no grafico principal.
+const FUNIS_PRINCIPAIS = ['SNIPER', 'ELITE', 'OLYMPUS'];
 const PRODUTOS_REAIS = ['PFCC BRASIL', 'PFCC MÉXICO', 'PFCC CHILE', 'LEAN', 'CES'];
 const ORDEM_PRODUTOS = [CONSOLIDADO, ...PRODUTOS_REAIS];
 
@@ -218,16 +234,29 @@ const ORDEM_ETAPAS = [
   'negociacao', 'inscricao em andamento', 'futuro'
 ];
 
-// Descobre a rede de um lead pela utm_source ou pela tag na utm_campaign
+// Fontes que nao sao midia paga: evento, hotseat, summit. Entram no volume
+// de leads mas ficam fora do rateio por rede, senao poluem o CPL.
+const FONTES_FORA = ['summit', 'hotseat', 'workshop', 'evento'];
+
+// Descobre a rede de um lead pela utm_source (valores reais do Pipedrive:
+// FBads, LKDNAds, googleads) com a utm_campaign como reforco.
 function redeDoLead(b) {
-  const s = (b.source || '').toLowerCase();
+  const s = (b.source || '').toLowerCase().trim();
   const c = (b.campanha || '').toUpperCase();
-  if (s.includes('linkedin') || s.includes('lkdn') ||
+
+  if (FONTES_FORA.some(f => s.includes(f))) return 'Eventos';
+
+  if (s.includes('lkdn') || s.includes('linkedin') ||
       c.includes('[LKDN]') || c.includes('LINKEDIN')) return 'LinkedIn';
-  if (s.includes('google') || s.includes('adwords') ||
-      c.includes('[GOOGLE]') || /^\d{10,}$/.test((b.campanha||'').trim())) return 'Google';
-  if (s.includes('meta') || s.includes('facebook') || s.includes('instagram') ||
-      s === 'fb' || s === 'ig' || c.includes('[META]')) return 'Meta';
+
+  if (s.includes('googleads') || s.includes('google') || s.includes('adwords') ||
+      c.includes('[GOOGLE]') || /^\d{10,}$/.test((b.campanha || '').trim())) return 'Google';
+
+  if (s.includes('fbads') || s.includes('facebook') || s.includes('meta') ||
+      s.includes('instagram') || s === 'fb' || s === 'ig' ||
+      c.includes('[META]')) return 'Meta';
+
+  if (!s) return 'Sem origem';
   return 'Outros';
 }
 
@@ -280,6 +309,10 @@ function ordenarEtapas(etapas) {
 let dados = null;            // resposta crua da API
 let produtoAtivo = CONSOLIDADO;
 let filtros = { rede: null, etapa: null, proprietario: null, funil: null, cargo: null };
+
+// 'leads' ou 'mqls' — define o que as barras dos cards medem
+let metrica = 'leads';
+const rotuloMetrica = () => metrica === 'mqls' ? 'MQL' : 'Leads';
 let charts = {};
 
 // ── Formatação ──────────────────────────────────────────────────────────────
@@ -344,6 +377,13 @@ function renderTabs() {
       <div class="mini">${fmtNum(leads)}</div>
     </div>`;
   }).join('');
+}
+
+function trocarMetrica(m) {
+  metrica = m;
+  document.querySelectorAll('.metrica-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.metrica === m));
+  render();
 }
 
 function trocarProduto(p) {
@@ -441,9 +481,25 @@ function dadosVisiveis() {
     porRede[rede].leads++;
     if (b.mql) porRede[rede].mqls++;
   }
+  // CPL so existe onde ha investimento. Eventos e leads sem origem entram
+  // no volume, mas ficam sem CPL — senao a linha despenca pra zero.
   for (const r of Object.values(porRede)) {
-    r.cpl = (r.leads + r.mqls) ? r.investimento / (r.leads + r.mqls) : 0;
+    r.cpl = (r.investimento > 0 && (r.leads + r.mqls))
+      ? r.investimento / (r.leads + r.mqls)
+      : null;
   }
+
+  // MQL dos tres funis principais, dia a dia. A aba LEADS so tem o total,
+  // entao isso sai do backlog usando a data da ultima aplicacao.
+  const mqlTresFunisPorDia = {};
+  for (const b of backlog) {
+    if (!b.mql) continue;
+    if (!FUNIS_PRINCIPAIS.includes((b.funil || '').toUpperCase())) continue;
+    const dia = (b.aplicacao || '').trim().slice(0, 5);   // DD/MM
+    if (!dia.includes('/')) continue;
+    mqlTresFunisPorDia[dia] = (mqlTresFunisPorDia[dia] || 0) + 1;
+  }
+  const mqlTresFunis = Object.values(mqlTresFunisPorDia).reduce((s, v) => s + v, 0);
 
   const ganhosValidos = ganhos.filter(g => g.vale === 'sim');
   const faturamento   = ganhosValidos.reduce((s, g) => s + g.valor, 0);
@@ -451,7 +507,7 @@ function dadosVisiveis() {
 
   return {
     leadsPorDia, ganhos, backlog, investPorRede, investPorDia, porRede, etapas,
-    ehConsolidado,
+    ehConsolidado, mqlTresFunisPorDia, mqlTresFunis,
     kpis: {
       leads, mqls, investimento,
       ganhos: qtdGanhos, faturamento,
@@ -526,7 +582,11 @@ function render() {
 
     <div class="grid-topo">
       <div class="card">
-        <div class="card-title">Investimento · Leads · MQL</div>
+        <div class="card-title">
+          Investimento · Leads · MQL
+          <span class="card-tag" style="background:#7ee0a8;color:#0a0a0a">
+            ${fmtNum(v.mqlTresFunis)} nos 3 funis</span>
+        </div>
         <div class="chart-box"><canvas id="chartLeads"></canvas></div>
       </div>
       <div class="card">
@@ -592,6 +652,7 @@ function render() {
   `;
 
   desenharGraficos(v);
+  diagnosticarOutros(v.backlog);
 }
 
 // ── Tabela comparativa ──────────────────────────────────────────────────────
@@ -667,23 +728,24 @@ function tabelaFunis(v) {
     if (b.mql) agg[f].mqls++;
   }
 
-  const lista = Object.entries(agg).sort((a, b) => b[1].leads - a[1].leads);
+  const lista = Object.entries(agg).sort((a, b) => b[1][metrica] - a[1][metrica]);
   if (!lista.length) return '<div class="empty">Sem funis para os filtros atuais.</div>';
 
-  const maior = Math.max(...lista.map(([, d]) => d.leads), 1);
+  const maior = Math.max(...lista.map(([, d]) => d[metrica]), 1);
+  const outra = metrica === 'mqls' ? 'leads' : 'mqls';
 
   return '<div class="funil">' + lista.map(([nome, d]) => {
     const sel  = filtros.funil === nome;
-    const larg = Math.max(d.leads / maior * 100, 3);
+    const larg = Math.max(d[metrica] / maior * 100, 3);
     return `<div class="funil-step ${sel ? 'selecionado' : ''}"
               onclick="toggleFiltro('funil', ${JSON.stringify(nome)})">
       <div class="funil-label">${nome}</div>
       <div class="funil-track">
         <div class="funil-bar" style="width:${larg}%;background:${sel ? 'var(--amber)' : '#3a7ca8'}">
-          <span class="funil-val">${fmtNum(d.leads)}</span>
+          <span class="funil-val">${fmtNum(d[metrica])}</span>
         </div>
       </div>
-      <div class="funil-pct">${fmtNum(d.mqls)}</div>
+      <div class="funil-pct">${fmtNum(d[outra])}</div>
     </div>`;
   }).join('') + '</div>';
 }
@@ -698,25 +760,25 @@ function tabelaCargos(v) {
     if (b.mql) agg[c].mqls++;
   }
 
-  const lista = Object.entries(agg).sort((a, b) => b[1].leads - a[1].leads);
+  const lista = Object.entries(agg).sort((a, b) => b[1][metrica] - a[1][metrica]);
   if (!lista.length) return '<div class="empty">Sem cargos para os filtros atuais.</div>';
 
-  const total = lista.reduce((s, [, d]) => s + d.leads, 0) || 1;
-  const maior = Math.max(...lista.map(([, d]) => d.leads), 1);
+  const total = lista.reduce((s, [, d]) => s + d[metrica], 0) || 1;
+  const maior = Math.max(...lista.map(([, d]) => d[metrica]), 1);
 
   return '<div class="funil">' + lista.map(([nome, d]) => {
     const sel  = filtros.cargo === nome;
-    const larg = Math.max(d.leads / maior * 100, 3);
-    const pct  = (d.leads / total * 100).toFixed(0);
+    const larg = Math.max(d[metrica] / maior * 100, 3);
+    const pct  = (d[metrica] / total * 100).toFixed(0);
     return `<div class="funil-step ${sel ? 'selecionado' : ''}"
               onclick="toggleFiltro('cargo', ${JSON.stringify(nome)})">
       <div class="funil-label">${nome}</div>
       <div class="funil-track">
         <div class="funil-bar" style="width:${larg}%;background:${sel ? 'var(--amber)' : '#5b6f9e'}">
-          <span class="funil-val">${fmtNum(d.leads)}</span>
+          <span class="funil-val">${fmtNum(d[metrica])}</span>
         </div>
       </div>
-      <div class="funil-pct" title="${fmtNum(d.mqls)} MQL">${pct}%</div>
+      <div class="funil-pct" title="${fmtNum(d[metrica === 'mqls' ? 'leads' : 'mqls'])} ${metrica === 'mqls' ? 'leads' : 'MQL'}">${pct}%</div>
     </div>`;
   }).join('') + '</div>';
 }
@@ -732,15 +794,16 @@ function tabelaProprietarios(v) {
   }
 
   const linhas = Object.entries(agg)
-    .sort((a, b) => b[1].leads - a[1].leads)
+    .sort((a, b) => b[1][metrica] - a[1][metrica])
     .slice(0, 8)
     .map(([dono, d]) => {
       const sel = filtros.proprietario === dono;
+      const cor = c => metrica === c ? 'color:var(--blue);font-weight:600' : '';
       return `<tr class="clicavel ${sel ? 'selecionado' : ''}"
                 onclick="toggleFiltro('proprietario', ${JSON.stringify(dono)})">
         <td>${dono}</td>
-        <td class="num">${fmtNum(d.leads)}</td>
-        <td class="num" style="color:var(--blue)">${fmtNum(d.mqls)}</td>
+        <td class="num" style="${cor('leads')}">${fmtNum(d.leads)}</td>
+        <td class="num" style="${cor('mqls')}">${fmtNum(d.mqls)}</td>
       </tr>`;
     }).join('');
 
@@ -789,6 +852,28 @@ function comCanvas(id, fn) {
   catch (err) { console.error(`Falha no gráfico ${id}:`, err); return null; }
 }
 
+// Quando "Outros" cresce demais e' porque alguma utm_source nova apareceu.
+// Em vez de caçar no console, o dashboard mesmo aponta o que nao classificou.
+function diagnosticarOutros(backlog) {
+  const soltos = backlog.filter(b => {
+    const r = redeDoLead(b);
+    return r === 'Outros' || r === 'Sem origem';
+  });
+  if (!soltos.length) return;
+
+  const porFonte = {};
+  for (const b of soltos) {
+    const k = (b.source || '(vazio)').trim();
+    porFonte[k] = (porFonte[k] || 0) + 1;
+  }
+  const lista = Object.entries(porFonte).sort((a, b) => b[1] - a[1]);
+
+  console.groupCollapsed(
+    `⚠️ ${soltos.length} leads sem rede definida — utm_source encontradas:`);
+  lista.forEach(([fonte, qtd]) => console.log(`${String(qtd).padStart(5)} × ${fonte}`));
+  console.groupEnd();
+}
+
 function desenharGraficos(v) {
   Object.values(charts).forEach(c => c?.destroy());
   charts = {};
@@ -821,6 +906,12 @@ function desenharGraficos(v) {
           datalabels: { display: ctx => ctx.dataset.data[ctx.dataIndex] > 0,
             anchor:'end', align:'end', offset:-2, color:'#cfe4f7',
             font:{ family:'DM Mono', size:8 }, formatter: v => fmtNum(v) } },
+        { type:'bar', label:'MQL · Sniper/Elite/Olympus',
+          data: labels.map(l => v.mqlTresFunisPorDia[l] || 0),
+          backgroundColor:'#7ee0a8', borderRadius:2, yAxisID:'y',
+          datalabels: { display: ctx => ctx.dataset.data[ctx.dataIndex] > 0,
+            anchor:'end', align:'end', offset:-2, color:'#7ee0a8',
+            font:{ family:'DM Mono', size:8 }, formatter: v => fmtNum(v) } },
         { type:'line', label:'Investimento', data: invDias,
           borderColor:'#d9a441', borderWidth:2, pointRadius:0, tension:.3, yAxisID:'y1',
           datalabels: { display: ctx => {
@@ -847,9 +938,15 @@ function desenharGraficos(v) {
   }));
 
   // Leads por rede — barras de volume, linha de CPL (mesma leitura do gráfico acima)
+  // Midia paga primeiro (tem CPL), depois eventos e origens soltas
+  const PAGAS = ['Meta', 'Google', 'LinkedIn'];
   const redes = Object.keys(v.porRede)
     .filter(r => v.porRede[r].leads > 0 || v.porRede[r].investimento > 0)
-    .sort((a, b) => v.porRede[b].leads - v.porRede[a].leads);
+    .sort((a, b) => {
+      const pa = PAGAS.includes(a), pb = PAGAS.includes(b);
+      if (pa !== pb) return pa ? -1 : 1;
+      return v.porRede[b].leads - v.porRede[a].leads;
+    });
 
   const opaco = r => !filtros.rede || filtros.rede === r;
 
@@ -859,22 +956,24 @@ function desenharGraficos(v) {
       datasets: [
         { type:'bar', label:'Leads', yAxisID:'y',
           data: redes.map(r => v.porRede[r].leads),
-          backgroundColor: redes.map(r => opaco(r) ? '#2c5f8a' : '#242424'),
+          backgroundColor: redes.map(r =>
+            !opaco(r) ? '#242424' : (PAGAS.includes(r) ? '#2c5f8a' : '#4a4a52')),
           borderRadius: 2,
           datalabels: { display: ctx => ctx.dataset.data[ctx.dataIndex] > 0,
             anchor:'end', align:'top', offset:0, color:'#9dc4e8',
             font:{ family:'DM Mono', size:9 }, formatter: v => fmtNum(v) } },
         { type:'bar', label:'MQL', yAxisID:'y',
           data: redes.map(r => v.porRede[r].mqls),
-          backgroundColor: redes.map(r => opaco(r) ? '#4a9eed' : '#2e2e2e'),
+          backgroundColor: redes.map(r =>
+            !opaco(r) ? '#2e2e2e' : (PAGAS.includes(r) ? '#4a9eed' : '#7a7a86')),
           borderRadius: 2,
           datalabels: { display: ctx => ctx.dataset.data[ctx.dataIndex] > 0,
             anchor:'end', align:'top', offset:0, color:'#cfe4f7',
             font:{ family:'DM Mono', size:9 }, formatter: v => fmtNum(v) } },
         { type:'line', label:'CPL', yAxisID:'y1',
-          data: redes.map(r => Math.round(v.porRede[r].cpl)),
+          data: redes.map(r => v.porRede[r].cpl === null ? null : Math.round(v.porRede[r].cpl)),
           borderColor:'#d9a441', borderWidth:2, pointRadius:3,
-          pointBackgroundColor:'#d9a441', tension:.3,
+          pointBackgroundColor:'#d9a441', tension:.3, spanGaps:true,
           datalabels: { display: ctx => ctx.dataset.data[ctx.dataIndex] > 0,
             anchor:'end', align:'bottom', color:'#d9a441',
             font:{ family:'DM Mono', size:9 },
