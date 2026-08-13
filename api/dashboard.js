@@ -210,8 +210,8 @@ export default async function handler(req, res) {
           ganhos:       totalGanhos,
           faturamento,
           roas: totalInvestimento ? faturamento / totalInvestimento : 0,
-          // CPL usa leads + mqls; CPMQL usa so mqls
-          cpl:   (totalLeads + totalMqls) ? totalInvestimento / (totalLeads + totalMqls) : 0,
+          // MQL e' subconjunto de leads: CPL divide so por leads
+          cpl:   totalLeads ? totalInvestimento / totalLeads : 0,
           cpmql: totalMqls   ? totalInvestimento / totalMqls   : 0,
           cac:   totalGanhos ? totalInvestimento / totalGanhos : 0,
         },
