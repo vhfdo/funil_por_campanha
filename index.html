@@ -52,6 +52,9 @@
   .produto-tab .nome{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.08em;
     text-transform:uppercase;color:var(--gray-light);}
   .produto-tab.active .nome{color:var(--blue);}
+  .produto-tab.consolidado{border-right:1px solid var(--blue);}
+  .produto-tab.consolidado .nome{color:var(--amber);}
+  .produto-tab.consolidado.active .nome{color:var(--blue);}
   .produto-tab .mini{font-family:'Bebas Neue',sans-serif;font-size:22px;margin-top:4px;color:var(--white);}
 
   .status-bar{font-family:'DM Mono',monospace;font-size:11px;color:var(--gray);
@@ -67,16 +70,23 @@
     letter-spacing:.1em;color:var(--gray);margin-bottom:8px;}
   .kpi-val{font-family:'Bebas Neue',sans-serif;font-size:26px;line-height:1;color:var(--white);}
   .kpi-val.blue{color:var(--blue);}
+  .kpi-linha{display:flex;justify-content:space-between;font-family:'DM Mono',monospace;
+    font-size:9.5px;color:var(--gray);margin-top:5px;}
+  .kpi-linha span:last-child{color:var(--white);}
+  .kpi-barra{height:3px;background:var(--border);border-radius:2px;overflow:hidden;margin-top:7px;}
+  .kpi-barra div{height:100%;border-radius:2px;}
   @media(max-width:1200px){.kpi-strip{grid-template-columns:repeat(5,1fr);}}
   @media(max-width:700px){.kpi-strip{grid-template-columns:repeat(3,1fr);}}
 
   /* ── Grid principal ── */
   .grid-topo{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
-  .grid-meio{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px;}
+  .grid-meio{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:16px;}
   .grid-base{display:grid;grid-template-columns:1.15fr 1fr;gap:16px;}
+  @media(max-width:1300px){ .grid-meio{grid-template-columns:1fr 1fr;} }
   @media(max-width:1100px){
-    .grid-topo,.grid-meio,.grid-base{grid-template-columns:1fr;}
+    .grid-topo,.grid-base{grid-template-columns:1fr;}
   }
+  @media(max-width:700px){ .grid-meio{grid-template-columns:1fr;} }
 
   .card{background:var(--panel);border:1px solid var(--border);padding:16px 18px;
     display:flex;flex-direction:column;min-width:0;}
@@ -179,7 +189,20 @@ function logout() {
 }
 
 // ── Estado ──────────────────────────────────────────────────────────────────
-const ORDEM_PRODUTOS = ['PFCC BRASIL', 'PFCC MÉXICO', 'PFCC CHILE', 'LEAN', 'CES'];
+const CONSOLIDADO = 'CONSOLIDADO';
+const PRODUTOS_REAIS = ['PFCC BRASIL', 'PFCC MÉXICO', 'PFCC CHILE', 'LEAN', 'CES'];
+const ORDEM_PRODUTOS = [CONSOLIDADO, ...PRODUTOS_REAIS];
+
+// Metas do mes. Deixe null no que ainda nao tem meta definida — o card
+// simplesmente nao mostra a linha de meta nesse caso.
+const METAS = {
+  [CONSOLIDADO]:  { leads: 5894, faturamento: null, investimento: null, roas: null },
+  'PFCC BRASIL':  { leads: null, faturamento: null, investimento: null, roas: null },
+  'PFCC MÉXICO':  { leads: null, faturamento: null, investimento: null, roas: null },
+  'PFCC CHILE':   { leads: null, faturamento: null, investimento: null, roas: null },
+  'LEAN':         { leads: null, faturamento: null, investimento: null, roas: null },
+  'CES':          { leads: null, faturamento: null, investimento: null, roas: null },
+};
 const CORES_REDE = { Meta: '#4a6dd4', Google: '#2980b9', LinkedIn: '#0e76a8' };
 
 // Ordem em que as etapas aparecem no funil. O que não estiver aqui vai pro fim.
@@ -203,6 +226,36 @@ function redeDoLead(b) {
   return 'Outros';
 }
 
+// Os cargos vem digitados de mil formas. Aqui agrupamos nos grandes blocos
+// pra tabela nao virar uma lista de 200 variacoes com 1 lead cada.
+//
+// Cada grupo e' uma regex, nao um "includes" simples: siglas curtas como CEO
+// e COO precisam de limite de palavra, senao "Coordenador" vira C-Level
+// (contem "coo") e "Director" tambem (contem "cto").
+// A ordem importa — Vice-Presidente e' testado antes de Presidente.
+const GRUPOS_CARGO = [
+  ['Vice-Presidente',      /\b(vice[- ]?presidente|vice[- ]?president|\bvp\b)/],
+  ['Presidente / CEO',     /\b(presidente|president|ceo|chief executive)\b/],
+  ['Sócio / Fundador',     /\b(socio|sócio|partner|founder|fundador|propriet[aá]rio|owner|empres[aá]rio|entrepreneur)/],
+  ['C-Level',              /\b(cmo|cto|coo|cfo|cpo|ciso|chro|cro|cio|c-level|c level)\b|\bchief\b/],
+  ['Conselheiro',          /\b(conselh|advisor|board member)/],
+  ['Diretor',              /\b(diretor|director|head)\b|\bdiretor/],
+  ['Gerente',              /\b(gerente|manager|gestor)/],
+  ['Coordenador',          /\b(coordenador|coordinator|supervisor)/],
+  ['Consultor',            /\b(consultor|consultant|assessor)/],
+  ['Profissional Liberal', /\b(profissional liberal|m[eé]dico|advogado|engenheiro|professor|dentista)/],
+  ['Analista / Técnico',   /\b(analista|analyst|t[eé]cnico|assistente|estagi[aá]rio)/],
+];
+
+function normalizarCargo(cargo) {
+  const c = (cargo || '').toLowerCase().trim();
+  if (!c || c === 'outro' || c === 'outros') return 'Não informado';
+  for (const [rotulo, regex] of GRUPOS_CARGO) {
+    if (regex.test(c)) return rotulo;
+  }
+  return 'Outros';
+}
+
 const semAcento = s => (s || '').toLowerCase().trim()
   .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
@@ -218,8 +271,8 @@ function ordenarEtapas(etapas) {
 }
 
 let dados = null;            // resposta crua da API
-let produtoAtivo = 'PFCC BRASIL';
-let filtros = { rede: null, etapa: null, proprietario: null, funil: null };
+let produtoAtivo = CONSOLIDADO;
+let filtros = { rede: null, etapa: null, proprietario: null, funil: null, cargo: null };
 let charts = {};
 
 // ── Formatação ──────────────────────────────────────────────────────────────
@@ -272,11 +325,16 @@ async function carregar() {
 
 // ── Abas de produto ─────────────────────────────────────────────────────────
 function renderTabs() {
+  const totalGeral = PRODUTOS_REAIS
+    .reduce((s, n) => s + (dados.produtos[n]?.kpis.leads || 0), 0);
+
   document.getElementById('produtoTabs').innerHTML = ORDEM_PRODUTOS.map(p => {
-    const k = dados.produtos[p]?.kpis;
-    return `<div class="produto-tab ${p === produtoAtivo ? 'active' : ''}" onclick="trocarProduto('${p}')">
-      <div class="nome">${p}</div>
-      <div class="mini">${fmtNum(k?.leads ?? 0)}</div>
+    const ehConsol = p === CONSOLIDADO;
+    const leads = ehConsol ? totalGeral : (dados.produtos[p]?.kpis.leads ?? 0);
+    return `<div class="produto-tab ${p === produtoAtivo ? 'active' : ''} ${ehConsol ? 'consolidado' : ''}"
+              onclick="trocarProduto('${p}')">
+      <div class="nome">${ehConsol ? '★ ' + p : p}</div>
+      <div class="mini">${fmtNum(leads)}</div>
     </div>`;
   }).join('');
 }
@@ -295,7 +353,7 @@ function toggleFiltro(tipo, valor) {
 }
 
 function limparFiltros(silencioso) {
-  filtros = { rede: null, etapa: null, proprietario: null, funil: null };
+  filtros = { rede: null, etapa: null, proprietario: null, funil: null, cargo: null };
   if (!silencioso) render();
 }
 
@@ -307,29 +365,57 @@ function labelFiltros() {
 
 // ── Dados derivados do produto ativo, já com filtros aplicados ──────────────
 function dadosVisiveis() {
-  const p = dados.produtos[produtoAtivo];
-  if (!p) return null;
+  const ehConsolidado = produtoAtivo === CONSOLIDADO;
+  const nomes = ehConsolidado ? PRODUTOS_REAIS : [produtoAtivo];
 
-  const leadsPorDia = p.leadsPorDia.filter(d => dentroDoPeriodo(d.data));
-  const ganhos      = p.ganhos.filter(g => dentroDoPeriodo(g.data));
-
-  // Investimento respeita o filtro de rede e o período
-  let investimento = 0;
+  // Junta os produtos: no consolidado sao os cinco, senao e' so um.
+  const leadsMap = {};      // data → {leads, mqls}
   const investPorRede = {};
-  for (const [rede, total] of Object.entries(p.investPorRede)) {
-    if (filtros.rede && filtros.rede !== rede) continue;
-    investPorRede[rede] = total;
-    investimento += total;
+  const investPorDia  = {};
+  let ganhos = [];
+  const etapasMap = {};
+
+  for (const nome of nomes) {
+    const p = dados.produtos[nome];
+    if (!p) continue;
+
+    for (const d of p.leadsPorDia) {
+      if (!dentroDoPeriodo(d.data)) continue;
+      if (!leadsMap[d.data]) leadsMap[d.data] = { data: d.data, leads: 0, mqls: 0 };
+      leadsMap[d.data].leads += d.leads;
+      leadsMap[d.data].mqls  += d.mqls;
+    }
+
+    for (const [rede, total] of Object.entries(p.investPorRede)) {
+      if (filtros.rede && filtros.rede !== rede) continue;
+      investPorRede[rede] = (investPorRede[rede] || 0) + total;
+    }
+    for (const [dia, val] of Object.entries(p.investPorDia)) {
+      investPorDia[dia] = (investPorDia[dia] || 0) + val;
+    }
+
+    ganhos = ganhos.concat(p.ganhos.filter(g => dentroDoPeriodo(g.data)));
+
+    for (const e of p.etapas) {
+      etapasMap[e.etapa] = (etapasMap[e.etapa] || 0) + e.qtd;
+    }
   }
 
-  // Backlog cruzado: mesmo produto + filtros de etapa e proprietário
-  let backlog = dados.backlog.filter(b => b.produto === produtoAtivo);
+  const leadsPorDia = Object.values(leadsMap).sort((a, b) => paraData(a.data) - paraData(b.data));
+  const etapas = Object.entries(etapasMap).map(([etapa, qtd]) => ({ etapa, qtd }));
+  const investimento = Object.values(investPorRede).reduce((s, v) => s + v, 0);
+
+  // Backlog: no consolidado pega todos os produtos, senao so o ativo
+  const alvos = nomes.map(semAcento);
+  let backlog = dados.backlog.filter(b => alvos.includes(semAcento(b.produto)));
+
   if (filtros.etapa)        backlog = backlog.filter(b => b.etapa === filtros.etapa);
   if (filtros.proprietario) backlog = backlog.filter(b => b.proprietario === filtros.proprietario);
   if (filtros.funil)        backlog = backlog.filter(b => b.funil === filtros.funil);
+  if (filtros.cargo)        backlog = backlog.filter(b => normalizarCargo(b.cargo) === filtros.cargo);
 
-  // Quando há filtro que vem do backlog, os números saem dele
-  const filtrandoBacklog = !!(filtros.etapa || filtros.proprietario || filtros.funil);
+  // Filtros vindos do backlog reescrevem a contagem de leads e MQL
+  const filtrandoBacklog = !!(filtros.etapa || filtros.proprietario || filtros.funil || filtros.cargo);
   const leads = filtrandoBacklog
     ? backlog.length
     : leadsPorDia.reduce((s, d) => s + d.leads, 0);
@@ -337,7 +423,7 @@ function dadosVisiveis() {
     ? backlog.filter(b => b.mql).length
     : leadsPorDia.reduce((s, d) => s + d.mqls, 0);
 
-  // Leads e MQL por rede, tirados do backlog (a aba LEADS só traz o total)
+  // Leads e MQL por rede saem do backlog — a aba LEADS so tem o total
   const porRede = {};
   for (const rede of Object.keys(investPorRede)) {
     porRede[rede] = { leads: 0, mqls: 0, investimento: investPorRede[rede] };
@@ -348,7 +434,6 @@ function dadosVisiveis() {
     porRede[rede].leads++;
     if (b.mql) porRede[rede].mqls++;
   }
-  // CPL da rede = investimento / (leads + mqls), mesma fórmula do KPI geral
   for (const r of Object.values(porRede)) {
     r.cpl = (r.leads + r.mqls) ? r.investimento / (r.leads + r.mqls) : 0;
   }
@@ -358,8 +443,8 @@ function dadosVisiveis() {
   const qtdGanhos     = ganhosValidos.length;
 
   return {
-    leadsPorDia, ganhos, backlog, investPorRede, porRede,
-    etapas: p.etapas,
+    leadsPorDia, ganhos, backlog, investPorRede, investPorDia, porRede, etapas,
+    ehConsolidado,
     kpis: {
       leads, mqls, investimento,
       ganhos: qtdGanhos, faturamento,
@@ -369,6 +454,16 @@ function dadosVisiveis() {
       cac:   qtdGanhos ? investimento / qtdGanhos : 0,
     },
   };
+}
+
+// Quanto deveria estar a esta altura do mes, no ritmo da meta
+function metaAteHoje(meta) {
+  if (!meta) return null;
+  const hoje = new Date();
+  const fim  = document.getElementById('dataFim').value;
+  const dia  = fim ? new Date(fim + 'T00:00:00').getDate() : hoje.getDate();
+  const diasNoMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).getDate();
+  return Math.round(meta / diasNoMes * dia);
 }
 
 // ── Render ──────────────────────────────────────────────────────────────────
@@ -383,26 +478,44 @@ function render() {
   document.getElementById('filtroAtivo').textContent = labelFiltros();
 
   const k = v.kpis;
-  const kpis = [
-    ['Leads', fmtNum(k.leads), true],
-    ['MQL', fmtNum(k.mqls), true],
-    ['Investimento', fmtBRL(k.investimento)],
-    ['Vol. Ganhos', fmtNum(k.ganhos)],
-    ['Faturamento', fmtBRL(k.faturamento)],
-    ['ROAS', fmtRoas(k.roas)],
-    ['CPL', fmtBRL(k.cpl)],
-    ['CPMQL', fmtBRL(k.cpmql)],
-    ['CAC', fmtBRL(k.cac)],
-  ];
+  const metas = METAS[produtoAtivo] || {};
+
+  // Um KPI pode ter meta. Quando tem, mostramos o alvo do mes, quanto
+  // deveria estar hoje e uma barra de progresso.
+  function kpiCard(label, valor, opts = {}) {
+    const { meta, fmt = fmtNum, azul = false, bruto = null } = opts;
+    const alvoHoje = metaAteHoje(meta);
+    let extra = '';
+    if (meta) {
+      const pct = Math.min(bruto / meta * 100, 100);
+      const noRitmo = alvoHoje === null || bruto >= alvoHoje;
+      const cor = noRitmo ? 'var(--green)' : 'var(--red)';
+      extra = `
+        <div class="kpi-linha"><span>Era pra estar</span><span style="color:${cor}">${fmt(alvoHoje)}</span></div>
+        <div class="kpi-linha"><span>Meta</span><span>${fmt(meta)}</span></div>
+        <div class="kpi-barra"><div style="width:${pct}%;background:${cor}"></div></div>`;
+    }
+    return `<div class="kpi-card">
+      <div class="kpi-label">${label}</div>
+      <div class="kpi-val ${azul ? 'blue' : ''}">${valor}</div>
+      ${extra}
+    </div>`;
+  }
+
+  const kpisHtml = [
+    kpiCard('Leads', fmtNum(k.leads), { azul:true, meta: metas.leads, bruto: k.leads }),
+    kpiCard('MQL', fmtNum(k.mqls), { azul:true }),
+    kpiCard('Investimento', fmtBRL(k.investimento), { meta: metas.investimento, bruto: k.investimento, fmt: fmtBRL }),
+    kpiCard('Vol. Ganhos', fmtNum(k.ganhos)),
+    kpiCard('Faturamento', fmtBRL(k.faturamento), { meta: metas.faturamento, bruto: k.faturamento, fmt: fmtBRL }),
+    kpiCard('ROAS', fmtRoas(k.roas)),
+    kpiCard('CPL', fmtBRL(k.cpl)),
+    kpiCard('CPMQL', fmtBRL(k.cpmql)),
+    kpiCard('CAC', fmtBRL(k.cac)),
+  ].join('');
 
   document.getElementById('conteudo').innerHTML = `
-    <div class="kpi-strip">
-      ${kpis.map(([label, val, azul]) => `
-        <div class="kpi-card">
-          <div class="kpi-label">${label}</div>
-          <div class="kpi-val ${azul ? 'blue' : ''}">${val}</div>
-        </div>`).join('')}
-    </div>
+    <div class="kpi-strip">${kpisHtml}</div>
 
     <div class="grid-topo">
       <div class="card">
@@ -411,8 +524,8 @@ function render() {
       </div>
       <div class="card">
         <div class="card-title">
-          Funil
-          <span class="card-tag">clique numa etapa</span>
+          Funil · em aberto
+          <span class="card-tag">% do total</span>
         </div>
         <div class="card-body">${funilHtml(v)}</div>
       </div>
@@ -432,6 +545,13 @@ function render() {
           <span class="card-tag">leads · mql</span>
         </div>
         <div class="card-body" style="max-height:150px">${tabelaFunis(v)}</div>
+      </div>
+      <div class="card">
+        <div class="card-title">
+          Cargos
+          <span class="card-tag">% dos leads</span>
+        </div>
+        <div class="card-body" style="max-height:150px">${tabelaCargos(v)}</div>
       </div>
       <div class="card">
         <div class="card-title">
@@ -508,11 +628,13 @@ function funilHtml(v) {
   if (!v.etapas.length) return '<div class="empty">Sem etapas para exibir.</div>';
   const etapas = ordenarEtapas(v.etapas);
   const maior  = Math.max(...etapas.map(e => e.qtd), 1);
-  const topo   = etapas[0]?.qtd || 1;
+  // % sobre o total em aberto — as etapas sao um retrato, nao um funil
+  // sequencial, entao comparar com a primeira daria numeros acima de 100%
+  const total  = etapas.reduce((s, e) => s + e.qtd, 0) || 1;
 
   return '<div class="funil">' + etapas.map((e, i) => {
     const larg = Math.max(e.qtd / maior * 100, 3);
-    const pct  = (e.qtd / topo * 100).toFixed(0);
+    const pct  = (e.qtd / total * 100).toFixed(0);
     const cor  = `hsl(${210 - i * 6}, ${62 - i * 3}%, ${58 - i * 2}%)`;
     const sel  = filtros.etapa === e.etapa;
     return `<div class="funil-step ${sel ? 'selecionado' : ''}"
@@ -555,6 +677,39 @@ function tabelaFunis(v) {
         </div>
       </div>
       <div class="funil-pct">${fmtNum(d.mqls)}</div>
+    </div>`;
+  }).join('') + '</div>';
+}
+
+// ── Cargos ──────────────────────────────────────────────────────────────────
+function tabelaCargos(v) {
+  const agg = {};
+  for (const b of v.backlog) {
+    const c = normalizarCargo(b.cargo);
+    if (!agg[c]) agg[c] = { leads: 0, mqls: 0 };
+    agg[c].leads++;
+    if (b.mql) agg[c].mqls++;
+  }
+
+  const lista = Object.entries(agg).sort((a, b) => b[1].leads - a[1].leads);
+  if (!lista.length) return '<div class="empty">Sem cargos para os filtros atuais.</div>';
+
+  const total = lista.reduce((s, [, d]) => s + d.leads, 0) || 1;
+  const maior = Math.max(...lista.map(([, d]) => d.leads), 1);
+
+  return '<div class="funil">' + lista.map(([nome, d]) => {
+    const sel  = filtros.cargo === nome;
+    const larg = Math.max(d.leads / maior * 100, 3);
+    const pct  = (d.leads / total * 100).toFixed(0);
+    return `<div class="funil-step ${sel ? 'selecionado' : ''}"
+              onclick="toggleFiltro('cargo', ${JSON.stringify(nome)})">
+      <div class="funil-label">${nome}</div>
+      <div class="funil-track">
+        <div class="funil-bar" style="width:${larg}%;background:${sel ? 'var(--amber)' : '#5b6f9e'}">
+          <span class="funil-val">${fmtNum(d.leads)}</span>
+        </div>
+      </div>
+      <div class="funil-pct">${pct}%</div>
     </div>`;
   }).join('') + '</div>';
 }
