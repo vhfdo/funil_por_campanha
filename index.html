@@ -206,8 +206,12 @@ const METAS = {
 const CORES_REDE = { Meta: '#4a6dd4', Google: '#2980b9', LinkedIn: '#0e76a8' };
 
 // Ordem em que as etapas aparecem no funil. O que não estiver aqui vai pro fim.
+// Etapas que existem no Pipedrive mas nao fazem parte do funil de venda.
+// Ficam de fora do card e nao entram no calculo do percentual.
+const ETAPAS_IGNORADAS = ['reabertura'];
+
 const ORDEM_ETAPAS = [
-  'aplicacao', 'reaplicacao', 'em agendamento', 'contatado',
+  'aplicacao', 'em agendamento', 'contatado',
   'etapa 1', 'etapa 2', 'etapa 3', 'oportunidade', 'proposta',
   'agendados', 'no show', 'validacao de reuniao', 'reuniao',
   'negociacao', 'inscricao em andamento', 'futuro'
@@ -260,7 +264,9 @@ const semAcento = s => (s || '').toLowerCase().trim()
   .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
 function ordenarEtapas(etapas) {
-  return [...etapas].sort((a, b) => {
+  return etapas
+    .filter(e => !ETAPAS_IGNORADAS.some(x => semAcento(e.etapa).includes(x)))
+    .sort((a, b) => {
     const ia = ORDEM_ETAPAS.findIndex(e => semAcento(a.etapa).includes(e));
     const ib = ORDEM_ETAPAS.findIndex(e => semAcento(b.etapa).includes(e));
     if (ia === -1 && ib === -1) return b.qtd - a.qtd;
