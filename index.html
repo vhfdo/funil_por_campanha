@@ -190,6 +190,19 @@ const ORDEM_ETAPAS = [
   'negociacao', 'inscricao em andamento', 'futuro'
 ];
 
+// Descobre a rede de um lead pela utm_source ou pela tag na utm_campaign
+function redeDoLead(b) {
+  const s = (b.source || '').toLowerCase();
+  const c = (b.campanha || '').toUpperCase();
+  if (s.includes('linkedin') || s.includes('lkdn') ||
+      c.includes('[LKDN]') || c.includes('LINKEDIN')) return 'LinkedIn';
+  if (s.includes('google') || s.includes('adwords') ||
+      c.includes('[GOOGLE]') || /^\d{10,}$/.test((b.campanha||'').trim())) return 'Google';
+  if (s.includes('meta') || s.includes('facebook') || s.includes('instagram') ||
+      s === 'fb' || s === 'ig' || c.includes('[META]')) return 'Meta';
+  return 'Outros';
+}
+
 const semAcento = s => (s || '').toLowerCase().trim()
   .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
@@ -206,7 +219,7 @@ function ordenarEtapas(etapas) {
 
 let dados = null;            // resposta crua da API
 let produtoAtivo = 'PFCC BRASIL';
-let filtros = { rede: null, etapa: null, proprietario: null };
+let filtros = { rede: null, etapa: null, proprietario: null, funil: null };
 let charts = {};
 
 // ── Formatação ──────────────────────────────────────────────────────────────
@@ -282,7 +295,7 @@ function toggleFiltro(tipo, valor) {
 }
 
 function limparFiltros(silencioso) {
-  filtros = { rede: null, etapa: null, proprietario: null };
+  filtros = { rede: null, etapa: null, proprietario: null, funil: null };
   if (!silencioso) render();
 }
 
@@ -313,9 +326,10 @@ function dadosVisiveis() {
   let backlog = dados.backlog.filter(b => b.produto === produtoAtivo);
   if (filtros.etapa)        backlog = backlog.filter(b => b.etapa === filtros.etapa);
   if (filtros.proprietario) backlog = backlog.filter(b => b.proprietario === filtros.proprietario);
+  if (filtros.funil)        backlog = backlog.filter(b => b.funil === filtros.funil);
 
-  // Quando há filtro de etapa ou dono, os números vêm do backlog filtrado
-  const filtrandoBacklog = !!(filtros.etapa || filtros.proprietario);
+  // Quando há filtro que vem do backlog, os números saem dele
+  const filtrandoBacklog = !!(filtros.etapa || filtros.proprietario || filtros.funil);
   const leads = filtrandoBacklog
     ? backlog.length
     : leadsPorDia.reduce((s, d) => s + d.leads, 0);
@@ -323,12 +337,28 @@ function dadosVisiveis() {
     ? backlog.filter(b => b.mql).length
     : leadsPorDia.reduce((s, d) => s + d.mqls, 0);
 
+  // Leads e MQL por rede, tirados do backlog (a aba LEADS só traz o total)
+  const porRede = {};
+  for (const rede of Object.keys(investPorRede)) {
+    porRede[rede] = { leads: 0, mqls: 0, investimento: investPorRede[rede] };
+  }
+  for (const b of backlog) {
+    const rede = redeDoLead(b);
+    if (!porRede[rede]) porRede[rede] = { leads: 0, mqls: 0, investimento: 0 };
+    porRede[rede].leads++;
+    if (b.mql) porRede[rede].mqls++;
+  }
+  // CPL da rede = investimento / (leads + mqls), mesma fórmula do KPI geral
+  for (const r of Object.values(porRede)) {
+    r.cpl = (r.leads + r.mqls) ? r.investimento / (r.leads + r.mqls) : 0;
+  }
+
   const ganhosValidos = ganhos.filter(g => g.vale === 'sim');
   const faturamento   = ganhosValidos.reduce((s, g) => s + g.valor, 0);
   const qtdGanhos     = ganhosValidos.length;
 
   return {
-    leadsPorDia, ganhos, backlog, investPorRede,
+    leadsPorDia, ganhos, backlog, investPorRede, porRede,
     etapas: p.etapas,
     kpis: {
       leads, mqls, investimento,
@@ -391,14 +421,17 @@ function render() {
     <div class="grid-meio">
       <div class="card">
         <div class="card-title">
-          Investimento por rede
-          <span class="card-tag">filtra tudo</span>
+          Leads · MQL · CPL por rede
+          <span class="card-tag">clique pra filtrar</span>
         </div>
         <div class="chart-box baixo"><canvas id="chartRedes"></canvas></div>
       </div>
       <div class="card">
-        <div class="card-title">Faturamento acumulado</div>
-        <div class="chart-box baixo"><canvas id="chartGanhos"></canvas></div>
+        <div class="card-title">
+          Funis
+          <span class="card-tag">leads · mql</span>
+        </div>
+        <div class="card-body" style="max-height:150px">${tabelaFunis(v)}</div>
       </div>
       <div class="card">
         <div class="card-title">
@@ -409,19 +442,26 @@ function render() {
       </div>
     </div>
 
+    <div class="grid-topo">
+      <div class="card">
+        <div class="card-title">Faturamento acumulado</div>
+        <div class="chart-box baixo"><canvas id="chartGanhos"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-title">
+          Comparativo entre produtos
+          <span class="card-tag">clique para trocar</span>
+        </div>
+        <div class="table-scroll">${tabelaProdutos()}</div>
+      </div>
+    </div>
+
     <div class="taxas">
       ${['Tx. Qualificação','Tx. Conexão','Tx. Agendamento','Tx. Vendas s/ Call']
         .map(n => `<div class="taxa"><div class="taxa-nome">${n}</div><div class="taxa-val">—</div></div>`)
         .join('')}
     </div>
 
-    <div class="card">
-      <div class="card-title">
-        Comparativo entre produtos
-        <span class="card-tag">clique para trocar</span>
-      </div>
-      <div class="table-scroll">${tabelaProdutos()}</div>
-    </div>
   `;
 
   desenharGraficos(v);
@@ -484,6 +524,37 @@ function funilHtml(v) {
         </div>
       </div>
       <div class="funil-pct">${pct}%</div>
+    </div>`;
+  }).join('') + '</div>';
+}
+
+// ── Funis (pipelines onde os leads estão) ───────────────────────────────────
+function tabelaFunis(v) {
+  const agg = {};
+  for (const b of v.backlog) {
+    const f = b.funil || '—';
+    if (!agg[f]) agg[f] = { leads: 0, mqls: 0 };
+    agg[f].leads++;
+    if (b.mql) agg[f].mqls++;
+  }
+
+  const lista = Object.entries(agg).sort((a, b) => b[1].leads - a[1].leads);
+  if (!lista.length) return '<div class="empty">Sem funis para os filtros atuais.</div>';
+
+  const maior = Math.max(...lista.map(([, d]) => d.leads), 1);
+
+  return '<div class="funil">' + lista.map(([nome, d]) => {
+    const sel  = filtros.funil === nome;
+    const larg = Math.max(d.leads / maior * 100, 3);
+    return `<div class="funil-step ${sel ? 'selecionado' : ''}"
+              onclick="toggleFiltro('funil', ${JSON.stringify(nome)})">
+      <div class="funil-label">${nome}</div>
+      <div class="funil-track">
+        <div class="funil-bar" style="width:${larg}%;background:${sel ? 'var(--amber)' : '#3a7ca8'}">
+          <span class="funil-val">${fmtNum(d.leads)}</span>
+        </div>
+      </div>
+      <div class="funil-pct">${fmtNum(d.mqls)}</div>
     </div>`;
   }).join('') + '</div>';
 }
@@ -575,33 +646,55 @@ function desenharGraficos(v) {
     },
   });
 
-  // Leads por rede — clicável
-  const redes  = Object.keys(p.investPorRede);
-  const invRede = redes.map(r => p.investPorRede[r]);
+  // Leads por rede — barras de volume, linha de CPL (mesma leitura do gráfico acima)
+  const redes = Object.keys(v.porRede)
+    .filter(r => v.porRede[r].leads > 0 || v.porRede[r].investimento > 0)
+    .sort((a, b) => v.porRede[b].leads - v.porRede[a].leads);
+
+  const opaco = r => !filtros.rede || filtros.rede === r;
 
   charts.redes = new Chart(document.getElementById('chartRedes'), {
-    type: 'bar',
     data: {
       labels: redes,
-      datasets: [{
-        data: invRede,
-        backgroundColor: redes.map(r =>
-          filtros.rede && filtros.rede !== r ? '#2a2a2a' : (CORES_REDE[r] || '#4a9eed')),
-        borderRadius: 2,
-      }],
+      datasets: [
+        { type:'bar', label:'Leads', yAxisID:'y',
+          data: redes.map(r => v.porRede[r].leads),
+          backgroundColor: redes.map(r => opaco(r) ? '#2c5f8a' : '#242424'),
+          borderRadius: 2 },
+        { type:'bar', label:'MQL', yAxisID:'y',
+          data: redes.map(r => v.porRede[r].mqls),
+          backgroundColor: redes.map(r => opaco(r) ? '#4a9eed' : '#2e2e2e'),
+          borderRadius: 2 },
+        { type:'line', label:'CPL', yAxisID:'y1',
+          data: redes.map(r => Math.round(v.porRede[r].cpl)),
+          borderColor:'#d9a441', borderWidth:2, pointRadius:3,
+          pointBackgroundColor:'#d9a441', tension:.3 },
+      ],
     },
     options: {
       ...opcoesBase(),
-      indexAxis: 'y',
       onClick: (_, els) => { if (els.length) toggleFiltro('rede', redes[els[0].index]); },
-      plugins: { ...opcoesBase().plugins,
-        tooltip: { ...opcoesBase().plugins.tooltip,
-          callbacks: { label: ctx => ' ' + fmtBRL(ctx.raw) } } },
+      plugins: {
+        ...opcoesBase().plugins,
+        legend: { display:true, labels:{ color:'#999',
+          font:{ family:'DM Mono', size:9 }, boxWidth:9 } },
+        tooltip: { ...opcoesBase().plugins.tooltip, callbacks: {
+          label: ctx => ctx.dataset.label === 'CPL'
+            ? ' CPL ' + fmtBRL(ctx.raw)
+            : ` ${ctx.dataset.label}: ${fmtNum(ctx.raw)}`,
+          afterBody: items => {
+            const r = redes[items[0].dataIndex];
+            return 'Investimento ' + fmtBRL(v.porRede[r].investimento);
+          },
+        } },
+      },
       scales: {
-        x: { ticks:{ color:'#666', font:{ family:'DM Mono', size:9 },
-                     callback: val => 'R$ ' + (val/1000).toFixed(0) + 'k' },
-             grid:{ color:'#1a1a1a' }, beginAtZero:true },
-        y: { ticks:{ color:'#999', font:{ family:'DM Mono', size:10 } }, grid:{ display:false } },
+        x: { ticks:{ color:'#999', font:{ family:'DM Mono', size:10 } }, grid:{ display:false } },
+        y: { beginAtZero:true, ticks:{ color:'#666', font:{ family:'DM Mono', size:9 } },
+             grid:{ color:'#1c1c1c' } },
+        y1:{ position:'right', beginAtZero:true, grid:{ display:false },
+             ticks:{ color:'#d9a441', font:{ family:'DM Mono', size:9 },
+                     callback: val => 'R$ ' + fmtNum(val) } },
       },
     },
   });
