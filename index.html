@@ -773,16 +773,33 @@ function opcoesBase() {
   };
 }
 
+// Roda o desenho de um grafico isolado: se um quebrar, os outros continuam
+function comCanvas(id, fn) {
+  const el = document.getElementById(id);
+  if (!el) return null;
+  try { return fn(el); }
+  catch (err) { console.error(`Falha no gráfico ${id}:`, err); return null; }
+}
+
 function desenharGraficos(v) {
   Object.values(charts).forEach(c => c?.destroy());
   charts = {};
 
-  const p       = dados.produtos[produtoAtivo];
+  // Tudo vem de v: no Consolidado nao existe dados.produtos['CONSOLIDADO']
+  // Sem dados o Chart.js desenha um retangulo vazio sem explicacao —
+  // melhor dizer o que aconteceu.
+  const aviso = (id, texto) => {
+    const box = document.getElementById(id)?.parentElement;
+    if (box) box.innerHTML = `<div class="empty">${texto}</div>`;
+  };
+  if (!v.leadsPorDia.length) aviso('chartLeads', 'Sem leads no período selecionado.');
+  if (!v.ganhos.length)      aviso('chartGanhos', 'Nenhum ganho no período.');
+
   const labels  = v.leadsPorDia.map(d => d.data);
-  const invDias = labels.map(l => p.investPorDia[l] || 0);
+  const invDias = labels.map(l => v.investPorDia[l] || 0);
 
   // Investimento x Leads x MQL
-  charts.leads = new Chart(document.getElementById('chartLeads'), {
+  charts.leads = comCanvas('chartLeads', el => new Chart(el, {
     data: {
       labels,
       datasets: [
@@ -805,7 +822,7 @@ function desenharGraficos(v) {
                       callback: val => 'R$ ' + (val/1000).toFixed(0) + 'k' } },
       },
     },
-  });
+  }));
 
   // Leads por rede — barras de volume, linha de CPL (mesma leitura do gráfico acima)
   const redes = Object.keys(v.porRede)
@@ -814,7 +831,7 @@ function desenharGraficos(v) {
 
   const opaco = r => !filtros.rede || filtros.rede === r;
 
-  charts.redes = new Chart(document.getElementById('chartRedes'), {
+  charts.redes = comCanvas('chartRedes', el => new Chart(el, {
     data: {
       labels: redes,
       datasets: [
@@ -858,7 +875,7 @@ function desenharGraficos(v) {
                      callback: val => 'R$ ' + fmtNum(val) } },
       },
     },
-  });
+  }));
 
   // Ganhos acumulados. Se ninguém marcou "sim" ainda, mostra todos os ganhos
   // pra tela não ficar vazia — o aviso fica no título do card.
@@ -881,7 +898,7 @@ function desenharGraficos(v) {
   let acum = 0;
   const acumulado = diasGanhos.map(d => acum += ganhosPorDia[d]);
 
-  charts.ganhos = new Chart(document.getElementById('chartGanhos'), {
+  charts.ganhos = comCanvas('chartGanhos', el => new Chart(el, {
     type: 'line',
     data: {
       labels: diasGanhos,
@@ -902,7 +919,7 @@ function desenharGraficos(v) {
                       callback: val => 'R$ ' + (val/1000).toFixed(0) + 'k' } },
       },
     },
-  });
+  }));
 }
 
 // ── Início ──────────────────────────────────────────────────────────────────
