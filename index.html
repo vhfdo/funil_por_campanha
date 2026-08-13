@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>
 <style>
   :root{
     --bg:#0a0a0a; --panel:#111; --panel2:#1a1a1a; --border:#222;
@@ -548,7 +549,7 @@ function render() {
       <div class="card">
         <div class="card-title">
           Funis
-          <span class="card-tag">leads · mql</span>
+          <span class="card-tag">leads → mql</span>
         </div>
         <div class="card-body" style="max-height:150px">${tabelaFunis(v)}</div>
       </div>
@@ -651,7 +652,7 @@ function funilHtml(v) {
           <span class="funil-val">${fmtNum(e.qtd)}</span>
         </div>
       </div>
-      <div class="funil-pct">${pct}%</div>
+      <div class="funil-pct" title="${fmtNum(e.qtd)} negócios">${pct}%</div>
     </div>`;
   }).join('') + '</div>';
 }
@@ -715,7 +716,7 @@ function tabelaCargos(v) {
           <span class="funil-val">${fmtNum(d.leads)}</span>
         </div>
       </div>
-      <div class="funil-pct">${pct}%</div>
+      <div class="funil-pct" title="${fmtNum(d.mqls)} MQL">${pct}%</div>
     </div>`;
   }).join('') + '</div>';
 }
@@ -752,6 +753,13 @@ function tabelaProprietarios(v) {
 }
 
 // ── Gráficos ────────────────────────────────────────────────────────────────
+// O plugin de rotulos e' registrado global, mas desligado por padrao:
+// cada grafico decide como quer exibir o valor.
+if (window.ChartDataLabels) {
+  Chart.register(ChartDataLabels);
+  Chart.defaults.set('plugins.datalabels', { display: false });
+}
+
 function opcoesBase() {
   return {
     responsive: true,
@@ -804,11 +812,25 @@ function desenharGraficos(v) {
       labels,
       datasets: [
         { type:'bar', label:'Leads', data: v.leadsPorDia.map(d => d.leads),
-          backgroundColor:'#2c5f8a', borderRadius:2, yAxisID:'y' },
+          backgroundColor:'#2c5f8a', borderRadius:2, yAxisID:'y',
+          datalabels: { display: ctx => ctx.dataset.data[ctx.dataIndex] > 0,
+            anchor:'end', align:'end', offset:-2, color:'#9dc4e8',
+            font:{ family:'DM Mono', size:8 }, formatter: v => fmtNum(v) } },
         { type:'bar', label:'MQL', data: v.leadsPorDia.map(d => d.mqls),
-          backgroundColor:'#4a9eed', borderRadius:2, yAxisID:'y' },
+          backgroundColor:'#4a9eed', borderRadius:2, yAxisID:'y',
+          datalabels: { display: ctx => ctx.dataset.data[ctx.dataIndex] > 0,
+            anchor:'end', align:'end', offset:-2, color:'#cfe4f7',
+            font:{ family:'DM Mono', size:8 }, formatter: v => fmtNum(v) } },
         { type:'line', label:'Investimento', data: invDias,
-          borderColor:'#d9a441', borderWidth:2, pointRadius:0, tension:.3, yAxisID:'y1' },
+          borderColor:'#d9a441', borderWidth:2, pointRadius:0, tension:.3, yAxisID:'y1',
+          datalabels: { display: ctx => {
+              // So o pico e o ultimo ponto, senao a linha vira uma parede de numeros
+              const d = ctx.dataset.data, i = ctx.dataIndex;
+              return d[i] > 0 && (i === d.length - 1 || d[i] === Math.max(...d));
+            },
+            anchor:'end', align:'top', color:'#d9a441',
+            font:{ family:'DM Mono', size:8 },
+            formatter: v => 'R$ ' + (v/1000).toFixed(1) + 'k' } },
       ],
     },
     options: {
@@ -838,15 +860,25 @@ function desenharGraficos(v) {
         { type:'bar', label:'Leads', yAxisID:'y',
           data: redes.map(r => v.porRede[r].leads),
           backgroundColor: redes.map(r => opaco(r) ? '#2c5f8a' : '#242424'),
-          borderRadius: 2 },
+          borderRadius: 2,
+          datalabels: { display: ctx => ctx.dataset.data[ctx.dataIndex] > 0,
+            anchor:'end', align:'top', offset:0, color:'#9dc4e8',
+            font:{ family:'DM Mono', size:9 }, formatter: v => fmtNum(v) } },
         { type:'bar', label:'MQL', yAxisID:'y',
           data: redes.map(r => v.porRede[r].mqls),
           backgroundColor: redes.map(r => opaco(r) ? '#4a9eed' : '#2e2e2e'),
-          borderRadius: 2 },
+          borderRadius: 2,
+          datalabels: { display: ctx => ctx.dataset.data[ctx.dataIndex] > 0,
+            anchor:'end', align:'top', offset:0, color:'#cfe4f7',
+            font:{ family:'DM Mono', size:9 }, formatter: v => fmtNum(v) } },
         { type:'line', label:'CPL', yAxisID:'y1',
           data: redes.map(r => Math.round(v.porRede[r].cpl)),
           borderColor:'#d9a441', borderWidth:2, pointRadius:3,
-          pointBackgroundColor:'#d9a441', tension:.3 },
+          pointBackgroundColor:'#d9a441', tension:.3,
+          datalabels: { display: ctx => ctx.dataset.data[ctx.dataIndex] > 0,
+            anchor:'end', align:'bottom', color:'#d9a441',
+            font:{ family:'DM Mono', size:9 },
+            formatter: v => 'R$ ' + fmtNum(v) } },
       ],
     },
     options: {
@@ -905,6 +937,13 @@ function desenharGraficos(v) {
       datasets: [{
         data: acumulado, borderColor:'#4ade80', borderWidth:2.5,
         pointRadius:3, pointBackgroundColor:'#4ade80', fill:false, tension:.3,
+        datalabels: {
+          // Acumulado so cresce: marcamos o ultimo ponto, que e' o total
+          display: ctx => ctx.dataIndex === ctx.dataset.data.length - 1,
+          anchor:'end', align:'left', color:'#4ade80',
+          font:{ family:'DM Mono', size:10, weight:500 },
+          formatter: v => fmtBRL(v),
+        },
       }],
     },
     options: {
