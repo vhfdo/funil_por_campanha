@@ -276,11 +276,14 @@ const ETAPAS_CONECTADAS = [
   'validacao', 'negociacao', 'inscricao',
 ];
 
+// Ordem real do processo. Contatado vem depois das Etapas 1-3, nao logo
+// apos a Aplicacao — as etapas numeradas sao as tentativas de contato.
 const ORDEM_ETAPAS = [
-  'aplicacao', 'em agendamento', 'contatado',
-  'etapa 1', 'etapa 2', 'etapa 3', 'oportunidade', 'proposta',
+  'aplicacao', 'em agendamento',
+  'etapa 1', 'etapa 2', 'etapa 3',
+  'contatado', 'oportunidade', 'proposta',
   'agendados', 'no show', 'validacao de reuniao', 'reuniao',
-  'negociacao', 'inscricao em andamento', 'futuro'
+  'em negociacao', 'negociacao', 'inscricao em andamento', 'futuro'
 ];
 
 // Fontes que nao sao midia paga: evento, hotseat, summit. Entram no volume
