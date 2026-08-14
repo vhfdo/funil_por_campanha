@@ -261,8 +261,12 @@ export default async function handler(req, res) {
         proprietario: linha[9]  || '',
         status:       linha[10] || '',
         valor:        parseNum(linha[11]),
-        campanha:     linha[13] || '',
-        source:       linha[14] || '',
+        dataReuniao:  linha[12] || '',
+        tipo:         linha[13] || '',
+        realizada:    String(linha[14] || '').trim() !== '',
+        assunto:      linha[15] || '',
+        campanha:     linha[17] || '',
+        source:       linha[18] || '',
       });
     }
 
