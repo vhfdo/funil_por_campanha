@@ -711,7 +711,7 @@ function render() {
     return `<div class="kpi-card">
       <div class="kpi-label">${label}</div>
       <div class="kpi-val ${azul ? 'blue' : ''}">${valor}</div>
-      <div class="kpi-linha"><span>Era pra estar</span>
+      <div class="kpi-linha"><span>Projeção</span>
         <span style="color:${cor}">${fmt(alvoHoje)}</span></div>
       <div class="kpi-linha"><span>Meta</span><span>${fmt(meta)}</span></div>
       <div class="kpi-barra"><div style="width:${pct}%;background:${cor}"></div></div>
@@ -1293,7 +1293,7 @@ function desenharGraficos(v) {
           },
         },
         ...(linhaMeta ? [{
-          label: 'Era pra estar', data: linhaMeta,
+          label: 'Projeção', data: linhaMeta,
           borderColor:'#d9a441', borderWidth:2, borderDash:[6,4],
           pointRadius:0, fill:false, tension:0,
           datalabels: {
