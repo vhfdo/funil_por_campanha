@@ -180,14 +180,19 @@ export default async function handler(req, res) {
       // Investimento por rede e por dia
       const investPorRede = {};
       const investPorDia  = {};
+      // Tambem guardamos por rede e por dia: sem isso, filtrar por rede no
+      // dashboard nao teria como recalcular a linha de investimento do grafico.
+      const investDiaRede = {};
       for (const inv of ref.investimento) {
         let totalRede = 0;
+        investDiaRede[inv.rede] = {};
         for (const linha of (resultados[inv.idx] || []).slice(1)) {
           const data = normalizarData(linha[inv.colData]);
           const val  = parseNum(linha[inv.colValor]);
           if (!data || !val) continue;
           totalRede += val;
           investPorDia[data] = (investPorDia[data] || 0) + val;
+          investDiaRede[inv.rede][data] = (investDiaRede[inv.rede][data] || 0) + val;
         }
         investPorRede[inv.rede] = totalRede;
       }
@@ -207,6 +212,7 @@ export default async function handler(req, res) {
         ganhos,
         investPorRede,
         investPorDia,
+        investDiaRede,
         kpis: {
           leads:        totalLeads,
           mqls:         totalMqls,
