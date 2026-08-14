@@ -26,6 +26,7 @@ const PRODUTOS = {
     ganhos: 'GANHOS PFCC MÉXICO',
     investimento: [
       { rede: 'Meta',     aba: 'INVESTIMENTO META PFCC MEXICO',     colData: 6, colValor: 7 },
+      { rede: 'Google',   aba: 'INVESTIMENTO GOOGLE PFCC MEXICO',   colData: 5, colValor: 6 },
       { rede: 'LinkedIn', aba: 'INVESTIMENTO LINKEDIN PFCC MEXICO', colData: 6, colValor: 7 },
     ],
   },
@@ -35,6 +36,7 @@ const PRODUTOS = {
     ganhos: 'GANHOS PFCC CHILE',
     investimento: [
       { rede: 'Meta',     aba: 'INVESTIMENTO META PFCC CHILE',     colData: 6, colValor: 7 },
+      { rede: 'Google',   aba: 'INVESTIMENTO GOOGLE PFCC CHILE',   colData: 5, colValor: 6 },
       { rede: 'LinkedIn', aba: 'INVESTIMENTO LINKEDIN PFCC CHILE', colData: 6, colValor: 7 },
     ],
   },
