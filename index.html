@@ -415,6 +415,10 @@ function trocarProduto(p) {
 }
 
 // ── Filtros cruzados ────────────────────────────────────────────────────────
+// JSON.stringify usa aspas duplas, que fecham o atributo onclick="..." antes
+// da hora e matam o clique. Escapamos pra entidade HTML.
+const attr = v => JSON.stringify(String(v)).replace(/"/g, '&quot;');
+
 function toggleFiltro(tipo, valor) {
   filtros[tipo] = filtros[tipo] === valor ? null : valor;
   render();
@@ -446,7 +450,6 @@ function dadosVisiveis() {
   const investPorRede = {};
   const investPorDia  = {};
   let ganhos = [];
-  const etapasMap = {};
 
   for (const nome of nomes) {
     const p = dados.produtos[nome];
@@ -469,17 +472,14 @@ function dadosVisiveis() {
 
     ganhos = ganhos.concat(p.ganhos.filter(g => dentroDoPeriodo(g.data)));
 
-    for (const e of p.etapas) {
-      etapasMap[e.etapa] = (etapasMap[e.etapa] || 0) + e.qtd;
-    }
   }
 
   const leadsPorDia = Object.values(leadsMap).sort((a, b) => paraData(a.data) - paraData(b.data));
-  // Etapas vindas da aba ETAPA — retrato geral, sem filtro
-  let etapas = Object.entries(etapasMap).map(([etapa, qtd]) => ({ etapa, qtd }));
   const investimento = Object.values(investPorRede).reduce((s, v) => s + v, 0);
 
-  // Backlog: no consolidado pega todos os produtos, senao so o ativo
+  // ── Backlog do(s) produto(s), ja com os filtros aplicados ────────────
+  // Comparamos sem acento porque a planilha grava "PFCC MEXICO" e a aba
+  // se chama "PFCC MÉXICO".
   const alvos = nomes.map(semAcento);
   let backlog = dados.backlog.filter(b => alvos.includes(semAcento(b.produto)));
 
@@ -487,15 +487,16 @@ function dadosVisiveis() {
   if (filtros.proprietario) backlog = backlog.filter(b => b.proprietario === filtros.proprietario);
   if (filtros.funil)        backlog = backlog.filter(b => b.funil === filtros.funil);
   if (filtros.cargo)        backlog = backlog.filter(b => normalizarCargo(b.cargo) === filtros.cargo);
+  if (filtros.rede)         backlog = backlog.filter(b => redeDoLead(b) === filtros.rede);
 
-  // Filtros vindos do backlog reescrevem a contagem de leads e MQL
-  const filtrandoBacklog = !!(filtros.etapa || filtros.proprietario || filtros.funil || filtros.cargo);
-
-  // Com filtro ativo, o funil passa a mostrar so quem sobrou — e' assim que
-  // clicar num proprietario revela em que etapa os MQLs dele estao parados.
-  // Ignoramos o filtro de etapa aqui, senao o funil ficaria com uma barra so.
-  const filtraFunil = !!(filtros.proprietario || filtros.funil || filtros.cargo || filtros.rede);
-  if (filtraFunil) {
+  // ── Etapas do funil ──────────────────────────────────────────────────
+  // Sai sempre do backlog, nao da aba ETAPA. A aba traz todos os deals
+  // abertos de qualquer periodo, enquanto o backlog e' so o mes corrente —
+  // usar as duas fontes deixava o funil sem bater com os proprietarios.
+  //
+  // O filtro de etapa fica de fora do proprio funil, senao ele viraria
+  // uma barra unica ao clicar numa etapa.
+  const etapas = (() => {
     let base = dados.backlog.filter(b => alvos.includes(semAcento(b.produto)));
     if (filtros.proprietario) base = base.filter(b => b.proprietario === filtros.proprietario);
     if (filtros.funil)        base = base.filter(b => b.funil === filtros.funil);
@@ -505,17 +506,13 @@ function dadosVisiveis() {
     const contagem = {};
     for (const b of base) {
       if (metrica === 'mqls' && !b.mql) continue;
-      const e = b.etapa || '—';
+      const e = (b.etapa || '').trim() || '—';
       contagem[e] = (contagem[e] || 0) + 1;
     }
-    etapas = Object.entries(contagem).map(([etapa, qtd]) => ({ etapa, qtd }));
-  }
-  const leads = filtrandoBacklog
-    ? backlog.length
-    : leadsPorDia.reduce((s, d) => s + d.leads, 0);
-  const mqls = filtrandoBacklog
-    ? backlog.filter(b => b.mql).length
-    : leadsPorDia.reduce((s, d) => s + d.mqls, 0);
+    return Object.entries(contagem).map(([etapa, qtd]) => ({ etapa, qtd }));
+  })();
+
+  const filtraFunil = !!(filtros.proprietario || filtros.funil || filtros.cargo || filtros.rede);
 
   // Leads e MQL por rede saem do backlog — a aba LEADS so tem o total
   const porRede = {};
@@ -548,6 +545,17 @@ function dadosVisiveis() {
     mqlTresFunisPorDia[dia] = (mqlTresFunisPorDia[dia] || 0) + 1;
   }
   const mqlTresFunis = Object.values(mqlTresFunisPorDia).reduce((s, v) => s + v, 0);
+
+  // Filtros vindos do backlog reescrevem a contagem de leads e MQL:
+  // com filtro ativo, contar da aba LEADS daria o total do produto inteiro.
+  const filtrandoBacklog = !!(filtros.etapa || filtros.proprietario
+    || filtros.funil || filtros.cargo || filtros.rede);
+  const leads = filtrandoBacklog
+    ? backlog.length
+    : leadsPorDia.reduce((s, d) => s + d.leads, 0);
+  const mqls = filtrandoBacklog
+    ? backlog.filter(b => b.mql).length
+    : leadsPorDia.reduce((s, d) => s + d.mqls, 0);
 
   const ganhosValidos = ganhos.filter(g => g.vale === 'sim');
   const faturamento   = ganhosValidos.reduce((s, g) => s + g.valor, 0);
@@ -758,7 +766,7 @@ function funilHtml(v) {
     const cor  = `hsl(${210 - i * 6}, ${62 - i * 3}%, ${58 - i * 2}%)`;
     const sel  = filtros.etapa === e.etapa;
     return `<div class="funil-step ${sel ? 'selecionado' : ''}"
-              onclick="toggleFiltro('etapa', ${JSON.stringify(e.etapa)})">
+              onclick="toggleFiltro('etapa', ${attr(e.etapa)})">
       <div class="funil-label">${e.etapa}</div>
       <div class="funil-track">
         <div class="funil-bar" style="width:${larg}%;background:${sel ? 'var(--amber)' : cor}">
@@ -792,7 +800,7 @@ function cardsRedes(v) {
 
     return `<div class="rede-card ${sel ? 'ativo' : ''}"
               style="${sel ? `border-color:${cor}` : ''}"
-              onclick="toggleFiltro('rede', ${JSON.stringify(rede)})">
+              onclick="toggleFiltro('rede', ${attr(rede)})">
       <div class="rede-topo">
         <span class="rede-nome" style="color:${cor}">${rede}</span>
         <span class="rede-inv">${fmtBRL(d.investimento)}</span>
@@ -836,7 +844,7 @@ function tabelaFunis(v) {
     const sel  = filtros.funil === nome;
     const larg = Math.max(d[metrica] / maior * 100, 3);
     return `<div class="funil-step ${sel ? 'selecionado' : ''}"
-              onclick="toggleFiltro('funil', ${JSON.stringify(nome)})">
+              onclick="toggleFiltro('funil', ${attr(nome)})">
       <div class="funil-label">${nome}</div>
       <div class="funil-track">
         <div class="funil-bar" style="width:${larg}%;background:${sel ? 'var(--amber)' : '#3a7ca8'}">
@@ -869,7 +877,7 @@ function tabelaCargos(v) {
     const larg = Math.max(d[metrica] / maior * 100, 3);
     const pct  = (d[metrica] / total * 100).toFixed(0);
     return `<div class="funil-step ${sel ? 'selecionado' : ''}"
-              onclick="toggleFiltro('cargo', ${JSON.stringify(nome)})">
+              onclick="toggleFiltro('cargo', ${attr(nome)})">
       <div class="funil-label">${nome}</div>
       <div class="funil-track">
         <div class="funil-bar" style="width:${larg}%;background:${sel ? 'var(--amber)' : '#5b6f9e'}">
@@ -898,7 +906,7 @@ function tabelaProprietarios(v) {
       const sel = filtros.proprietario === dono;
       const cor = c => metrica === c ? 'color:var(--blue);font-weight:600' : '';
       return `<tr class="clicavel ${sel ? 'selecionado' : ''}"
-                onclick="toggleFiltro('proprietario', ${JSON.stringify(dono)})">
+                onclick="toggleFiltro('proprietario', ${attr(dono)})">
         <td>${dono}</td>
         <td class="num" style="${cor('leads')}">${fmtNum(d.leads)}</td>
         <td class="num" style="${cor('mqls')}">${fmtNum(d.mqls)}</td>
