@@ -362,8 +362,11 @@ let filtros = { rede: null, etapa: null, proprietario: null, funil: null, cargo:
 // 'leads' ou 'mqls' — define o que as barras dos cards medem
 let metrica = 'leads';
 
-// Ordenacao da tabela de proprietarios: 'asc' ou 'desc'
-let ordemProp = 'asc';
+// Ordenacao da tabela de proprietarios. Tem coluna propria, separada do
+// seletor Leads/MQL do topo — da pra ver quem tem mais lead e quem tem
+// mais MQL sem trocar a metrica do dashboard inteiro.
+let ordemProp    = 'desc';
+let ordemPropCol = 'mqls';
 const rotuloMetrica = () => metrica === 'mqls' ? 'MQL' : 'Leads';
 let charts = {};
 
@@ -431,8 +434,14 @@ function renderTabs() {
   }).join('');
 }
 
-function alternarOrdemProp() {
-  ordemProp = ordemProp === 'asc' ? 'desc' : 'asc';
+function ordenarProp(coluna) {
+  // Clicar na coluna ja ativa inverte; clicar em outra troca e comeca desc
+  if (ordemPropCol === coluna) {
+    ordemProp = ordemProp === 'asc' ? 'desc' : 'asc';
+  } else {
+    ordemPropCol = coluna;
+    ordemProp = 'desc';
+  }
   render();
 }
 
@@ -1012,10 +1021,10 @@ function tabelaProprietarios(v) {
   // que estao na planilha, e ai o total nao fechava com o que se ve.
   const sinal = ordemProp === 'asc' ? 1 : -1;
   const linhas = Object.entries(agg)
-    .sort((a, b) => sinal * (a[1][metrica] - b[1][metrica]))
+    .sort((a, b) => sinal * (a[1][ordemPropCol] - b[1][ordemPropCol]))
     .map(([dono, d]) => {
       const sel = filtros.proprietario === dono;
-      const cor = c => metrica === c ? 'color:var(--blue);font-weight:600' : '';
+      const cor = c => ordemPropCol === c ? 'color:var(--blue);font-weight:600' : '';
       return `<tr class="clicavel ${sel ? 'selecionado' : ''}"
                 onclick="toggleFiltro('proprietario', ${attr(dono)})">
         <td>${dono}</td>
@@ -1027,10 +1036,12 @@ function tabelaProprietarios(v) {
   if (!linhas) return '<div class="empty">Nenhum lead para os filtros atuais.</div>';
 
   const seta = ordemProp === 'asc' ? '↑' : '↓';
-  const col = c => c === metrica
-    ? `<th class="num ordenavel ativa" onclick="alternarOrdemProp()">${
-        c === 'leads' ? 'Leads' : 'MQL'} ${seta}</th>`
-    : `<th class="num">${c === 'leads' ? 'Leads' : 'MQL'}</th>`;
+  const col = c => {
+    const nome = c === 'leads' ? 'Leads' : 'MQL';
+    const ativa = ordemPropCol === c;
+    return `<th class="num ordenavel ${ativa ? 'ativa' : ''}"
+              onclick="ordenarProp('${c}')">${nome}${ativa ? ' ' + seta : ''}</th>`;
+  };
 
   return `<table>
     <thead><tr><th>Proprietário</th>${col('leads')}${col('mqls')}</tr></thead>
