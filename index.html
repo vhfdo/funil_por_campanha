@@ -425,6 +425,11 @@ function limparFiltros(silencioso) {
   if (!silencioso) render();
 }
 
+// Qual filtro esta redesenhando o funil, pra mostrar no titulo do card
+function labelFiltroFunil() {
+  return filtros.proprietario || filtros.funil || filtros.cargo || filtros.rede || '';
+}
+
 function labelFiltros() {
   const ativos = Object.entries(filtros).filter(([, v]) => v);
   if (!ativos.length) return '';
@@ -470,7 +475,8 @@ function dadosVisiveis() {
   }
 
   const leadsPorDia = Object.values(leadsMap).sort((a, b) => paraData(a.data) - paraData(b.data));
-  const etapas = Object.entries(etapasMap).map(([etapa, qtd]) => ({ etapa, qtd }));
+  // Etapas vindas da aba ETAPA — retrato geral, sem filtro
+  let etapas = Object.entries(etapasMap).map(([etapa, qtd]) => ({ etapa, qtd }));
   const investimento = Object.values(investPorRede).reduce((s, v) => s + v, 0);
 
   // Backlog: no consolidado pega todos os produtos, senao so o ativo
@@ -484,6 +490,26 @@ function dadosVisiveis() {
 
   // Filtros vindos do backlog reescrevem a contagem de leads e MQL
   const filtrandoBacklog = !!(filtros.etapa || filtros.proprietario || filtros.funil || filtros.cargo);
+
+  // Com filtro ativo, o funil passa a mostrar so quem sobrou — e' assim que
+  // clicar num proprietario revela em que etapa os MQLs dele estao parados.
+  // Ignoramos o filtro de etapa aqui, senao o funil ficaria com uma barra so.
+  const filtraFunil = !!(filtros.proprietario || filtros.funil || filtros.cargo || filtros.rede);
+  if (filtraFunil) {
+    let base = dados.backlog.filter(b => alvos.includes(semAcento(b.produto)));
+    if (filtros.proprietario) base = base.filter(b => b.proprietario === filtros.proprietario);
+    if (filtros.funil)        base = base.filter(b => b.funil === filtros.funil);
+    if (filtros.cargo)        base = base.filter(b => normalizarCargo(b.cargo) === filtros.cargo);
+    if (filtros.rede)         base = base.filter(b => redeDoLead(b) === filtros.rede);
+
+    const contagem = {};
+    for (const b of base) {
+      if (metrica === 'mqls' && !b.mql) continue;
+      const e = b.etapa || '—';
+      contagem[e] = (contagem[e] || 0) + 1;
+    }
+    etapas = Object.entries(contagem).map(([etapa, qtd]) => ({ etapa, qtd }));
+  }
   const leads = filtrandoBacklog
     ? backlog.length
     : leadsPorDia.reduce((s, d) => s + d.leads, 0);
@@ -529,7 +555,7 @@ function dadosVisiveis() {
 
   return {
     leadsPorDia, ganhos, backlog, investPorRede, investPorDia, porRede, etapas,
-    ehConsolidado, mqlTresFunisPorDia, mqlTresFunis,
+    ehConsolidado, mqlTresFunisPorDia, mqlTresFunis, filtraFunil,
     kpis: {
       leads, mqls, investimento,
       ganhos: qtdGanhos, faturamento,
@@ -616,8 +642,9 @@ function render() {
       </div>
       <div class="card">
         <div class="card-title">
-          Funil · em aberto
-          <span class="card-tag">% do total</span>
+          ${v.filtraFunil ? 'Funil · ' + labelFiltroFunil() : 'Funil · em aberto'}
+          <span class="card-tag" ${v.filtraFunil ? 'style="background:var(--amber);color:#0a0a0a"' : ''}>
+            ${v.filtraFunil ? rotuloMetrica().toLowerCase() + ' filtrados' : '% do total'}</span>
         </div>
         <div class="card-body">${funilHtml(v)}</div>
       </div>
