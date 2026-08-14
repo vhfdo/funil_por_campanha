@@ -105,7 +105,7 @@
     color:var(--bg);padding:2px 6px;letter-spacing:.06em;white-space:nowrap;}
   .card-body{flex:1;min-height:0;overflow:auto;}
   .chart-box{position:relative;height:190px;flex-shrink:0;}
-  .chart-box.baixo{height:150px;}
+  .chart-box.baixo{height:230px;}
 
   /* ── Cards de rede ── */
   .redes-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:16px;}
@@ -140,6 +140,14 @@
   tr.clicavel:hover td{background:var(--panel2);}
   tr.selecionado td{background:#16283d;}
   .table-scroll{overflow:auto;max-height:230px;}
+  .table-scroll::-webkit-scrollbar,
+  .card-body::-webkit-scrollbar{width:6px;}
+  .table-scroll::-webkit-scrollbar-track,
+  .card-body::-webkit-scrollbar-track{background:var(--bg);}
+  .table-scroll::-webkit-scrollbar-thumb,
+  .card-body::-webkit-scrollbar-thumb{background:#333;border-radius:3px;}
+  .table-scroll::-webkit-scrollbar-thumb:hover,
+  .card-body::-webkit-scrollbar-thumb:hover{background:#444;}
 
   /* ── Funil ── */
   .funil{display:flex;flex-direction:column;gap:2px;}
@@ -671,21 +679,21 @@ function render() {
           Funis
           <span class="card-tag">leads → mql</span>
         </div>
-        <div class="card-body" style="max-height:150px">${tabelaFunis(v)}</div>
+        <div class="card-body" style="max-height:230px">${tabelaFunis(v)}</div>
       </div>
       <div class="card">
         <div class="card-title">
           Cargos
           <span class="card-tag">% dos leads</span>
         </div>
-        <div class="card-body" style="max-height:150px">${tabelaCargos(v)}</div>
+        <div class="card-body" style="max-height:230px">${tabelaCargos(v)}</div>
       </div>
       <div class="card">
         <div class="card-title">
           Proprietários
-          <span class="card-tag">${fmtNum(v.backlog.length)} leads</span>
+          <span class="card-tag">${qtdProprietarios(v)} · ${fmtNum(v.backlog.length)} leads</span>
         </div>
-        <div class="table-scroll" style="max-height:150px">${tabelaProprietarios(v)}</div>
+        <div class="table-scroll" style="max-height:230px">${tabelaProprietarios(v)}</div>
       </div>
     </div>
 
@@ -890,6 +898,9 @@ function tabelaCargos(v) {
 }
 
 // ── Proprietários ───────────────────────────────────────────────────────────
+const qtdProprietarios = v =>
+  new Set(v.backlog.map(b => b.proprietario || '—')).size;
+
 function tabelaProprietarios(v) {
   const agg = {};
   for (const b of v.backlog) {
@@ -899,9 +910,10 @@ function tabelaProprietarios(v) {
     if (b.mql) agg[dono].mqls++;
   }
 
+  // Sem corte — a lista rola dentro do card. Cortar escondia proprietarios
+  // que estao na planilha, e ai o total nao fechava com o que se ve.
   const linhas = Object.entries(agg)
     .sort((a, b) => b[1][metrica] - a[1][metrica])
-    .slice(0, 8)
     .map(([dono, d]) => {
       const sel = filtros.proprietario === dono;
       const cor = c => metrica === c ? 'color:var(--blue);font-weight:600' : '';
