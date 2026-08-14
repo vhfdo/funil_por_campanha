@@ -172,7 +172,9 @@
   .taxa{background:var(--panel);padding:12px;text-align:center;}
   .taxa-nome{font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;
     letter-spacing:.06em;color:var(--white);margin-bottom:5px;}
-  .taxa-val{font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--gray);}
+  .taxa-val{font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--blue);}
+  .taxa-detalhe{font-family:'DM Mono',monospace;font-size:8.5px;color:var(--gray);
+    margin-top:4px;}
   @media(max-width:700px){.taxas{grid-template-columns:repeat(2,1fr);}}
 
   .empty{text-align:center;padding:40px 20px;color:var(--gray);
@@ -266,6 +268,13 @@ const CORES_REDE = { Meta: '#4a6dd4', Google: '#2980b9', LinkedIn: '#0e76a8' };
 // Etapas que existem no Pipedrive mas nao fazem parte do funil de venda.
 // Ficam de fora do card e nao entram no calculo do percentual.
 const ETAPAS_IGNORADAS = ['reabertura'];
+
+// Etapas que significam "houve conexao com o lead" — base da taxa de conexao.
+// Comparadas sem acento, entao 'validacao' pega 'VALIDAÇÃO DE REUNIÃO'.
+const ETAPAS_CONECTADAS = [
+  'contatado', 'oportunidade', 'agendados', 'no show', 'noshow',
+  'validacao', 'negociacao', 'inscricao',
+];
 
 const ORDEM_ETAPAS = [
   'aplicacao', 'em agendamento', 'contatado',
@@ -584,13 +593,40 @@ function dadosVisiveis() {
     ? backlog.filter(b => b.mql).length
     : leadsPorDia.reduce((s, d) => s + d.mqls, 0);
 
+  // ── Reunioes agendadas no mes, do(s) produto(s) em foco ─────────────
+  let reunioes = (dados.reunioes || [])
+    .filter(r => alvos.includes(semAcento(r.produto)));
+  if (filtros.proprietario) reunioes = reunioes.filter(r => r.proprietario === filtros.proprietario);
+  if (filtros.funil)        reunioes = reunioes.filter(r => r.funil === filtros.funil);
+  if (filtros.cargo)        reunioes = reunioes.filter(r => normalizarCargo(r.cargo) === filtros.cargo);
+  if (filtros.rede)         reunioes = reunioes.filter(r => redeDoLead(r) === filtros.rede);
+
   const ganhosValidos = ganhos.filter(g => g.vale === 'sim');
   const faturamento   = ganhosValidos.reduce((s, g) => s + g.valor, 0);
   const qtdGanhos     = ganhosValidos.length;
 
+  // ── Taxas ────────────────────────────────────────────────────────────
+  // Conexao: dos MQLs criados, quantos chegaram a Contatado ou alem.
+  const mqlsBacklog = backlog.filter(b => b.mql);
+  const conectados  = mqlsBacklog.filter(b =>
+    ETAPAS_CONECTADAS.some(e => semAcento(b.etapa).includes(e)));
+
+  const taxas = {
+    // Que % dos leads vira MQL
+    qualificacao: leads ? mqls / leads * 100 : null,
+    // Que % dos MQLs teve algum contato
+    conexao: mqlsBacklog.length
+      ? conectados.length / mqlsBacklog.length * 100 : null,
+    // Que % dos MQLs virou reuniao agendada
+    agendamento: mqls ? reunioes.length / mqls * 100 : null,
+    // Que % das reunioes virou venda
+    vendasCall: reunioes.length ? qtdGanhos / reunioes.length * 100 : null,
+  };
+
   return {
     leadsPorDia, ganhos, backlog, investPorRede, investPorDia, porRede, etapas,
     ehConsolidado, mqlTresFunisPorDia, mqlTresFunis, filtraFunil,
+    reunioes, taxas,
     kpis: {
       leads, mqls, investimento,
       ganhos: qtdGanhos, faturamento,
@@ -765,9 +801,18 @@ function render() {
     </div>
 
     <div class="taxas">
-      ${['Tx. Qualificação','Tx. Conexão','Tx. Agendamento','Tx. Vendas s/ Call']
-        .map(n => `<div class="taxa"><div class="taxa-nome">${n}</div><div class="taxa-val">—</div></div>`)
-        .join('')}
+      ${[
+        ['Tx. Qualificação',   v.taxas.qualificacao, `${fmtNum(v.kpis.mqls)} de ${fmtNum(v.kpis.leads)} leads`],
+        ['Tx. Conexão',        v.taxas.conexao,      'MQLs que chegaram a Contatado+'],
+        ['Tx. Agendamento',    v.taxas.agendamento,  `${fmtNum(v.reunioes.length)} reuniões`],
+        ['Tx. Vendas s/ Call', v.taxas.vendasCall,   `${fmtNum(v.kpis.ganhos)} vendas`],
+      ].map(([nome, valor, detalhe]) => `
+        <div class="taxa">
+          <div class="taxa-nome">${nome}</div>
+          <div class="taxa-val" style="color:${valor === null ? 'var(--gray)' : 'var(--blue)'}">${
+            valor === null ? '—' : valor.toFixed(1) + '%'}</div>
+          <div class="taxa-detalhe">${detalhe}</div>
+        </div>`).join('')}
     </div>
 
   `;
