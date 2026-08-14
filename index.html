@@ -134,6 +134,9 @@
     color:var(--white);padding:7px 8px;border-bottom:2px solid var(--blue);text-align:left;
     white-space:nowrap;position:sticky;top:0;background:var(--panel);}
   th.num{text-align:right;}
+  th.ordenavel{cursor:pointer;user-select:none;}
+  th.ordenavel:hover{color:var(--blue);}
+  th.ordenavel.ativa{color:var(--blue);}
   td{padding:7px 8px;border-bottom:1px solid var(--border);}
   td.num{text-align:right;font-family:'DM Mono',monospace;font-size:10px;}
   tr.clicavel{cursor:pointer;}
@@ -241,13 +244,21 @@ const ORDEM_PRODUTOS = [CONSOLIDADO, ...PRODUTOS_REAIS];
 
 // Metas do mes. Deixe null no que ainda nao tem meta definida — o card
 // simplesmente nao mostra a linha de meta nesse caso.
+// Metas do mes. Deixe null no que ainda nao tem meta — o card simplesmente
+// nao mostra a linha, e o grafico nao desenha a linha de ritmo.
 const METAS = {
-  [CONSOLIDADO]:  { leads: 5894, faturamento: null, investimento: null, roas: null },
-  'PFCC BRASIL':  { leads: null, faturamento: null, investimento: null, roas: null },
-  'PFCC MÉXICO':  { leads: null, faturamento: null, investimento: null, roas: null },
-  'PFCC CHILE':   { leads: null, faturamento: null, investimento: null, roas: null },
-  'LEAN':         { leads: null, faturamento: null, investimento: null, roas: null },
-  'CES':          { leads: null, faturamento: null, investimento: null, roas: null },
+  [CONSOLIDADO]:  { leads: 5894, mqls: null, faturamento: null,
+                    vendas: null, cac: null, roas: null, cpmql: null },
+  'PFCC BRASIL':  { leads: null, mqls: 3303, faturamento: 1310000,
+                    vendas: 73,  cac: 4479, roas: 4,   cpmql: 99 },
+  'PFCC MÉXICO':  { leads: null, mqls: null, faturamento: null,
+                    vendas: null, cac: null, roas: null, cpmql: null },
+  'PFCC CHILE':   { leads: null, mqls: null, faturamento: null,
+                    vendas: null, cac: null, roas: null, cpmql: null },
+  'LEAN':         { leads: null, mqls: null, faturamento: null,
+                    vendas: null, cac: null, roas: null, cpmql: null },
+  'CES':          { leads: null, mqls: null, faturamento: null,
+                    vendas: null, cac: null, roas: null, cpmql: null },
 };
 const CORES_REDE = { Meta: '#4a6dd4', Google: '#2980b9', LinkedIn: '#0e76a8' };
 
@@ -341,6 +352,9 @@ let filtros = { rede: null, etapa: null, proprietario: null, funil: null, cargo:
 
 // 'leads' ou 'mqls' — define o que as barras dos cards medem
 let metrica = 'leads';
+
+// Ordenacao da tabela de proprietarios: 'asc' ou 'desc'
+let ordemProp = 'asc';
 const rotuloMetrica = () => metrica === 'mqls' ? 'MQL' : 'Leads';
 let charts = {};
 
@@ -406,6 +420,11 @@ function renderTabs() {
       <div class="mini">${fmtNum(leads)}</div>
     </div>`;
   }).join('');
+}
+
+function alternarOrdemProp() {
+  ordemProp = ordemProp === 'asc' ? 'desc' : 'asc';
+  render();
 }
 
 function trocarMetrica(m) {
@@ -610,36 +629,65 @@ function render() {
 
   // Um KPI pode ter meta. Quando tem, mostramos o alvo do mes, quanto
   // deveria estar hoje e uma barra de progresso.
+  //
+  // CAC e CPMQL sao "quanto menor, melhor": pra eles nao existe ritmo
+  // acumulado, so a comparacao direta com o teto.
   function kpiCard(label, valor, opts = {}) {
-    const { meta, fmt = fmtNum, azul = false, bruto = null } = opts;
-    const alvoHoje = metaAteHoje(meta);
-    let extra = '';
-    if (meta) {
-      const pct = Math.min(bruto / meta * 100, 100);
-      const noRitmo = alvoHoje === null || bruto >= alvoHoje;
-      const cor = noRitmo ? 'var(--green)' : 'var(--red)';
-      extra = `
-        <div class="kpi-linha"><span>Era pra estar</span><span style="color:${cor}">${fmt(alvoHoje)}</span></div>
-        <div class="kpi-linha"><span>Meta</span><span>${fmt(meta)}</span></div>
-        <div class="kpi-barra"><div style="width:${pct}%;background:${cor}"></div></div>`;
+    const { meta, fmt = fmtNum, azul = false, bruto = null,
+            menorMelhor = false, semRitmo = false } = opts;
+
+    if (!meta) {
+      return `<div class="kpi-card">
+        <div class="kpi-label">${label}</div>
+        <div class="kpi-val ${azul ? 'blue' : ''}">${valor}</div>
+      </div>`;
     }
+
+    if (menorMelhor || semRitmo) {
+      const dentro = menorMelhor ? bruto <= meta : bruto >= meta;
+      const cor = bruto ? (dentro ? 'var(--green)' : 'var(--red)') : 'var(--gray)';
+      const pct = meta ? Math.min(bruto / meta * 100, 100) : 0;
+      return `<div class="kpi-card">
+        <div class="kpi-label">${label}</div>
+        <div class="kpi-val ${azul ? 'blue' : ''}">${valor}</div>
+        <div class="kpi-linha"><span>${menorMelhor ? 'Teto' : 'Meta'}</span>
+          <span style="color:${cor}">${fmt(meta)}</span></div>
+        <div class="kpi-barra"><div style="width:${pct}%;background:${cor}"></div></div>
+      </div>`;
+    }
+
+    const alvoHoje = metaAteHoje(meta);
+    const pct = Math.min(bruto / meta * 100, 100);
+    const noRitmo = alvoHoje === null || bruto >= alvoHoje;
+    const cor = noRitmo ? 'var(--green)' : 'var(--red)';
     return `<div class="kpi-card">
       <div class="kpi-label">${label}</div>
       <div class="kpi-val ${azul ? 'blue' : ''}">${valor}</div>
-      ${extra}
+      <div class="kpi-linha"><span>Era pra estar</span>
+        <span style="color:${cor}">${fmt(alvoHoje)}</span></div>
+      <div class="kpi-linha"><span>Meta</span><span>${fmt(meta)}</span></div>
+      <div class="kpi-barra"><div style="width:${pct}%;background:${cor}"></div></div>
     </div>`;
   }
 
   const kpisHtml = [
-    kpiCard('Leads', fmtNum(k.leads), { azul:true, meta: metas.leads, bruto: k.leads }),
-    kpiCard('MQL', fmtNum(k.mqls), { azul:true }),
-    kpiCard('Investimento', fmtBRL(k.investimento), { meta: metas.investimento, bruto: k.investimento, fmt: fmtBRL }),
-    kpiCard('Vol. Ganhos', fmtNum(k.ganhos)),
-    kpiCard('Faturamento', fmtBRL(k.faturamento), { meta: metas.faturamento, bruto: k.faturamento, fmt: fmtBRL }),
-    kpiCard('ROAS', fmtRoas(k.roas)),
-    kpiCard('CPL', fmtBRL(k.cpl)),
-    kpiCard('CPMQL', fmtBRL(k.cpmql)),
-    kpiCard('CAC', fmtBRL(k.cac)),
+    kpiCard('Leads', fmtNum(k.leads),
+      { azul:true, meta: metas.leads, bruto: k.leads }),
+    kpiCard('MQL', fmtNum(k.mqls),
+      { azul:true, meta: metas.mqls, bruto: k.mqls }),
+    kpiCard('Investimento', fmtBRL(k.investimento),
+      { fmt: fmtBRL }),
+    kpiCard('Vol. Ganhos', fmtNum(k.ganhos),
+      { meta: metas.vendas, bruto: k.ganhos }),
+    kpiCard('Faturamento', fmtBRL(k.faturamento),
+      { meta: metas.faturamento, bruto: k.faturamento, fmt: fmtBRL }),
+    kpiCard('ROAS', fmtRoas(k.roas),
+      { meta: metas.roas, bruto: k.roas, fmt: fmtRoas, semRitmo: true }),
+    kpiCard('CPL', fmtBRL(k.cpl), { fmt: fmtBRL }),
+    kpiCard('CPMQL', fmtBRL(k.cpmql),
+      { meta: metas.cpmql, bruto: k.cpmql, fmt: fmtBRL, menorMelhor: true }),
+    kpiCard('CAC', fmtBRL(k.cac),
+      { meta: metas.cac, bruto: k.cac, fmt: fmtBRL, menorMelhor: true }),
   ].join('');
 
   document.getElementById('conteudo').innerHTML = `
@@ -699,7 +747,12 @@ function render() {
 
     <div class="grid-topo">
       <div class="card">
-        <div class="card-title">Faturamento acumulado</div>
+        <div class="card-title">
+          Faturamento acumulado
+          ${(METAS[produtoAtivo] || {}).faturamento
+            ? `<span class="card-tag">meta ${fmtBRL(METAS[produtoAtivo].faturamento)}</span>`
+            : ''}
+        </div>
         <div class="chart-box baixo"><canvas id="chartGanhos"></canvas></div>
       </div>
       <div class="card">
@@ -912,8 +965,9 @@ function tabelaProprietarios(v) {
 
   // Sem corte — a lista rola dentro do card. Cortar escondia proprietarios
   // que estao na planilha, e ai o total nao fechava com o que se ve.
+  const sinal = ordemProp === 'asc' ? 1 : -1;
   const linhas = Object.entries(agg)
-    .sort((a, b) => b[1][metrica] - a[1][metrica])
+    .sort((a, b) => sinal * (a[1][metrica] - b[1][metrica]))
     .map(([dono, d]) => {
       const sel = filtros.proprietario === dono;
       const cor = c => metrica === c ? 'color:var(--blue);font-weight:600' : '';
@@ -927,8 +981,14 @@ function tabelaProprietarios(v) {
 
   if (!linhas) return '<div class="empty">Nenhum lead para os filtros atuais.</div>';
 
+  const seta = ordemProp === 'asc' ? '↑' : '↓';
+  const col = c => c === metrica
+    ? `<th class="num ordenavel ativa" onclick="alternarOrdemProp()">${
+        c === 'leads' ? 'Leads' : 'MQL'} ${seta}</th>`
+    : `<th class="num">${c === 'leads' ? 'Leads' : 'MQL'}</th>`;
+
   return `<table>
-    <thead><tr><th>Proprietário</th><th class="num">Leads</th><th class="num">MQL</th></tr></thead>
+    <thead><tr><th>Proprietário</th>${col('leads')}${col('mqls')}</tr></thead>
     <tbody>${linhas}</tbody>
   </table>`;
 }
@@ -1147,27 +1207,56 @@ function desenharGraficos(v) {
   let acum = 0;
   const acumulado = diasGanhos.map(d => acum += ganhosPorDia[d]);
 
+  // Faturamento acumulado, com a linha de ritmo da meta ao lado
+  const metaFat = (METAS[produtoAtivo] || {}).faturamento;
+  const diasNoMes = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+
+  // A meta cresce linear ao longo do mes: no dia N deveria estar em
+  // meta/dias * N. Assim a distancia entre as duas linhas e' o atraso.
+  const linhaMeta = metaFat
+    ? diasGanhos.map(d => Math.round(metaFat / diasNoMes * Number(d.split('/')[0])))
+    : null;
+
   charts.ganhos = comCanvas('chartGanhos', el => new Chart(el, {
     type: 'line',
     data: {
       labels: diasGanhos,
-      datasets: [{
-        data: acumulado, borderColor:'#4ade80', borderWidth:2.5,
-        pointRadius:3, pointBackgroundColor:'#4ade80', fill:false, tension:.3,
-        datalabels: {
-          // Acumulado so cresce: marcamos o ultimo ponto, que e' o total
-          display: ctx => ctx.dataIndex === ctx.dataset.data.length - 1,
-          anchor:'end', align:'left', color:'#4ade80',
-          font:{ family:'DM Mono', size:10, weight:500 },
-          formatter: v => fmtBRL(v),
+      datasets: [
+        {
+          label: 'Realizado', data: acumulado,
+          borderColor:'#4ade80', borderWidth:2.5,
+          pointRadius:3, pointBackgroundColor:'#4ade80', fill:false, tension:.3,
+          datalabels: {
+            display: ctx => ctx.dataIndex === ctx.dataset.data.length - 1,
+            anchor:'end', align:'left', color:'#4ade80',
+            font:{ family:'DM Mono', size:10, weight:500 },
+            formatter: v => fmtBRL(v),
+          },
         },
-      }],
+        ...(linhaMeta ? [{
+          label: 'Era pra estar', data: linhaMeta,
+          borderColor:'#d9a441', borderWidth:2, borderDash:[6,4],
+          pointRadius:0, fill:false, tension:0,
+          datalabels: {
+            display: ctx => ctx.dataIndex === ctx.dataset.data.length - 1,
+            anchor:'end', align:'left', offset:6, color:'#d9a441',
+            font:{ family:'DM Mono', size:10 },
+            formatter: v => fmtBRL(v),
+          },
+        }] : []),
+      ],
     },
     options: {
       ...opcoesBase(),
-      plugins: { ...opcoesBase().plugins,
+      plugins: {
+        ...opcoesBase().plugins,
+        legend: linhaMeta
+          ? { display:true, labels:{ color:'#e8e8e8',
+              font:{ family:'DM Mono', size:9 }, boxWidth:9 } }
+          : { display:false },
         tooltip: { ...opcoesBase().plugins.tooltip,
-          callbacks: { label: ctx => ' ' + fmtBRL(ctx.raw) } } },
+          callbacks: { label: ctx => ` ${ctx.dataset.label}: ${fmtBRL(ctx.raw)}` } },
+      },
       scales: {
         ...opcoesBase().scales,
         y: { ...opcoesBase().scales.y,
