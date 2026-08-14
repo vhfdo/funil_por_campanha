@@ -406,6 +406,7 @@ async function carregar() {
     if (!r.ok) throw new Error(json.error || 'Erro ao carregar');
 
     dados = json;
+    jaDiagnosticou = false;
     renderTabs();
     render();
 
@@ -514,7 +515,11 @@ function dadosVisiveis() {
       if (filtros.rede && filtros.rede !== rede) continue;
       investPorRede[rede] = (investPorRede[rede] || 0) + total;
     }
-    for (const [dia, val] of Object.entries(p.investPorDia)) {
+    // Com filtro de rede, o investimento diario vem so daquela rede
+    const fonteDia = filtros.rede
+      ? ((p.investDiaRede || {})[filtros.rede] || {})
+      : p.investPorDia;
+    for (const [dia, val] of Object.entries(fonteDia)) {
       investPorDia[dia] = (investPorDia[dia] || 0) + val;
     }
 
@@ -522,7 +527,7 @@ function dadosVisiveis() {
 
   }
 
-  const leadsPorDia = Object.values(leadsMap).sort((a, b) => paraData(a.data) - paraData(b.data));
+  let leadsPorDia = Object.values(leadsMap).sort((a, b) => paraData(a.data) - paraData(b.data));
   const investimento = Object.values(investPorRede).reduce((s, v) => s + v, 0);
 
   // ── Backlog do(s) produto(s), ja com os filtros aplicados ────────────
@@ -598,6 +603,23 @@ function dadosVisiveis() {
   // com filtro ativo, contar da aba LEADS daria o total do produto inteiro.
   const filtrandoBacklog = !!(filtros.etapa || filtros.proprietario
     || filtros.funil || filtros.cargo || filtros.rede);
+
+  // Com filtro ativo o grafico tambem passa a sair do backlog. A aba LEADS
+  // so tem o total do dia, sem quebra por rede/dono/etapa — se ela continuasse
+  // alimentando as barras, elas ficariam paradas enquanto o resto filtrava.
+  if (filtrandoBacklog) {
+    const porDia = {};
+    for (const b of backlog) {
+      const dia = (b.aplicacao || '').trim().slice(0, 5);   // DD/MM
+      if (!dia.includes('/')) continue;
+      if (!dentroDoPeriodo(dia)) continue;
+      if (!porDia[dia]) porDia[dia] = { data: dia, leads: 0, mqls: 0 };
+      porDia[dia].leads++;
+      if (b.mql) porDia[dia].mqls++;
+    }
+    leadsPorDia = Object.values(porDia).sort((a, b) => paraData(a.data) - paraData(b.data));
+  }
+
   const leads = filtrandoBacklog
     ? backlog.length
     : leadsPorDia.reduce((s, d) => s + d.leads, 0);
@@ -1091,7 +1113,13 @@ function comCanvas(id, fn) {
 
 // Quando "Outros" cresce demais e' porque alguma utm_source nova apareceu.
 // Em vez de caçar no console, o dashboard mesmo aponta o que nao classificou.
+let jaDiagnosticou = false;
+
 function diagnosticarOutros(backlog) {
+  // Uma vez por carga — antes rodava a cada render e inundava o console
+  if (jaDiagnosticou) return;
+  jaDiagnosticou = true;
+
   const soltos = backlog.filter(b => {
     const r = redeDoLead(b);
     return r === 'Outros' || r === 'Sem origem';
