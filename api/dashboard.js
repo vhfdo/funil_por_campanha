@@ -58,7 +58,8 @@ const PRODUTOS = {
   },
 };
 
-const ABA_BACKLOG = 'BACKLOG MQL';
+const ABA_BACKLOG  = 'BACKLOG MQL';
+const ABA_REUNIOES = 'BACKLOG REUNIÕES';
 
 function checkAuth(req) {
   const secret = process.env.SESSION_SECRET;
@@ -127,6 +128,9 @@ export default async function handler(req, res) {
 
     const idxBacklog = tarefas.length;
     tarefas.push(lerAba(ABA_BACKLOG));
+
+    const idxReunioes = tarefas.length;
+    tarefas.push(lerAba(ABA_REUNIOES));
 
     const resultados = await Promise.all(tarefas);
 
@@ -242,10 +246,31 @@ export default async function handler(req, res) {
       });
     }
 
+    // ── Reunioes: mesma estrutura do backlog ─────────────────────────────
+    const reunioes = [];
+    for (const linha of (resultados[idxReunioes] || []).slice(1)) {
+      if (!linha[0]) continue;
+      reunioes.push({
+        id:           linha[0],
+        produto:      linha[1]  || '',
+        nome:         linha[3]  || '',
+        cargo:        linha[5]  || '',
+        mql:          String(linha[6] || '').trim() !== '',
+        funil:        linha[7]  || '',
+        etapa:        linha[8]  || '',
+        proprietario: linha[9]  || '',
+        status:       linha[10] || '',
+        valor:        parseNum(linha[11]),
+        campanha:     linha[13] || '',
+        source:       linha[14] || '',
+      });
+    }
+
     return res.status(200).json({
       atualizadoEm: new Date().toISOString(),
       produtos,
       backlog,
+      reunioes,
     });
 
   } catch (err) {
