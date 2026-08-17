@@ -6,7 +6,21 @@
 <title>Login — Funil por Campanha</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
-<script src="https://alcdn.msauth.net/browser/3.28.1/js/msal-browser.min.js"></script>
+<!--
+  A Microsoft descontinuou a propria CDN a partir do MSAL v3 — a URL
+  alcdn.msauth.net/browser/3.x retorna 404. A biblioteca continua publicada
+  no npm, entao carregamos pela jsDelivr, com a unpkg como reserva.
+  O bundle expoe o objeto global 'msal'.
+-->
+<script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.28.1/lib/msal-browser.min.js"
+        crossorigin="anonymous"></script>
+<script>
+  if (typeof msal === 'undefined') {
+    document.write(
+      '<script src="https://unpkg.com/@azure/msal-browser@3.28.1/lib/'
+      + 'msal-browser.min.js"><\/script>');
+  }
+</script>
 <style>
   :root{--bg:#0a0a0a;--panel:#111;--border:#222;--blue:#4a9eed;--gray:#666;
         --gray-light:#999;--white:#f0f0f0;--red:#c0392b;}
@@ -147,8 +161,8 @@ btn.addEventListener('click', async () => {
   try {
     if (typeof msal === 'undefined' || !msal.PublicClientApplication) {
       estado = 'falhou';
-      motivoFalha = 'Biblioteca da Microsoft não carregou. '
-                  + 'Verifique a conexão ou algum bloqueador de scripts.';
+      motivoFalha = 'A biblioteca de autenticação não carregou. '
+                  + 'Pode ser bloqueio de rede às CDNs jsdelivr/unpkg.';
       erro(motivoFalha);
       return;
     }
