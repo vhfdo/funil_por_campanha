@@ -567,6 +567,16 @@ function renderTabs() {
   }).join('');
 }
 
+function alternarReport() {
+  modoReport = !modoReport;
+  const btn = document.getElementById('btnReport');
+  if (btn) {
+    btn.textContent = modoReport ? '← Dashboard' : 'Report';
+    btn.classList.toggle('ativo', modoReport);
+  }
+  render();
+}
+
 function ordenarProp(coluna) {
   // Clicar na coluna ja ativa inverte; clicar em outra troca e comeca desc
   if (ordemPropCol === coluna) {
