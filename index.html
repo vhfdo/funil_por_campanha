@@ -185,13 +185,15 @@
     background:var(--border);border:1px solid var(--border);margin-bottom:16px;}
   @media(max-width:1300px){.report-kpis{grid-template-columns:repeat(5,1fr);}}
   @media(max-width:900px){.report-kpis{grid-template-columns:repeat(3,1fr);}}
-  .report-grid{display:grid;grid-template-columns:1.35fr 1fr;gap:16px;}
+  /* align-items:start impede o card de esticar ate a altura da linha —
+     era dai que vinha aquele vazio embaixo do grafico. */
+  .report-grid{display:grid;grid-template-columns:1.35fr 1fr;gap:16px;align-items:start;}
   @media(max-width:1000px){.report-grid{grid-template-columns:1fr;}}
   /* Mesma altura na tela e na impressao: assim o Chart.js nao precisa
      redimensionar no meio do print, que e' onde o layout quebrava. */
   .chart-box.report-chart{height:250px;}
   .report-funil{height:250px;overflow:hidden;}
-  .report-grid-2{display:grid;grid-template-columns:1.35fr 1fr;gap:16px;margin-top:16px;}
+  .report-grid-2{display:grid;grid-template-columns:1.35fr 1fr;gap:16px;margin-top:16px;align-items:start;}
   @media(max-width:1000px){.report-grid-2{grid-template-columns:1fr;}}
   .chart-box.report-chart-2{height:190px;}
   .report-funis{height:190px;overflow:hidden;}
@@ -258,9 +260,29 @@
     .report-kpis{margin-bottom:10px !important;}
     .report-grid, .report-grid-2{display:grid !important;
       grid-template-columns:1.35fr 1fr !important;
-      gap:10px;break-inside:avoid;page-break-inside:avoid;}
-    .report-grid-2{margin-top:10px !important;}
+      gap:8px;align-items:start !important;
+      break-inside:avoid;page-break-inside:avoid;}
+    .report-grid-2{margin-top:8px !important;}
     .report-grid .card, .report-grid-2 .card{break-inside:avoid;page-break-inside:avoid;}
+
+    /* Alturas do papel: os dois blocos precisam caber na mesma folha */
+    .chart-box.report-chart{height:180px !important;}
+    .report-funil{height:180px !important;}
+    .chart-box.report-chart-2{height:140px !important;}
+    .report-funis{height:140px !important;}
+
+    /* Barras mais finas pra 13 etapas caberem em 180px e 18 funis em 140px */
+    .report-funil .funil-step{grid-template-columns:96px 1fr 26px;gap:5px;}
+    .report-funil .funil-track{height:9px;}
+    .report-funil .funil-label{font-size:7.5px;}
+    .report-funil .funil-val{font-size:7px;}
+    .report-funil .funil-pct{font-size:6.5px;}
+
+    .report-funis .funil-step{grid-template-columns:84px 1fr 24px;gap:5px;}
+    .report-funis .funil-track{height:9px;}
+    .report-funis .funil-label{font-size:6.5px;}
+    .report-funis .funil-val{font-size:6px;}
+    .report-funis .funil-pct{font-size:6px;}
 
     /* Listas inteiras, sem rolagem */
     .table-scroll, .card-body{max-height:none !important;overflow:visible !important;}
@@ -366,45 +388,63 @@ function exportarPDF() {
       <div>Gerado em ${new Date().toLocaleString('pt-BR')}</div>
     </div>`;
 
-  // O canvas do Chart.js nao acompanha a mudanca de largura da folha e
-  // acaba invadindo o cartao de baixo. Congelamos o grafico numa imagem:
-  // imagem obedece CSS sem discutir.
-  setTimeout(() => {
-    const trocados = congelarGraficos();
+  // Espera o report montar e os graficos desenharem
+  setTimeout(async () => {
+    const trocados = await congelarGraficos();
     window.print();
     setTimeout(() => {
       descongelarGraficos(trocados);
       if (voltar) alternarReport();
-    }, 400);
-  }, 300);
+    }, 500);
+  }, 400);
 }
 
-// Troca cada <canvas> por um <img> com o mesmo desenho
-function congelarGraficos() {
+// Troca cada <canvas> por um <img> com o mesmo desenho.
+//
+// A imagem se adapta a qualquer altura via CSS, entao o grafico deixa de
+// depender do Chart.js recalcular durante a impressao. O await no decode
+// e' essencial: o data URL e' gerado na hora, mas o navegador ainda precisa
+// decodificar antes de conseguir pintar. Sem esperar, o print sai com a
+// imagem em branco.
+async function congelarGraficos() {
   const trocados = [];
+  const aguardando = [];
+
   document.querySelectorAll('.chart-box canvas').forEach(canvas => {
     let dados;
     try { dados = canvas.toDataURL('image/png', 1); }
-    catch (e) { return; }
+    catch (e) { console.error('Não consegui capturar o gráfico:', e); return; }
 
     const img = document.createElement('img');
-    img.src = dados;
     img.className = 'chart-img';
-    img.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block;';
+    img.style.cssText = 'width:100%;height:100%;object-fit:fill;display:block;';
+
+    aguardando.push(new Promise(resolve => {
+      img.onload  = resolve;
+      img.onerror = resolve;   // segue mesmo se falhar
+      img.src = dados;
+    }));
 
     canvas.style.display = 'none';
     canvas.parentElement.appendChild(img);
     trocados.push({ canvas, img });
   });
+
+  await Promise.all(aguardando);
+  // Um frame a mais garante que o layout ja considerou as imagens
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
   return trocados;
 }
 
 function descongelarGraficos(trocados) {
-  trocados.forEach(({ canvas, img }) => {
+  (trocados || []).forEach(({ canvas, img }) => {
     img.remove();
     canvas.style.display = '';
   });
-  Object.values(charts).forEach(c => c && c.resize());
+  Object.values(charts).forEach(c => {
+    try { c && c.resize(); } catch (e) { /* ignora */ }
+  });
 }
 
 function logout() {
@@ -1131,7 +1171,7 @@ function renderReport(v) {
       </div>
       <div class="card">
         <div class="card-title">Funis</div>
-        <div class="card-body report-funis">${tabelaFunis(v)}</div>
+        <div class="card-body report-funis">${tabelaFunis(v, 9)}</div>
       </div>
     </div>
   `;
@@ -1249,7 +1289,7 @@ function cardsRedes(v) {
 }
 
 // ── Funis (pipelines onde os leads estão) ───────────────────────────────────
-function tabelaFunis(v) {
+function tabelaFunis(v, limite) {
   const agg = {};
   for (const b of v.backlog) {
     const f = b.funil || '—';
@@ -1258,8 +1298,21 @@ function tabelaFunis(v) {
     if (b.mql) agg[f].mqls++;
   }
 
-  const lista = Object.entries(agg).sort((a, b) => b[1][metrica] - a[1][metrica]);
+  let lista = Object.entries(agg).sort((a, b) => b[1][metrica] - a[1][metrica]);
   if (!lista.length) return '<div class="empty">Sem funis para os filtros atuais.</div>';
+
+  // No report a lista e' cortada: a cauda de funis com 1-2 leads ocupa
+  // espaco e nao muda a leitura. O resto vira uma linha "outros".
+  let resto = null;
+  if (limite && lista.length > limite) {
+    const cortados = lista.slice(limite);
+    resto = {
+      leads: cortados.reduce((s, [, d]) => s + d.leads, 0),
+      mqls:  cortados.reduce((s, [, d]) => s + d.mqls, 0),
+      qtd:   cortados.length,
+    };
+    lista = lista.slice(0, limite);
+  }
 
   const maior = Math.max(...lista.map(([, d]) => d[metrica]), 1);
   const outra = metrica === 'mqls' ? 'leads' : 'mqls';
@@ -1277,7 +1330,17 @@ function tabelaFunis(v) {
       </div>
       <div class="funil-pct">${fmtNum(d[outra])}</div>
     </div>`;
-  }).join('') + '</div>';
+  }).join('') + (resto ? `
+    <div class="funil-step" style="opacity:.55;cursor:default">
+      <div class="funil-label">+${resto.qtd} outros</div>
+      <div class="funil-track">
+        <div class="funil-bar" style="width:${
+          Math.max(resto[metrica] / maior * 100, 3)}%;background:#3a4a55">
+          <span class="funil-val">${fmtNum(resto[metrica])}</span>
+        </div>
+      </div>
+      <div class="funil-pct">${fmtNum(resto[outra])}</div>
+    </div>` : '') + '</div>';
 }
 
 // ── Cargos ──────────────────────────────────────────────────────────────────
