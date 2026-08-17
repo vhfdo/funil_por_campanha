@@ -30,6 +30,7 @@
     cursor:pointer;transition:all .15s;}
   .btn:hover{background:var(--blue);color:var(--bg);}
   .btn:disabled{opacity:.4;cursor:not-allowed;}
+  .btn.ativo{background:var(--blue);color:var(--bg);}
   .user-info{font-family:'DM Mono',monospace;font-size:11px;color:var(--white);
     text-transform:uppercase;letter-spacing:.06em;}
 
@@ -178,6 +179,15 @@
   @media(max-width:700px){.taxas{grid-template-columns:repeat(2,1fr);}}
 
 
+
+  /* ── Report (one page) ──────────────────────────────────────────────── */
+  .report-kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:1px;
+    background:var(--border);border:1px solid var(--border);margin-bottom:16px;}
+  @media(max-width:900px){.report-kpis{grid-template-columns:repeat(3,1fr);}}
+  .report-grid{display:grid;grid-template-columns:1.35fr 1fr;gap:16px;}
+  @media(max-width:1000px){.report-grid{grid-template-columns:1fr;}}
+  .chart-box.report-chart{height:330px;}
+
   /* ── Impressão / PDF ────────────────────────────────────────────────── */
   .print-header{display:none;}
 
@@ -222,6 +232,10 @@
     /* Alturas fixas: o resize no beforeprint faz o canvas acompanhar */
     .chart-box{height:135px !important;}
     .chart-box.baixo{height:115px !important;}
+    /* No report o grafico e o funil dividem a folha: podem ser maiores */
+    .chart-box.report-chart{height:250px !important;}
+    .report-kpis{margin-bottom:10px !important;}
+    .report-grid{gap:10px;}
 
     /* Listas inteiras, sem rolagem */
     .table-scroll, .card-body{max-height:none !important;overflow:visible !important;}
@@ -276,6 +290,7 @@
         <input type="date" class="date-input" id="dataFim">
       </div>
       <button class="btn" id="btnAtualizar" onclick="carregar()">⟳ Atualizar</button>
+      <button class="btn" id="btnReport" onclick="alternarReport()">Report</button>
       <button class="btn" onclick="exportarPDF()">↓ PDF</button>
       <span class="user-info" id="userInfo"></span>
       <button class="btn" onclick="logout()">Sair</button>
@@ -306,6 +321,10 @@ document.getElementById('userInfo').textContent = sessionStorage.getItem('funil_
 // Usa a impressao do navegador: o usuario escolhe "Salvar como PDF".
 // Sem biblioteca externa, e os graficos saem em vetor no lugar de foto.
 function exportarPDF() {
+  // O PDF e' sempre do report — a tela cheia nao cabe numa folha
+  const voltar = !modoReport;
+  if (voltar) alternarReport();
+
   const ini = document.getElementById('dataInicio').value;
   const fim = document.getElementById('dataFim').value;
   const br  = d => d ? d.split('-').reverse().join('/') : '';
@@ -321,7 +340,11 @@ function exportarPDF() {
       <div>Gerado em ${new Date().toLocaleString('pt-BR')}</div>
     </div>`;
 
-  window.print();
+  // Espera o layout assentar antes de abrir o dialogo
+  setTimeout(() => {
+    window.print();
+    if (voltar) setTimeout(alternarReport, 300);
+  }, 250);
 }
 
 // O Chart.js precisa recalcular quando o CSS de impressao muda as alturas.
@@ -473,6 +496,9 @@ let metrica = 'leads';
 // mais MQL sem trocar a metrica do dashboard inteiro.
 let ordemProp    = 'desc';
 let ordemPropCol = 'mqls';
+
+// Modo report: uma pagina so, com o essencial pra leitura executiva
+let modoReport = false;
 const rotuloMetrica = () => metrica === 'mqls' ? 'MQL' : 'Leads';
 let charts = {};
 
@@ -797,6 +823,8 @@ function render() {
 
   document.getElementById('filtroAtivo').textContent = labelFiltros();
 
+  if (modoReport) { renderReport(v); return; }
+
   const k = v.kpis;
   const metas = METAS[produtoAtivo] || {};
 
@@ -956,6 +984,46 @@ function render() {
 
   desenharGraficos(v);
   diagnosticarOutros(v.backlog);
+}
+
+// ── Report: uma pagina, so o essencial ──────────────────────────────────────
+function renderReport(v) {
+  const k = v.kpis;
+  const reaplicacoes = v.backlog.filter(b => b.reaplicacao).length;
+  const pctReapl = k.leads ? (reaplicacoes / k.leads * 100) : 0;
+
+  const cards = [
+    ['Vol. Leads',   fmtNum(k.leads),        'blue'],
+    ['Vol. MQL',     fmtNum(k.mqls),         'blue'],
+    ['Reaplicação',  fmtNum(reaplicacoes),   '',     `${pctReapl.toFixed(0)}% dos leads`],
+    ['Investimento', fmtBRL(k.investimento), ''],
+    ['CPL',          fmtBRL(k.cpl),          ''],
+    ['CPMQL',        fmtBRL(k.cpmql),        ''],
+  ];
+
+  document.getElementById('conteudo').innerHTML = `
+    <div class="report-kpis">
+      ${cards.map(([label, valor, cor, extra]) => `
+        <div class="kpi-card">
+          <div class="kpi-label">${label}</div>
+          <div class="kpi-val ${cor}">${valor}</div>
+          ${extra ? `<div class="kpi-linha"><span>${extra}</span></div>` : ''}
+        </div>`).join('')}
+    </div>
+
+    <div class="report-grid">
+      <div class="card">
+        <div class="card-title">Investimento · Leads · MQL</div>
+        <div class="chart-box report-chart"><canvas id="chartLeads"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Funil</div>
+        <div class="card-body">${funilHtml(v)}</div>
+      </div>
+    </div>
+  `;
+
+  desenharGraficos(v);
 }
 
 // ── Tabela comparativa ──────────────────────────────────────────────────────
@@ -1253,6 +1321,8 @@ function desenharGraficos(v) {
     const box = document.getElementById(id)?.parentElement;
     if (box) box.innerHTML = `<div class="empty">${texto}</div>`;
   };
+  // No modo report so existe o grafico principal; os outros sao ignorados
+  // porque comCanvas devolve null quando o canvas nao esta na pagina.
   if (!v.leadsPorDia.length) aviso('chartLeads', 'Sem leads no período selecionado.');
   if (!v.ganhos.length)      aviso('chartGanhos', 'Nenhum ganho no período.');
 
