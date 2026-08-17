@@ -185,37 +185,66 @@
     /* Sem isso o navegador descarta os fundos escuros e o dash sai branco */
     *{-webkit-print-color-adjust:exact !important; print-color-adjust:exact !important;}
 
-    @page{ size:A4 landscape; margin:10mm; }
+    @page{ size:A4 landscape; margin:8mm; }
 
     body{background:var(--bg);}
     .wrap{max-width:100%;padding:0;}
 
     /* Controles nao fazem sentido no papel */
-    .header, .produtos, .status-bar, .btn, .metrica-switch, .date-range{display:none !important;}
+    .header, .produtos, .status-bar, .btn,
+    .metrica-switch, .date-range{display:none !important;}
     .card-tag{display:none;}
 
     .print-header{
       display:flex;justify-content:space-between;align-items:flex-end;
-      border-bottom:2px solid var(--blue);padding-bottom:10px;margin-bottom:14px;}
-    .print-marca{font-family:'DM Mono',monospace;font-size:9px;color:var(--blue);
+      border-bottom:2px solid var(--blue);padding-bottom:8px;margin-bottom:10px;}
+    .print-marca{font-family:'DM Mono',monospace;font-size:8px;color:var(--blue);
       letter-spacing:.15em;text-transform:uppercase;}
-    .print-titulo h2{font-family:'Bebas Neue',sans-serif;font-size:30px;
-      line-height:1;margin-top:3px;}
-    .print-meta{font-family:'DM Mono',monospace;font-size:9px;color:var(--gray-light);
-      text-align:right;line-height:1.7;}
+    .print-titulo h2{font-family:'Bebas Neue',sans-serif;font-size:24px;
+      line-height:1;margin-top:2px;}
+    .print-meta{font-family:'DM Mono',monospace;font-size:8px;color:var(--gray-light);
+      text-align:right;line-height:1.6;}
 
-    /* Cartoes nao podem ser cortados no meio da pagina */
-    .card, .rede-card, .taxa, .kpi-card{break-inside:avoid; page-break-inside:avoid;}
-    .kpi-strip, .redes-grid, .grid-topo, .grid-meio, .taxas{break-inside:avoid;}
+    /* So os cartoes individuais nao podem partir. Se os grids tambem
+       tivessem essa regra, cada bloco pularia pra uma pagina propria e
+       sobrariam faixas enormes em branco. */
+    .card, .rede-card, .taxa, .kpi-card{
+      break-inside:avoid; page-break-inside:avoid;}
 
-    /* Um pouco mais compacto pra caber melhor na folha */
-    .kpi-val{font-size:22px;}
-    .chart-box{height:150px;}
-    .chart-box.baixo{height:130px;}
-    .table-scroll{max-height:none;overflow:visible;}
-    .card-body{max-height:none !important;overflow:visible;}
+    /* Tudo mais compacto pra caber em 2-3 paginas */
+    .wrap > *, .grid-topo, .grid-meio, .redes-grid, .taxas{margin-bottom:8px !important;}
+    .card{padding:10px 12px;}
+    .card-title{font-size:14px;margin-bottom:8px;}
+    .kpi-card{padding:8px 9px;}
+    .kpi-val{font-size:19px;}
+    .kpi-linha{font-size:8px;margin-top:3px;}
 
-    .grid-topo{page-break-before:auto;}
+    /* Alturas fixas: o resize no beforeprint faz o canvas acompanhar */
+    .chart-box{height:135px !important;}
+    .chart-box.baixo{height:115px !important;}
+
+    /* Listas inteiras, sem rolagem */
+    .table-scroll, .card-body{max-height:none !important;overflow:visible !important;}
+    table{font-size:9px;}
+    th{font-size:7.5px;padding:4px 6px;}
+    td{padding:4px 6px;}
+    td.num{font-size:8.5px;}
+
+    .funil-step{grid-template-columns:100px 1fr 34px;}
+    .funil-label{font-size:8.5px;}
+    .funil-track{height:13px;}
+    .funil-val{font-size:8px;}
+    .funil-pct{font-size:7.5px;}
+
+    .rede-card{padding:9px 11px;}
+    .rede-nome{font-size:15px;}
+    .rede-nums strong{font-size:10.5px;}
+    .rede-nums span{font-size:7px;}
+
+    .taxa{padding:8px;}
+    .taxa-val{font-size:18px;}
+    .taxa-nome{font-size:7.5px;}
+    .taxa-detalhe{font-size:7px;}
   }
 
   .empty{text-align:center;padding:40px 20px;color:var(--gray);
@@ -277,9 +306,6 @@ document.getElementById('userInfo').textContent = sessionStorage.getItem('funil_
 // Usa a impressao do navegador: o usuario escolhe "Salvar como PDF".
 // Sem biblioteca externa, e os graficos saem em vetor no lugar de foto.
 function exportarPDF() {
-  // O Chart.js reage a mudanca de layout e as vezes limpa o canvas no meio
-  // da impressao. Desligamos o resize automatico enquanto a janela esta aberta.
-  Object.values(charts).forEach(c => { if (c) c.options.responsive = false; });
   const ini = document.getElementById('dataInicio').value;
   const fim = document.getElementById('dataFim').value;
   const br  = d => d ? d.split('-').reverse().join('/') : '';
@@ -296,14 +322,16 @@ function exportarPDF() {
     </div>`;
 
   window.print();
-
-  // Devolve o comportamento normal depois que o dialogo fecha
-  setTimeout(() => {
-    Object.values(charts).forEach(c => {
-      if (c) { c.options.responsive = true; c.resize(); }
-    });
-  }, 800);
 }
+
+// O Chart.js precisa recalcular quando o CSS de impressao muda as alturas.
+// Sem isso o canvas mantem o tamanho da tela e invade o cartao de baixo.
+window.addEventListener('beforeprint', () => {
+  Object.values(charts).forEach(c => c && c.resize());
+});
+window.addEventListener('afterprint', () => {
+  Object.values(charts).forEach(c => c && c.resize());
+});
 
 function logout() {
   sessionStorage.removeItem('funil_token');
