@@ -405,6 +405,7 @@ document.getElementById('userInfo').textContent = sessionStorage.getItem('funil_
 // Usa a impressao do navegador: o usuario escolhe "Salvar como PDF".
 // Sem biblioteca externa, e os graficos saem em vetor no lugar de foto.
 function exportarPDF() {
+  rastrear('exportar_pdf', produtoAtivo);
   // O PDF e' sempre do report — a tela cheia nao cabe numa folha
   const voltar = !modoReport;
   if (voltar) alternarReport();
@@ -484,10 +485,76 @@ function descongelarGraficos(trocados) {
 }
 
 function logout() {
+  rastrear('logout');
+  enviarFila();
   sessionStorage.removeItem('funil_token');
   sessionStorage.removeItem('funil_user');
   window.location.href = '/login.html';
 }
+
+// ── Rastreio de uso ─────────────────────────────────────────────────────────
+// Cada acao vira um evento enviado pro /api/track, que grava na aba EVENTOS.
+// O contrato e' o do backend: { events: [{ timestamp, type, details }] },
+// onde details pode ser objeto — o track.js faz JSON.stringify.
+//
+// Os eventos vao em lote (a cada 3s ou 15 eventos): sem isso, clicar em
+// cinco filtros seguidos dispararia cinco requisicoes.
+const filaEventos = [];
+let timerFila = null;
+
+function rastrear(type, detalhe = '') {
+  filaEventos.push({
+    timestamp: new Date().toISOString(),
+    type,
+    details: {
+      // O que o usuario fez
+      alvo: String(detalhe).slice(0, 120),
+      // Onde ele estava quando fez
+      produto: produtoAtivo,
+      metrica,
+      modo: modoGanhos ? 'ganhos' : modoReport ? 'report' : 'dashboard',
+      periodo: `${document.getElementById('dataInicio')?.value || ''} a ${
+        document.getElementById('dataFim')?.value || ''}`,
+      filtros: Object.entries(filtros)
+        .filter(([, v]) => v)
+        .map(([k, v]) => `${k}=${v}`)
+        .join('; ') || null,
+    },
+  });
+
+  clearTimeout(timerFila);
+  timerFila = setTimeout(enviarFila, 3000);
+
+  // Nao deixa a fila crescer se o usuario clicar muito
+  if (filaEventos.length >= 15) enviarFila();
+}
+
+function enviarFila() {
+  if (!filaEventos.length) return;
+  const lote = filaEventos.splice(0, filaEventos.length);
+
+  // keepalive faz a requisicao sobreviver ao fechamento da aba — e, ao
+  // contrario do sendBeacon, permite mandar o Authorization que o
+  // track.js exige.
+  fetch('/api/track', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${SESSION_TOKEN}`,
+    },
+    body: JSON.stringify({ events: lote }),
+    keepalive: true,
+  }).catch(e => {
+    // Rastreio nunca pode atrapalhar o uso do dashboard
+    console.debug('rastreio falhou:', e.message);
+  });
+}
+
+// Ao sair da pagina ou trocar de aba, manda o que ficou pendente
+window.addEventListener('pagehide', enviarFila);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') enviarFila();
+});
 
 // ── Estado ──────────────────────────────────────────────────────────────────
 const CONSOLIDADO = 'CONSOLIDADO';
@@ -670,6 +737,7 @@ async function carregar() {
 
     dados = json;
     jaDiagnosticou = false;
+    rastrear('carregar_dados', `${json.backlog?.length || 0} leads`);
     renderTabs();
     render();
 
@@ -702,6 +770,7 @@ function renderTabs() {
 }
 
 function alternarReport() {
+  rastrear('modo', modoReport ? 'sair_report' : 'abrir_report');
   modoReport = !modoReport;
   if (modoReport) modoGanhos = false;   // um modo por vez
   atualizarBotoesModo();
@@ -709,6 +778,7 @@ function alternarReport() {
 }
 
 function alternarGanhos() {
+  rastrear('modo', modoGanhos ? 'sair_ganhos' : 'abrir_ganhos');
   modoGanhos = !modoGanhos;
   if (modoGanhos) modoReport = false;
   atualizarBotoesModo();
@@ -716,6 +786,7 @@ function alternarGanhos() {
 }
 
 function agruparGanhosPor(campo) {
+  rastrear('agrupar_ganhos', campo);
   agrupaGanhos = campo;
   render();
 }
@@ -734,6 +805,7 @@ function atualizarBotoesModo() {
 }
 
 function ordenarProp(coluna) {
+  rastrear('ordenar_proprietarios', coluna);
   // Clicar na coluna ja ativa inverte; clicar em outra troca e comeca desc
   if (ordemPropCol === coluna) {
     ordemProp = ordemProp === 'asc' ? 'desc' : 'asc';
@@ -745,6 +817,7 @@ function ordenarProp(coluna) {
 }
 
 function trocarMetrica(m) {
+  rastrear('trocar_metrica', m);
   metrica = m;
   document.querySelectorAll('.metrica-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.metrica === m));
@@ -752,6 +825,7 @@ function trocarMetrica(m) {
 }
 
 function trocarProduto(p) {
+  rastrear('trocar_produto', p);
   produtoAtivo = p;
   limparFiltros(true);
   renderTabs();
@@ -764,11 +838,14 @@ function trocarProduto(p) {
 const attr = v => JSON.stringify(String(v)).replace(/"/g, '&quot;');
 
 function toggleFiltro(tipo, valor) {
+  const ligando = filtros[tipo] !== valor;
+  rastrear(ligando ? 'filtrar' : 'limpar_filtro', `${tipo}: ${valor}`);
   filtros[tipo] = filtros[tipo] === valor ? null : valor;
   render();
 }
 
 function limparFiltros(silencioso) {
+  if (!silencioso && Object.values(filtros).some(Boolean)) rastrear('limpar_filtros');
   filtros = { rede: null, etapa: null, proprietario: null, funil: null, cargo: null };
   if (!silencioso) render();
 }
@@ -2017,9 +2094,16 @@ window.addEventListener('DOMContentLoaded', () => {
   document.getElementById('dataInicio').value = `${ano}-${mes}-01`;
   document.getElementById('dataFim').value    = `${ano}-${mes}-${dia}`;
 
-  document.getElementById('dataInicio').addEventListener('change', render);
-  document.getElementById('dataFim').addEventListener('change', render);
+  document.getElementById('dataInicio').addEventListener('change', e => {
+    rastrear('mudar_periodo', `início: ${e.target.value}`);
+    render();
+  });
+  document.getElementById('dataFim').addEventListener('change', e => {
+    rastrear('mudar_periodo', `fim: ${e.target.value}`);
+    render();
+  });
 
+  rastrear('abrir_dashboard', navigator.language || '');
   carregar();
 });
 </script>
