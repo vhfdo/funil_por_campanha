@@ -1435,12 +1435,19 @@ function desenharGraficos(v) {
   // Tudo vem de v: no Consolidado nao existe dados.produtos['CONSOLIDADO']
   // Sem dados o Chart.js desenha um retangulo vazio sem explicacao —
   // melhor dizer o que aconteceu.
+  // Aviso de "sem dados" sobrepoe o canvas em vez de trocar o innerHTML:
+  // trocar apagava o proprio canvas e o grafico nao tinha onde nascer.
   const aviso = (id, texto) => {
-    const box = document.getElementById(id)?.parentElement;
-    if (box) box.innerHTML = `<div class="empty">${texto}</div>`;
+    const canvas = document.getElementById(id);
+    const box = canvas && canvas.parentElement;
+    if (!box) return;
+    const msg = document.createElement('div');
+    msg.className = 'empty';
+    msg.style.cssText = 'position:absolute;inset:0;display:flex;'
+      + 'align-items:center;justify-content:center;';
+    msg.textContent = texto;
+    box.appendChild(msg);
   };
-  // No modo report so existe o grafico principal; os outros sao ignorados
-  // porque comCanvas devolve null quando o canvas nao esta na pagina.
   if (!v.leadsPorDia.length) aviso('chartLeads', 'Sem leads no período selecionado.');
   if (!v.ganhos.length)      aviso('chartGanhos', 'Nenhum ganho no período.');
 
