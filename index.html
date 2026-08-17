@@ -177,6 +177,47 @@
     margin-top:4px;}
   @media(max-width:700px){.taxas{grid-template-columns:repeat(2,1fr);}}
 
+
+  /* ── Impressão / PDF ────────────────────────────────────────────────── */
+  .print-header{display:none;}
+
+  @media print{
+    /* Sem isso o navegador descarta os fundos escuros e o dash sai branco */
+    *{-webkit-print-color-adjust:exact !important; print-color-adjust:exact !important;}
+
+    @page{ size:A4 landscape; margin:10mm; }
+
+    body{background:var(--bg);}
+    .wrap{max-width:100%;padding:0;}
+
+    /* Controles nao fazem sentido no papel */
+    .header, .produtos, .status-bar, .btn, .metrica-switch, .date-range{display:none !important;}
+    .card-tag{display:none;}
+
+    .print-header{
+      display:flex;justify-content:space-between;align-items:flex-end;
+      border-bottom:2px solid var(--blue);padding-bottom:10px;margin-bottom:14px;}
+    .print-marca{font-family:'DM Mono',monospace;font-size:9px;color:var(--blue);
+      letter-spacing:.15em;text-transform:uppercase;}
+    .print-titulo h2{font-family:'Bebas Neue',sans-serif;font-size:30px;
+      line-height:1;margin-top:3px;}
+    .print-meta{font-family:'DM Mono',monospace;font-size:9px;color:var(--gray-light);
+      text-align:right;line-height:1.7;}
+
+    /* Cartoes nao podem ser cortados no meio da pagina */
+    .card, .rede-card, .taxa, .kpi-card{break-inside:avoid; page-break-inside:avoid;}
+    .kpi-strip, .redes-grid, .grid-topo, .grid-meio, .taxas{break-inside:avoid;}
+
+    /* Um pouco mais compacto pra caber melhor na folha */
+    .kpi-val{font-size:22px;}
+    .chart-box{height:150px;}
+    .chart-box.baixo{height:130px;}
+    .table-scroll{max-height:none;overflow:visible;}
+    .card-body{max-height:none !important;overflow:visible;}
+
+    .grid-topo{page-break-before:auto;}
+  }
+
   .empty{text-align:center;padding:40px 20px;color:var(--gray);
     font-family:'DM Mono',monospace;font-size:12px;}
   .loading{text-align:center;padding:80px 20px;color:var(--gray);
@@ -206,10 +247,13 @@
         <input type="date" class="date-input" id="dataFim">
       </div>
       <button class="btn" id="btnAtualizar" onclick="carregar()">⟳ Atualizar</button>
+      <button class="btn" onclick="exportarPDF()">↓ PDF</button>
       <span class="user-info" id="userInfo"></span>
       <button class="btn" onclick="logout()">Sair</button>
     </div>
   </div>
+
+  <div class="print-header" id="printHeader"></div>
 
   <div class="produtos" id="produtoTabs"></div>
 
@@ -229,6 +273,37 @@
 const SESSION_TOKEN = sessionStorage.getItem('funil_token');
 if (!SESSION_TOKEN) window.location.href = '/login.html';
 document.getElementById('userInfo').textContent = sessionStorage.getItem('funil_user') || '';
+
+// Usa a impressao do navegador: o usuario escolhe "Salvar como PDF".
+// Sem biblioteca externa, e os graficos saem em vetor no lugar de foto.
+function exportarPDF() {
+  // O Chart.js reage a mudanca de layout e as vezes limpa o canvas no meio
+  // da impressao. Desligamos o resize automatico enquanto a janela esta aberta.
+  Object.values(charts).forEach(c => { if (c) c.options.responsive = false; });
+  const ini = document.getElementById('dataInicio').value;
+  const fim = document.getElementById('dataFim').value;
+  const br  = d => d ? d.split('-').reverse().join('/') : '';
+
+  document.getElementById('printHeader').innerHTML = `
+    <div class="print-titulo">
+      <span class="print-marca">Board Academy · Marketing</span>
+      <h2>${produtoAtivo}</h2>
+    </div>
+    <div class="print-meta">
+      <div>Período: ${br(ini)} a ${br(fim)}</div>
+      <div>Métrica: ${rotuloMetrica()}</div>
+      <div>Gerado em ${new Date().toLocaleString('pt-BR')}</div>
+    </div>`;
+
+  window.print();
+
+  // Devolve o comportamento normal depois que o dialogo fecha
+  setTimeout(() => {
+    Object.values(charts).forEach(c => {
+      if (c) { c.options.responsive = true; c.resize(); }
+    });
+  }, 800);
+}
 
 function logout() {
   sessionStorage.removeItem('funil_token');
@@ -252,7 +327,7 @@ const METAS = {
   [CONSOLIDADO]:  { leads: 5894, mqls: null, faturamento: null,
                     vendas: null, cac: null, roas: null, cpmql: null },
   'PFCC BRASIL':  { leads: null, mqls: 3303, faturamento: 1310000,
-                    vendas: 73,  cac: 4479, roas: 4,   cpmql: 99 },
+                    vendas: 73,  cac: 4479, roas: 3,   cpmql: 99 },
   'PFCC MÉXICO':  { leads: null, mqls: null, faturamento: null,
                     vendas: null, cac: null, roas: null, cpmql: null },
   'PFCC CHILE':   { leads: null, mqls: null, faturamento: null,
