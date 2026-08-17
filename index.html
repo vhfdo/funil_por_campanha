@@ -194,6 +194,8 @@
   .chart-box.report-chart{height:250px;}
   .report-funil{height:250px;overflow:hidden;}
   .report-grid-2{display:grid;grid-template-columns:1.35fr 1fr;gap:16px;margin-top:16px;align-items:start;}
+  .report-taxas{margin-top:16px;}
+  .report-comparativo{margin-top:16px;}
   @media(max-width:1000px){.report-grid-2{grid-template-columns:1fr;}}
   .chart-box.report-chart-2{height:190px;}
   .report-funis{height:190px;overflow:hidden;}
@@ -218,7 +220,7 @@
     /* Sem isso o navegador descarta os fundos escuros e o dash sai branco */
     *{-webkit-print-color-adjust:exact !important; print-color-adjust:exact !important;}
 
-    @page{ size:A4 landscape; margin:8mm; }
+    @page{ size:A4 portrait; margin:10mm; }
 
     body{background:var(--bg);}
     .wrap{max-width:100%;padding:0;}
@@ -228,15 +230,18 @@
     .metrica-switch, .date-range{display:none !important;}
     .card-tag{display:none;}
 
+    /* Faixa de cabecalho: fundo proprio e borda azul, como uma capa */
     .print-header{
-      display:flex;justify-content:space-between;align-items:flex-end;
-      border-bottom:2px solid var(--blue);padding-bottom:8px;margin-bottom:10px;}
+      display:flex;justify-content:space-between;align-items:center;
+      background:var(--panel);border:1px solid var(--border);
+      border-left:4px solid var(--blue);
+      padding:10px 14px;margin-bottom:10px;}
     .print-marca{font-family:'DM Mono',monospace;font-size:8px;color:var(--blue);
-      letter-spacing:.15em;text-transform:uppercase;}
-    .print-titulo h2{font-family:'Bebas Neue',sans-serif;font-size:24px;
-      line-height:1;margin-top:2px;}
+      letter-spacing:.18em;text-transform:uppercase;}
+    .print-titulo h2{font-family:'Bebas Neue',sans-serif;font-size:26px;
+      line-height:1;margin-top:3px;letter-spacing:.02em;}
     .print-meta{font-family:'DM Mono',monospace;font-size:8px;color:var(--gray-light);
-      text-align:right;line-height:1.6;}
+      text-align:right;line-height:1.7;}
 
     /* So os cartoes individuais nao podem partir. Se os grids tambem
        tivessem essa regra, cada bloco pularia pra uma pagina propria e
@@ -263,24 +268,42 @@
       gap:8px;align-items:start !important;
       break-inside:avoid;page-break-inside:avoid;}
     .report-grid-2{margin-top:8px !important;}
+    .report-taxas{margin-top:8px !important;break-inside:avoid;}
+    .report-comparativo{margin-top:8px !important;break-inside:avoid;}
+    .report-comparativo table{font-size:8px;}
+    .report-comparativo th{font-size:7px;padding:4px 5px;}
+    .report-comparativo td{padding:4px 5px;}
+    .report-comparativo td.num{font-size:7.5px;}
     .report-grid .card, .report-grid-2 .card{break-inside:avoid;page-break-inside:avoid;}
 
-    /* Alturas do papel: os dois blocos precisam caber na mesma folha */
-    .chart-box.report-chart{height:180px !important;}
-    .report-funil{height:180px !important;}
-    .chart-box.report-chart-2{height:140px !important;}
-    .report-funis{height:140px !important;}
+    /* A4 retrato: 194mm de largura por 277mm de altura. Sobra altura e
+       falta largura, entao os KPIs vao em duas fileiras de cinco. */
+    .report-kpis{grid-template-columns:repeat(5,1fr) !important;}
+
+    .chart-box.report-chart{height:200px !important;}
+    .report-funil{height:200px !important;}
+    .chart-box.report-chart-2{height:170px !important;}
+    .report-funis{height:170px !important;}
+
+    .print-titulo h2{font-size:22px;}
+    .print-header{padding-bottom:8px;margin-bottom:10px;}
+    .kpi-card{padding:7px 9px;}
+    .kpi-val{font-size:17px;}
+    .kpi-label{font-size:7.5px;margin-bottom:4px;}
+    .kpi-linha{font-size:7px;margin-top:2px;}
+    .kpi-barra{height:2px;margin-top:4px;}
+    .card-title{font-size:13px;margin-bottom:7px;}
 
     /* Barras mais finas pra 13 etapas caberem em 180px e 18 funis em 140px */
-    .report-funil .funil-step{grid-template-columns:96px 1fr 26px;gap:5px;}
-    .report-funil .funil-track{height:9px;}
-    .report-funil .funil-label{font-size:7.5px;}
+    .report-funil .funil-step{grid-template-columns:90px 1fr 26px;gap:5px;}
+    .report-funil .funil-track{height:11px;}
+    .report-funil .funil-label{font-size:8px;}
     .report-funil .funil-val{font-size:7px;}
     .report-funil .funil-pct{font-size:6.5px;}
 
-    .report-funis .funil-step{grid-template-columns:84px 1fr 24px;gap:5px;}
-    .report-funis .funil-track{height:9px;}
-    .report-funis .funil-label{font-size:6.5px;}
+    .report-funis .funil-step{grid-template-columns:78px 1fr 24px;gap:5px;}
+    .report-funis .funil-track{height:11px;}
+    .report-funis .funil-label{font-size:7.5px;}
     .report-funis .funil-val{font-size:6px;}
     .report-funis .funil-pct{font-size:6px;}
 
@@ -1174,6 +1197,27 @@ function renderReport(v) {
         <div class="card-body report-funis">${tabelaFunis(v, 9)}</div>
       </div>
     </div>
+
+    <div class="taxas report-taxas">
+      ${[
+        ['Tx. Qualificação',   v.taxas.qualificacao, `${fmtNum(v.kpis.mqls)} de ${fmtNum(v.kpis.leads)}`],
+        ['Tx. Conexão',        v.taxas.conexao,      'chegaram a Contatado+'],
+        ['Tx. Agendamento',    v.taxas.agendamento,  `${fmtNum(v.reunioes.length)} reuniões`],
+        ['Tx. Vendas s/ Call', v.taxas.vendasCall,   `${fmtNum(v.kpis.ganhos)} vendas`],
+      ].map(([nome, valor, detalhe]) => `
+        <div class="taxa">
+          <div class="taxa-nome">${nome}</div>
+          <div class="taxa-val" style="color:${valor === null ? 'var(--gray)' : 'var(--blue)'}">${
+            valor === null ? '—' : valor.toFixed(1) + '%'}</div>
+          <div class="taxa-detalhe">${detalhe}</div>
+        </div>`).join('')}
+    </div>
+
+    ${v.ehConsolidado ? `
+      <div class="card report-comparativo">
+        <div class="card-title">Comparativo entre produtos</div>
+        ${tabelaProdutos()}
+      </div>` : ''}
   `;
 
   desenharGraficos(v);
