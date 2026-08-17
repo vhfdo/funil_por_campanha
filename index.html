@@ -361,6 +361,7 @@
         <input type="date" class="date-input" id="dataFim">
       </div>
       <button class="btn" id="btnAtualizar" onclick="carregar()">⟳ Atualizar</button>
+      <button class="btn" id="btnGanhos" onclick="alternarGanhos()">Ganhos</button>
       <button class="btn" id="btnReport" onclick="alternarReport()">Report</button>
       <button class="btn" onclick="exportarPDF()">↓ PDF</button>
       <span class="user-info" id="userInfo"></span>
@@ -616,6 +617,7 @@ let ordemPropCol = 'mqls';
 
 // Modo report: uma pagina so, com o essencial pra leitura executiva
 let modoReport = false;
+let modoGanhos = false;
 const rotuloMetrica = () => metrica === 'mqls' ? 'MQL' : 'Leads';
 let charts = {};
 
@@ -686,12 +688,29 @@ function renderTabs() {
 
 function alternarReport() {
   modoReport = !modoReport;
-  const btn = document.getElementById('btnReport');
-  if (btn) {
-    btn.textContent = modoReport ? '← Dashboard' : 'Report';
-    btn.classList.toggle('ativo', modoReport);
-  }
+  if (modoReport) modoGanhos = false;   // um modo por vez
+  atualizarBotoesModo();
   render();
+}
+
+function alternarGanhos() {
+  modoGanhos = !modoGanhos;
+  if (modoGanhos) modoReport = false;
+  atualizarBotoesModo();
+  render();
+}
+
+function atualizarBotoesModo() {
+  const r = document.getElementById('btnReport');
+  const g = document.getElementById('btnGanhos');
+  if (r) {
+    r.textContent = modoReport ? '← Dashboard' : 'Report';
+    r.classList.toggle('ativo', modoReport);
+  }
+  if (g) {
+    g.textContent = modoGanhos ? '← Dashboard' : 'Ganhos';
+    g.classList.toggle('ativo', modoGanhos);
+  }
 }
 
 function ordenarProp(coluna) {
@@ -950,6 +969,7 @@ function render() {
 
   document.getElementById('filtroAtivo').textContent = labelFiltros();
 
+  if (modoGanhos) { renderGanhos(v); return; }
   if (modoReport) { renderReport(v); return; }
 
   const k = v.kpis;
@@ -1221,6 +1241,141 @@ function renderReport(v) {
   `;
 
   desenharGraficos(v);
+}
+
+// ── Ganhos: de onde veio cada venda ─────────────────────────────────────────
+function renderGanhos(v) {
+  // So entram os ganhos validados manualmente na planilha
+  const validos = v.ganhos.filter(g => g.vale === 'sim');
+
+  if (!validos.length) {
+    document.getElementById('conteudo').innerHTML = `
+      <div class="card"><div class="empty">
+        Nenhum ganho com "sim" na coluna Vale? no período.<br><br>
+        <span style="font-size:11px">A marcação é manual, na aba GANHOS da planilha.</span>
+      </div></div>`;
+    return;
+  }
+
+  const total = validos.reduce((s, g) => s + g.valor, 0);
+  const ticket = total / validos.length;
+
+  // Agrupa por campanha e por rede
+  const porCampanha = {};
+  const porRede = {};
+  for (const g of validos) {
+    const c = (g.campanha || '').trim() || '(sem campanha)';
+    if (!porCampanha[c]) porCampanha[c] = { qtd: 0, valor: 0, rede: redeDoLead(g) };
+    porCampanha[c].qtd++;
+    porCampanha[c].valor += g.valor;
+
+    const r = redeDoLead(g);
+    if (!porRede[r]) porRede[r] = { qtd: 0, valor: 0 };
+    porRede[r].qtd++;
+    porRede[r].valor += g.valor;
+  }
+
+  const campanhas = Object.entries(porCampanha).sort((a, b) => b[1].valor - a[1].valor);
+  const redes     = Object.entries(porRede).sort((a, b) => b[1].valor - a[1].valor);
+
+  document.getElementById('conteudo').innerHTML = `
+    <div class="kpi-strip" style="grid-template-columns:repeat(4,1fr)">
+      <div class="kpi-card">
+        <div class="kpi-label">Vendas validadas</div>
+        <div class="kpi-val blue">${fmtNum(validos.length)}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Faturamento</div>
+        <div class="kpi-val">${fmtBRL(total)}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Ticket médio</div>
+        <div class="kpi-val">${fmtBRL(ticket)}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Campanhas</div>
+        <div class="kpi-val">${fmtNum(campanhas.length)}</div>
+      </div>
+    </div>
+
+    <div class="grid-topo">
+      <div class="card">
+        <div class="card-title">
+          Faturamento por campanha
+          <span class="card-tag">${fmtNum(campanhas.length)} campanhas</span>
+        </div>
+        <div class="table-scroll" style="max-height:340px">
+          <table>
+            <thead><tr>
+              <th>Campanha</th><th>Rede</th>
+              <th class="num">Vendas</th><th class="num">Faturamento</th><th class="num">%</th>
+            </tr></thead>
+            <tbody>
+              ${campanhas.map(([nome, d]) => `
+                <tr>
+                  <td title="${nome}">${nome.length > 46 ? nome.slice(0, 46) + '…' : nome}</td>
+                  <td style="color:var(--gray-light)">${d.rede}</td>
+                  <td class="num">${fmtNum(d.qtd)}</td>
+                  <td class="num" style="color:var(--green)">${fmtBRL(d.valor)}</td>
+                  <td class="num">${(d.valor / total * 100).toFixed(1)}%</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Faturamento por rede</div>
+        <div class="card-body">
+          <div class="funil">
+            ${redes.map(([nome, d]) => {
+              const maior = Math.max(...redes.map(([, x]) => x.valor), 1);
+              return `<div class="funil-step" style="cursor:default">
+                <div class="funil-label">${nome}</div>
+                <div class="funil-track">
+                  <div class="funil-bar" style="width:${
+                    Math.max(d.valor / maior * 100, 3)}%;background:#3a7ca8">
+                    <span class="funil-val">${fmtBRL(d.valor)}</span>
+                  </div>
+                </div>
+                <div class="funil-pct">${fmtNum(d.qtd)}</div>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="card-title">
+        Vendas validadas
+        <span class="card-tag">${fmtNum(validos.length)} negócios</span>
+      </div>
+      <div class="table-scroll" style="max-height:400px">
+        <table>
+          <thead><tr>
+            <th>Data</th><th>Nome</th><th>Produto</th>
+            <th class="num">Valor</th><th>Rede</th><th>Campanha</th>
+          </tr></thead>
+          <tbody>
+            ${validos
+              .sort((a, b) => paraData(b.data) - paraData(a.data))
+              .map(g => `
+                <tr>
+                  <td>${g.data}</td>
+                  <td>${g.nome || '—'}</td>
+                  <td style="color:var(--gray-light)">${g.produto || '—'}</td>
+                  <td class="num" style="color:var(--green)">${fmtBRL(g.valor)}</td>
+                  <td>${redeDoLead(g)}</td>
+                  <td title="${g.campanha || ''}" style="color:var(--gray-light)">${
+                    (g.campanha || '—').length > 52
+                      ? g.campanha.slice(0, 52) + '…' : (g.campanha || '—')}</td>
+                </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
 }
 
 // ── Tabela comparativa ──────────────────────────────────────────────────────
