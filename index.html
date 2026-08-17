@@ -144,6 +144,18 @@
   tr.clicavel:hover td{background:var(--panel2);}
   tr.selecionado td{background:#16283d;}
   .table-scroll{overflow:auto;max-height:230px;}
+  /* Tabela de rastreio: muitas colunas, entao fonte menor e sem quebra */
+  .agrupa-switch{display:flex;gap:1px;background:var(--border);border:1px solid var(--border);}
+  .agrupa-btn{font-family:'DM Mono',monospace;font-size:8.5px;letter-spacing:.05em;
+    text-transform:uppercase;padding:4px 8px;background:var(--panel);
+    color:var(--gray-light);border:none;cursor:pointer;transition:all .12s;}
+  .agrupa-btn:hover{color:var(--white);}
+  .agrupa-btn.ativo{background:var(--blue);color:var(--bg);}
+
+  .tabela-utm{font-size:10.5px;white-space:nowrap;}
+  .tabela-utm th{font-size:8px;}
+  .tabela-utm td.utm{font-family:'DM Mono',monospace;font-size:9px;
+    color:var(--gray-light);}
   .table-scroll::-webkit-scrollbar,
   .card-body::-webkit-scrollbar{width:6px;}
   .table-scroll::-webkit-scrollbar-track,
@@ -618,6 +630,9 @@ let ordemPropCol = 'mqls';
 // Modo report: uma pagina so, com o essencial pra leitura executiva
 let modoReport = false;
 let modoGanhos = false;
+
+// Por qual utm a tabela de ganhos agrupa
+let agrupaGanhos = 'campanha';
 const rotuloMetrica = () => metrica === 'mqls' ? 'MQL' : 'Leads';
 let charts = {};
 
@@ -697,6 +712,11 @@ function alternarGanhos() {
   modoGanhos = !modoGanhos;
   if (modoGanhos) modoReport = false;
   atualizarBotoesModo();
+  render();
+}
+
+function agruparGanhosPor(campo) {
+  agrupaGanhos = campo;
   render();
 }
 
@@ -1260,14 +1280,18 @@ function renderGanhos(v) {
   const total = validos.reduce((s, g) => s + g.valor, 0);
   const ticket = total / validos.length;
 
-  // Agrupa por campanha e por rede
-  const porCampanha = {};
-  const porRede = {};
+  // Agrupa pela utm escolhida no seletor, e sempre por rede
+  const rotulos = {
+    campanha: 'utm_campaign', source: 'utm_source', medium: 'utm_medium',
+    content:  'utm_content',  term:   'utm_term',   produto: 'produto',
+  };
+  const porChave = {};
+  const porRede  = {};
   for (const g of validos) {
-    const c = (g.campanha || '').trim() || '(sem campanha)';
-    if (!porCampanha[c]) porCampanha[c] = { qtd: 0, valor: 0, rede: redeDoLead(g) };
-    porCampanha[c].qtd++;
-    porCampanha[c].valor += g.valor;
+    const k = (g[agrupaGanhos] || '').trim() || `(sem ${rotulos[agrupaGanhos]})`;
+    if (!porChave[k]) porChave[k] = { qtd: 0, valor: 0, rede: redeDoLead(g) };
+    porChave[k].qtd++;
+    porChave[k].valor += g.valor;
 
     const r = redeDoLead(g);
     if (!porRede[r]) porRede[r] = { qtd: 0, valor: 0 };
@@ -1275,7 +1299,7 @@ function renderGanhos(v) {
     porRede[r].valor += g.valor;
   }
 
-  const campanhas = Object.entries(porCampanha).sort((a, b) => b[1].valor - a[1].valor);
+  const campanhas = Object.entries(porChave).sort((a, b) => b[1].valor - a[1].valor);
   const redes     = Object.entries(porRede).sort((a, b) => b[1].valor - a[1].valor);
 
   document.getElementById('conteudo').innerHTML = `
@@ -1301,13 +1325,18 @@ function renderGanhos(v) {
     <div class="grid-topo">
       <div class="card">
         <div class="card-title">
-          Faturamento por campanha
-          <span class="card-tag">${fmtNum(campanhas.length)} campanhas</span>
+          Faturamento por ${rotulos[agrupaGanhos]}
+          <span class="agrupa-switch">
+            ${Object.entries(rotulos).map(([campo, rot]) => `
+              <button class="agrupa-btn ${campo === agrupaGanhos ? 'ativo' : ''}"
+                      onclick="agruparGanhosPor('${campo}')">${
+                rot.replace('utm_', '')}</button>`).join('')}
+          </span>
         </div>
         <div class="table-scroll" style="max-height:340px">
           <table>
             <thead><tr>
-              <th>Campanha</th><th>Rede</th>
+              <th>${rotulos[agrupaGanhos]}</th><th>Rede</th>
               <th class="num">Vendas</th><th class="num">Faturamento</th><th class="num">%</th>
             </tr></thead>
             <tbody>
@@ -1348,29 +1377,42 @@ function renderGanhos(v) {
 
     <div class="card" style="margin-top:16px">
       <div class="card-title">
-        Vendas validadas
+        Vendas validadas · rastreio completo
         <span class="card-tag">${fmtNum(validos.length)} negócios</span>
       </div>
-      <div class="table-scroll" style="max-height:400px">
-        <table>
+      <div class="table-scroll" style="max-height:420px">
+        <table class="tabela-utm">
           <thead><tr>
-            <th>Data</th><th>Nome</th><th>Produto</th>
-            <th class="num">Valor</th><th>Rede</th><th>Campanha</th>
+            <th>Data</th><th>Nome</th><th>Produto</th><th class="num">Valor</th>
+            <th>Rede</th>
+            <th>utm_campaign</th><th>utm_source</th><th>utm_medium</th>
+            <th>utm_content</th><th>utm_term</th>
           </tr></thead>
           <tbody>
             ${validos
               .sort((a, b) => paraData(b.data) - paraData(a.data))
-              .map(g => `
+              .map(g => {
+                // Campanhas sao longas demais pra tabela; o texto inteiro
+                // fica no title, visivel ao passar o mouse.
+                const corta = (t, n) => {
+                  const s = (t || '').trim();
+                  if (!s) return '<span style="color:var(--gray)">—</span>';
+                  return s.length > n ? s.slice(0, n) + '…' : s;
+                };
+                return `
                 <tr>
                   <td>${g.data}</td>
                   <td>${g.nome || '—'}</td>
-                  <td style="color:var(--gray-light)">${g.produto || '—'}</td>
+                  <td style="color:var(--gray-light)">${corta(g.produto, 18)}</td>
                   <td class="num" style="color:var(--green)">${fmtBRL(g.valor)}</td>
                   <td>${redeDoLead(g)}</td>
-                  <td title="${g.campanha || ''}" style="color:var(--gray-light)">${
-                    (g.campanha || '—').length > 52
-                      ? g.campanha.slice(0, 52) + '…' : (g.campanha || '—')}</td>
-                </tr>`).join('')}
+                  <td class="utm" title="${g.campanha || ''}">${corta(g.campanha, 34)}</td>
+                  <td class="utm" title="${g.source || ''}">${corta(g.source, 14)}</td>
+                  <td class="utm" title="${g.medium || ''}">${corta(g.medium, 14)}</td>
+                  <td class="utm" title="${g.content || ''}">${corta(g.content, 26)}</td>
+                  <td class="utm" title="${g.term || ''}">${corta(g.term, 20)}</td>
+                </tr>`;
+              }).join('')}
           </tbody>
         </table>
       </div>
