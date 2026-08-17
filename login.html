@@ -6,66 +6,143 @@
 <title>Login — Funil por Campanha</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://alcdn.msauth.net/browser/3.28.1/js/msal-browser.min.js"></script>
 <style>
-  :root{--bg:#0a0a0a;--panel:#111;--border:#222;--blue:#4a9eed;--gray:#666;--white:#f0f0f0;--red:#c0392b;}
+  :root{--bg:#0a0a0a;--panel:#111;--border:#222;--blue:#4a9eed;--gray:#666;
+        --gray-light:#999;--white:#f0f0f0;--red:#c0392b;}
   *{margin:0;padding:0;box-sizing:border-box;}
-  body{background:var(--bg);color:var(--white);font-family:'DM Sans',sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;-webkit-font-smoothing:antialiased;}
-  .box{width:100%;max-width:360px;padding:40px 32px;background:var(--panel);border:1px solid var(--border);}
-  .eyebrow{font-family:'DM Mono',monospace;font-size:11px;color:var(--blue);letter-spacing:.15em;text-transform:uppercase;margin-bottom:8px;}
-  h1{font-family:'Bebas Neue',sans-serif;font-size:32px;margin-bottom:28px;line-height:1;}
+  body{background:var(--bg);color:var(--white);font-family:'DM Sans',sans-serif;
+    display:flex;align-items:center;justify-content:center;min-height:100vh;
+    -webkit-font-smoothing:antialiased;}
+  .box{width:100%;max-width:380px;padding:40px 32px;background:var(--panel);
+    border:1px solid var(--border);}
+  .eyebrow{font-family:'DM Mono',monospace;font-size:11px;color:var(--blue);
+    letter-spacing:.15em;text-transform:uppercase;margin-bottom:8px;}
+  h1{font-family:'Bebas Neue',sans-serif;font-size:32px;margin-bottom:10px;line-height:1;}
   h1 span{color:var(--blue);}
-  label{display:block;font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--gray);margin-bottom:6px;}
-  input{width:100%;padding:10px 12px;margin-bottom:18px;background:#0a0a0a;border:1px solid var(--border);color:var(--white);font-family:'DM Sans',sans-serif;font-size:14px;outline:none;}
-  input:focus{border-color:var(--blue);}
-  button{width:100%;padding:12px;background:transparent;border:1px solid var(--blue);color:var(--blue);font-family:'DM Mono',monospace;font-size:12px;text-transform:uppercase;letter-spacing:.1em;cursor:pointer;transition:all .15s;}
-  button:hover{background:var(--blue);color:var(--bg);}
-  button:disabled{opacity:.5;cursor:not-allowed;}
-  .error{color:var(--red);font-family:'DM Mono',monospace;font-size:12px;margin-top:14px;min-height:16px;}
+  .sub{font-size:13px;color:var(--gray-light);margin-bottom:28px;line-height:1.5;}
+
+  .btn-ms{width:100%;padding:13px;background:transparent;border:1px solid var(--blue);
+    color:var(--blue);font-family:'DM Mono',monospace;font-size:12px;
+    text-transform:uppercase;letter-spacing:.1em;cursor:pointer;transition:all .15s;
+    display:flex;align-items:center;justify-content:center;gap:10px;}
+  .btn-ms:hover:not(:disabled){background:var(--blue);color:var(--bg);}
+  .btn-ms:disabled{opacity:.5;cursor:not-allowed;}
+  .btn-ms svg{flex-shrink:0;}
+
+  .error{color:var(--red);font-family:'DM Mono',monospace;font-size:12px;
+    margin-top:16px;min-height:16px;line-height:1.5;}
+  .dominio{font-family:'DM Mono',monospace;font-size:10px;color:var(--gray);
+    margin-top:20px;text-align:center;letter-spacing:.04em;}
 </style>
 </head>
 <body>
   <div class="box">
     <div class="eyebrow">Board Academy · Marketing</div>
     <h1>FUNIL POR <span>CAMPANHA</span></h1>
-    <form id="loginForm">
-      <label>Usuário</label>
-      <input type="text" id="username" autocomplete="username" required>
-      <label>Senha</label>
-      <input type="password" id="password" autocomplete="current-password" required>
-      <button type="submit" id="btnLogin">Entrar</button>
-      <div class="error" id="errorMsg"></div>
-    </form>
+    <div class="sub">Acesse com sua conta corporativa Microsoft.</div>
+
+    <button class="btn-ms" id="btnLogin">
+      <svg width="16" height="16" viewBox="0 0 23 23" aria-hidden="true">
+        <rect x="1"  y="1"  width="10" height="10" fill="#f25022"/>
+        <rect x="12" y="1"  width="10" height="10" fill="#7fba00"/>
+        <rect x="1"  y="12" width="10" height="10" fill="#00a4ef"/>
+        <rect x="12" y="12" width="10" height="10" fill="#ffb900"/>
+      </svg>
+      <span id="btnTexto">Entrar com Microsoft</span>
+    </button>
+
+    <div class="error" id="errorMsg"></div>
+    <div class="dominio">Somente contas @boardacademy.com.br</div>
   </div>
 
 <script>
-document.getElementById('loginForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const btn = document.getElementById('btnLogin');
-  const errorMsg = document.getElementById('errorMsg');
-  const username = document.getElementById('username').value.trim();
-  const password = document.getElementById('password').value;
+// ── Configuração do app registrado no Entra ID ──────────────────────────────
+const MSAL_CONFIG = {
+  auth: {
+    clientId:  '85f7de7e-7983-4c0f-92c2-376cfb34df68',
+    authority: 'https://login.microsoftonline.com/ea06a4f8-af74-49ad-ade9-90eedd9d720e',
+    redirectUri: window.location.origin + '/login.html',
+  },
+  cache: {
+    // sessionStorage: o acesso morre quando a aba fecha, igual ao token atual
+    cacheLocation: 'sessionStorage',
+    storeAuthStateInCookie: false,
+  },
+};
 
-  btn.disabled = true; btn.textContent = 'Entrando...';
+// openid e profile dao o basico; email traz o endereco no token
+const ESCOPOS = { scopes: ['openid', 'profile', 'email', 'User.Read'] };
+
+// A biblioteca expoe o objeto global 'msal'; a instancia precisa de
+// outro nome, senao uma sobrescreve a outra.
+const msalApp = new msal.PublicClientApplication(MSAL_CONFIG);
+
+const btn      = document.getElementById('btnLogin');
+const errorMsg = document.getElementById('errorMsg');
+
+function erro(msg) {
+  errorMsg.textContent = '⚠ ' + msg;
+  btn.disabled = false;
+  document.getElementById('btnTexto').textContent = 'Entrar com Microsoft';
+}
+
+function carregando(texto) {
+  btn.disabled = true;
   errorMsg.textContent = '';
+  document.getElementById('btnTexto').textContent = texto;
+}
 
+// Troca o token da Microsoft pelo token de sessão do dashboard
+async function entrar(idToken) {
+  carregando('Validando...');
+  const r = await fetch('/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ idToken }),
+  });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || 'Não foi possível entrar.');
+
+  sessionStorage.setItem('funil_token', data.token);
+  sessionStorage.setItem('funil_user', data.username);
+  window.location.href = '/index.html';
+}
+
+// ── Início ──────────────────────────────────────────────────────────────────
+(async () => {
   try {
-    const r = await fetch('/api/login', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ username, password })
-    });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.error || 'Erro ao entrar.');
+    await msalApp.initialize();
 
-    sessionStorage.setItem('funil_token', data.token);
-    sessionStorage.setItem('funil_user', data.username);
-    window.location.href = '/index.html';
-  } catch (err) {
-    errorMsg.textContent = '❌ ' + err.message;
-  } finally {
-    btn.disabled = false; btn.textContent = 'Entrar';
+    // Se voltamos do redirect da Microsoft, o resultado chega aqui
+    const resposta = await msalApp.handleRedirectPromise();
+    if (resposta && resposta.idToken) {
+      await entrar(resposta.idToken);
+      return;
+    }
+
+    btn.addEventListener('click', async () => {
+      carregando('Abrindo...');
+      try {
+        // Popup e' menos intrusivo; se for bloqueado, cai pro redirect
+        const r = await msalApp.loginPopup(ESCOPOS);
+        await entrar(r.idToken);
+      } catch (e) {
+        if (e.errorCode === 'popup_window_error' || e.errorCode === 'empty_window_error') {
+          await msalApp.loginRedirect(ESCOPOS);
+          return;
+        }
+        if (e.errorCode === 'user_cancelled') {
+          erro('Login cancelado.');
+          return;
+        }
+        erro(e.message || 'Falha ao autenticar.');
+      }
+    });
+  } catch (e) {
+    erro('Não foi possível iniciar o login: ' + e.message);
   }
-});
+})();
 </script>
 </body>
 </html>
