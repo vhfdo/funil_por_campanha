@@ -191,6 +191,16 @@
      redimensionar no meio do print, que e' onde o layout quebrava. */
   .chart-box.report-chart{height:250px;}
   .report-funil{height:250px;overflow:hidden;}
+  .report-grid-2{display:grid;grid-template-columns:1.35fr 1fr;gap:16px;margin-top:16px;}
+  @media(max-width:1000px){.report-grid-2{grid-template-columns:1fr;}}
+  .chart-box.report-chart-2{height:190px;}
+  .report-funis{height:190px;overflow:hidden;}
+  .report-funis .funil{gap:1px;}
+  .report-funis .funil-step{grid-template-columns:96px 1fr 30px;gap:6px;}
+  .report-funis .funil-track{height:13px;}
+  .report-funis .funil-label{font-size:8.5px;}
+  .report-funis .funil-val{font-size:8px;}
+  .report-funis .funil-pct{font-size:7.5px;}
   /* 12 etapas em 250px: barras e fontes menores pra caber sem cortar */
   .report-funil .funil{gap:1px;}
   .report-funil .funil-step{grid-template-columns:108px 1fr 30px;gap:6px;}
@@ -246,9 +256,11 @@
     /* O report ja nasce no tamanho certo — nada de mexer em altura aqui,
        senao o canvas e o funil saem de sincronia e se sobrepoem. */
     .report-kpis{margin-bottom:10px !important;}
-    .report-grid{display:grid !important;grid-template-columns:1.35fr 1fr !important;
+    .report-grid, .report-grid-2{display:grid !important;
+      grid-template-columns:1.35fr 1fr !important;
       gap:10px;break-inside:avoid;page-break-inside:avoid;}
-    .report-grid .card{break-inside:avoid;page-break-inside:avoid;}
+    .report-grid-2{margin-top:10px !important;}
+    .report-grid .card, .report-grid-2 .card{break-inside:avoid;page-break-inside:avoid;}
 
     /* Listas inteiras, sem rolagem */
     .table-scroll, .card-body{max-height:none !important;overflow:visible !important;}
@@ -1111,6 +1123,17 @@ function renderReport(v) {
         <div class="card-body report-funil">${funilHtml(v)}</div>
       </div>
     </div>
+
+    <div class="report-grid-2">
+      <div class="card">
+        <div class="card-title">CPL por dia</div>
+        <div class="chart-box report-chart-2"><canvas id="chartCpl"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Funis</div>
+        <div class="card-body report-funis">${tabelaFunis(v)}</div>
+      </div>
+    </div>
   `;
 
   desenharGraficos(v);
@@ -1401,7 +1424,12 @@ function diagnosticarOutros(backlog) {
 }
 
 function desenharGraficos(v) {
-  Object.values(charts).forEach(c => c?.destroy());
+  // Ao trocar de modo, os canvas antigos ja sairam do DOM. Se destroy()
+  // lancar, a funcao abortaria antes de desenhar o grafico novo — foi o
+  // que deixava o report em branco.
+  Object.values(charts).forEach(c => {
+    try { c && c.destroy(); } catch (e) { /* canvas ja removido */ }
+  });
   charts = {};
 
   // Tudo vem de v: no Consolidado nao existe dados.produtos['CONSOLIDADO']
@@ -1532,6 +1560,58 @@ function desenharGraficos(v) {
         y1:{ position:'right', beginAtZero:true, grid:{ display:false },
              ticks:{ color:'#d9a441', font:{ family:'DM Mono', size:9 },
                      callback: val => 'R$ ' + fmtNum(val) } },
+      },
+    },
+  }));
+
+  // ── CPL por dia: investimento do dia dividido pelos leads do dia ─────
+  // So existe no modo report. Dias sem lead ficam sem ponto (null), senao
+  // a linha despencaria pra zero e distorceria a leitura.
+  const cplDia = v.leadsPorDia.map(d => {
+    const inv = v.investPorDia[d.data] || 0;
+    return d.leads ? Math.round(inv / d.leads) : null;
+  });
+  const cplMedio = (() => {
+    const vals = cplDia.filter(x => x !== null);
+    return vals.length ? vals.reduce((s, x) => s + x, 0) / vals.length : 0;
+  })();
+
+  charts.cpl = comCanvas('chartCpl', el => new Chart(el, {
+    data: {
+      labels,
+      datasets: [
+        { type:'line', label:'CPL', data: cplDia,
+          borderColor:'#d9a441', borderWidth:2, tension:.3, spanGaps:true,
+          pointRadius:2, pointBackgroundColor:'#d9a441',
+          datalabels: {
+            display: ctx => {
+              const d = ctx.dataset.data, i = ctx.dataIndex;
+              if (d[i] === null) return false;
+              const validos = d.filter(x => x !== null);
+              return i === d.length - 1 || d[i] === Math.max(...validos);
+            },
+            anchor:'end', align:'top', color:'#d9a441',
+            font:{ family:'DM Mono', size:9 },
+            formatter: val => 'R$ ' + fmtNum(val) } },
+        { type:'line', label:'Média', data: labels.map(() => Math.round(cplMedio)),
+          borderColor:'#ffffff44', borderWidth:1.5, borderDash:[5,4],
+          pointRadius:0, datalabels:{ display:false } },
+      ],
+    },
+    options: {
+      ...opcoesBase(),
+      plugins: { ...opcoesBase().plugins,
+        legend: { display:true, labels:{ color:'#e8e8e8',
+          font:{ family:'DM Mono', size:9 }, boxWidth:9 } },
+        tooltip: { ...opcoesBase().plugins.tooltip,
+          callbacks: { label: ctx => ctx.raw === null
+            ? ' sem leads no dia'
+            : ` ${ctx.dataset.label}: ${fmtBRL(ctx.raw)}` } } },
+      scales: {
+        ...opcoesBase().scales,
+        y: { ...opcoesBase().scales.y,
+             ticks: { ...opcoesBase().scales.y.ticks,
+                      callback: val => 'R$ ' + fmtNum(val) } },
       },
     },
   }));
