@@ -74,9 +74,11 @@ const MSAL_CONFIG = {
 // openid e profile dao o basico; email traz o endereco no token
 const ESCOPOS = { scopes: ['openid', 'profile', 'email', 'User.Read'] };
 
-// A biblioteca expoe o objeto global 'msal'; a instancia precisa de
-// outro nome, senao uma sobrescreve a outra.
-const msalApp = new msal.PublicClientApplication(MSAL_CONFIG);
+// A instancia so e' criada depois de confirmar que a biblioteca carregou.
+// Se criassemos aqui direto e o script da Microsoft falhasse, esta linha
+// lancaria e o resto do arquivo — inclusive o listener do botao — nunca
+// rodaria: o botao ficaria inerte, sem nenhuma mensagem.
+let msalApp = null;
 
 const btn      = document.getElementById('btnLogin');
 const errorMsg = document.getElementById('errorMsg');
@@ -110,8 +112,48 @@ async function entrar(idToken) {
 }
 
 // ── Início ──────────────────────────────────────────────────────────────────
+// O clique e' registrado ANTES de qualquer await: se a inicializacao falhar,
+// o botao continua respondendo e mostra o motivo, em vez de ficar inerte.
+// 'iniciando' | 'pronto' | 'falhou'
+let estado = 'iniciando';
+let motivoFalha = '';
+
+btn.addEventListener('click', async () => {
+  if (estado === 'falhou') { erro(motivoFalha); return; }
+  if (estado !== 'pronto') {
+    erro('Ainda carregando. Tente de novo em instantes.');
+    return;
+  }
+  carregando('Abrindo...');
+  try {
+    // Popup e' menos intrusivo; se for bloqueado, cai pro redirect
+    const r = await msalApp.loginPopup(ESCOPOS);
+    await entrar(r.idToken);
+  } catch (e) {
+    console.error('Erro no login:', e);
+    if (e.errorCode === 'popup_window_error' || e.errorCode === 'empty_window_error') {
+      await msalApp.loginRedirect(ESCOPOS);
+      return;
+    }
+    if (e.errorCode === 'user_cancelled') {
+      erro('Login cancelado.');
+      return;
+    }
+    erro(e.errorMessage || e.message || 'Falha ao autenticar.');
+  }
+});
+
 (async () => {
   try {
+    if (typeof msal === 'undefined' || !msal.PublicClientApplication) {
+      estado = 'falhou';
+      motivoFalha = 'Biblioteca da Microsoft não carregou. '
+                  + 'Verifique a conexão ou algum bloqueador de scripts.';
+      erro(motivoFalha);
+      return;
+    }
+
+    msalApp = new msal.PublicClientApplication(MSAL_CONFIG);
     await msalApp.initialize();
 
     // Se voltamos do redirect da Microsoft, o resultado chega aqui
@@ -121,26 +163,12 @@ async function entrar(idToken) {
       return;
     }
 
-    btn.addEventListener('click', async () => {
-      carregando('Abrindo...');
-      try {
-        // Popup e' menos intrusivo; se for bloqueado, cai pro redirect
-        const r = await msalApp.loginPopup(ESCOPOS);
-        await entrar(r.idToken);
-      } catch (e) {
-        if (e.errorCode === 'popup_window_error' || e.errorCode === 'empty_window_error') {
-          await msalApp.loginRedirect(ESCOPOS);
-          return;
-        }
-        if (e.errorCode === 'user_cancelled') {
-          erro('Login cancelado.');
-          return;
-        }
-        erro(e.message || 'Falha ao autenticar.');
-      }
-    });
+    estado = 'pronto';
   } catch (e) {
-    erro('Não foi possível iniciar o login: ' + e.message);
+    console.error('Falha ao iniciar MSAL:', e);
+    estado = 'falhou';
+    motivoFalha = 'Não foi possível iniciar o login: ' + (e.errorMessage || e.message);
+    erro(motivoFalha);
   }
 })();
 </script>
