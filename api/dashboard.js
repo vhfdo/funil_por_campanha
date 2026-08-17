@@ -171,10 +171,14 @@ export default async function handler(req, res) {
           data,
           id:       linha[1] || '',
           nome:     linha[2] || '',
+          email:    linha[3] || '',
           produto:  linha[4] || '',
           valor:    parseNum(linha[5]),
           campanha: linha[6] || '',
           source:   linha[7] || '',
+          medium:   linha[8] || '',
+          content:  linha[9] || '',
+          term:     linha[10] || '',
           vale:     String(linha[11] || '').trim().toLowerCase(),
         });
       }
