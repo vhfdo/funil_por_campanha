@@ -942,7 +942,10 @@ function dadosVisiveis() {
   // O filtro de etapa fica de fora do proprio funil, senao ele viraria
   // uma barra unica ao clicar numa etapa.
   const etapas = (() => {
-    let base = dados.backlog.filter(b => alvos.includes(semAcento(b.produto)));
+    // Só negócios em aberto: o backlog traz perdidos e ganhos também, e
+    // contá-los aqui inflava as etapas de um funil que se diz "em aberto".
+    let base = dados.backlog.filter(b =>
+      alvos.includes(semAcento(b.produto)) && b.status === 'open');
     if (filtros.proprietario) base = base.filter(b => b.proprietario === filtros.proprietario);
     if (filtros.funil)        base = base.filter(b => b.funil === filtros.funil);
     if (filtros.cargo)        base = base.filter(b => normalizarCargo(b.cargo) === filtros.cargo);
