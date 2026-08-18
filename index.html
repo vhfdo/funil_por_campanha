@@ -109,8 +109,9 @@
   .chart-box.baixo{height:230px;}
 
   /* ── Cards de rede ── */
-  .redes-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:16px;}
-  @media(max-width:900px){.redes-grid{grid-template-columns:1fr;}}
+  .redes-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:16px;}
+  @media(max-width:1200px){.redes-grid{grid-template-columns:repeat(2,1fr);}}
+  @media(max-width:700px){.redes-grid{grid-template-columns:1fr;}}
   .rede-card{background:var(--panel);border:1px solid var(--border);padding:14px 16px;
     cursor:pointer;transition:border-color .12s,background .12s;}
   .rede-card:hover{background:var(--panel2);}
@@ -151,6 +152,10 @@
     color:var(--gray-light);border:none;cursor:pointer;transition:all .12s;}
   .agrupa-btn:hover{color:var(--white);}
   .agrupa-btn.ativo{background:var(--blue);color:var(--bg);}
+
+  .link-pipe{color:var(--blue);text-decoration:none;font-family:'DM Mono',monospace;
+    border-bottom:1px dotted transparent;transition:border-color .12s;}
+  .link-pipe:hover{border-bottom-color:var(--blue);}
 
   .tabela-utm{font-size:10.5px;white-space:nowrap;}
   .tabela-utm th{font-size:8px;}
@@ -373,6 +378,7 @@
         <input type="date" class="date-input" id="dataFim">
       </div>
       <button class="btn" id="btnAtualizar" onclick="carregar()">⟳ Atualizar</button>
+      <button class="btn" id="btnBase" onclick="alternarBase()">Base</button>
       <button class="btn" id="btnGanhos" onclick="alternarGanhos()">Ganhos</button>
       <button class="btn" id="btnReport" onclick="alternarReport()">Report</button>
       <button class="btn" onclick="exportarPDF()">↓ PDF</button>
@@ -609,31 +615,29 @@ const ORDEM_ETAPAS = [
   'em negociacao', 'negociacao', 'inscricao em andamento', 'futuro'
 ];
 
-// Fontes que nao sao midia paga: evento, hotseat, summit. Entram no volume
-// de leads mas ficam fora do rateio por rede, senao poluem o CPL.
-const FONTES_FORA = ['summit', 'hotseat', 'workshop', 'evento'];
-
-// Descobre a rede de um lead pela utm_source (valores reais do Pipedrive:
-// FBads, LKDNAds, googleads) com a utm_campaign como reforco.
+// Existem quatro entradas de lead e mais nenhuma: Meta, LinkedIn, Google
+// e Organico. As campanhas que nao sao de aquisicao (eventos, pesquisa,
+// coautoria) ja foram descartadas pelo update_all.py antes de chegar aqui —
+// entao tudo que nao carrega marca de midia paga e' organico.
 function redeDoLead(b) {
   const s = (b.source || '').toLowerCase().trim();
-  const c = (b.campanha || '').toUpperCase();
-
-  if (FONTES_FORA.some(f => s.includes(f))) return 'Eventos';
+  const bruto = (b.campanha || '').trim();
+  const c = bruto.toUpperCase();
 
   if (s.includes('lkdn') || s.includes('linkedin') ||
       c.includes('[LKDN]') || c.includes('LINKEDIN')) return 'LinkedIn';
 
   if (s.includes('googleads') || s.includes('google') || s.includes('adwords') ||
-      c.includes('[GOOGLE]') || /^\d{10,}$/.test((b.campanha || '').trim())) return 'Google';
+      c.includes('[GOOGLE]') || /^\d{10,}$/.test(bruto)) return 'Google';
 
   if (s.includes('fbads') || s.includes('facebook') || s.includes('meta') ||
       s.includes('instagram') || s === 'fb' || s === 'ig' ||
       c.includes('[META]')) return 'Meta';
 
-  if (!s) return 'Sem origem';
-  return 'Outros';
+  return 'Orgânico';
 }
+
+const REDES = ['Meta', 'LinkedIn', 'Google', 'Orgânico'];
 
 // Os cargos vem digitados de mil formas. Aqui agrupamos nos grandes blocos
 // pra tabela nao virar uma lista de 200 variacoes com 1 lead cada.
@@ -697,6 +701,10 @@ let ordemPropCol = 'mqls';
 // Modo report: uma pagina so, com o essencial pra leitura executiva
 let modoReport = false;
 let modoGanhos = false;
+let modoBase   = false;
+
+// Cada negocio no Pipedrive tem uma URL propria; o ID abre direto la
+const URL_PIPEDRIVE = 'https://boardacademy.pipedrive.com/deal/';
 
 // Por qual utm a tabela de ganhos agrupa
 let agrupaGanhos = 'campanha';
@@ -736,7 +744,6 @@ async function carregar() {
     if (!r.ok) throw new Error(json.error || 'Erro ao carregar');
 
     dados = json;
-    jaDiagnosticou = false;
     rastrear('carregar_dados', `${json.backlog?.length || 0} leads`);
     renderTabs();
     render();
@@ -772,7 +779,7 @@ function renderTabs() {
 function alternarReport() {
   rastrear('modo', modoReport ? 'sair_report' : 'abrir_report');
   modoReport = !modoReport;
-  if (modoReport) modoGanhos = false;   // um modo por vez
+  if (modoReport) { modoGanhos = false; modoBase = false; }   // um modo por vez
   atualizarBotoesModo();
   render();
 }
@@ -780,7 +787,15 @@ function alternarReport() {
 function alternarGanhos() {
   rastrear('modo', modoGanhos ? 'sair_ganhos' : 'abrir_ganhos');
   modoGanhos = !modoGanhos;
-  if (modoGanhos) modoReport = false;
+  if (modoGanhos) { modoReport = false; modoBase = false; }
+  atualizarBotoesModo();
+  render();
+}
+
+function alternarBase() {
+  rastrear('modo', modoBase ? 'sair_base' : 'abrir_base');
+  modoBase = !modoBase;
+  if (modoBase) { modoReport = false; modoGanhos = false; }
   atualizarBotoesModo();
   render();
 }
@@ -794,6 +809,11 @@ function agruparGanhosPor(campo) {
 function atualizarBotoesModo() {
   const r = document.getElementById('btnReport');
   const g = document.getElementById('btnGanhos');
+  const b = document.getElementById('btnBase');
+  if (b) {
+    b.textContent = modoBase ? '← Dashboard' : 'Base';
+    b.classList.toggle('ativo', modoBase);
+  }
   if (r) {
     r.textContent = modoReport ? '← Dashboard' : 'Report';
     r.classList.toggle('ativo', modoReport);
@@ -950,8 +970,8 @@ function dadosVisiveis() {
     porRede[rede].leads++;
     if (b.mql) porRede[rede].mqls++;
   }
-  // CPL so existe onde ha investimento. Eventos e leads sem origem entram
-  // no volume, mas ficam sem CPL — senao a linha despenca pra zero.
+  // CPL so existe onde ha investimento: o Organico entra no volume mas fica
+  // sem CPL, senao a linha despencaria pra zero.
   // MQL e' subconjunto de leads, entao o denominador e' so leads.
   for (const r of Object.values(porRede)) {
     r.cpl = (r.investimento > 0 && r.leads)
@@ -1066,6 +1086,7 @@ function render() {
 
   document.getElementById('filtroAtivo').textContent = labelFiltros();
 
+  if (modoBase)   { renderBase(v); return; }
   if (modoGanhos) { renderGanhos(v); return; }
   if (modoReport) { renderReport(v); return; }
 
@@ -1227,7 +1248,6 @@ function render() {
   `;
 
   desenharGraficos(v);
-  diagnosticarOutros(v.backlog);
 }
 
 // ── Report: uma pagina, so o essencial ──────────────────────────────────────
@@ -1338,6 +1358,95 @@ function renderReport(v) {
   `;
 
   desenharGraficos(v);
+}
+
+// ── Base: os leads por tras dos numeros ─────────────────────────────────────
+// Respeita todos os filtros ativos, entao serve de drill-down: filtre por
+// proprietario e etapa no dashboard, venha aqui e veja exatamente quais
+// negocios sao — com o ID abrindo direto no Pipedrive.
+function renderBase(v) {
+  const leads = v.backlog;
+
+  if (!leads.length) {
+    document.getElementById('conteudo').innerHTML = `
+      <div class="card"><div class="empty">
+        Nenhum lead para os filtros atuais.
+      </div></div>`;
+    return;
+  }
+
+  const mqls  = leads.filter(b => b.mql).length;
+  const reapl = leads.filter(b => b.reaplicacao).length;
+  const donos = new Set(leads.map(b => b.proprietario || '—')).size;
+
+  const corta = (t, n) => {
+    const s = (t || '').trim();
+    if (!s) return '<span style="color:var(--gray)">—</span>';
+    return s.length > n ? s.slice(0, n) + '…' : s;
+  };
+
+  document.getElementById('conteudo').innerHTML = `
+    <div class="kpi-strip" style="grid-template-columns:repeat(4,1fr)">
+      <div class="kpi-card">
+        <div class="kpi-label">Leads na seleção</div>
+        <div class="kpi-val blue">${fmtNum(leads.length)}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">MQL</div>
+        <div class="kpi-val blue">${fmtNum(mqls)}</div>
+        <div class="kpi-linha"><span>${
+          leads.length ? (mqls / leads.length * 100).toFixed(0) : 0}% da seleção</span></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Reaplicação</div>
+        <div class="kpi-val">${fmtNum(reapl)}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Proprietários</div>
+        <div class="kpi-val">${fmtNum(donos)}</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="card-title">
+        Leads · clique no ID para abrir no Pipedrive
+        <span class="card-tag">${labelFiltros() ? labelFiltros().replace(' — limpar ×', '') : 'sem filtro'}</span>
+      </div>
+      <div class="table-scroll" style="max-height:600px">
+        <table class="tabela-utm">
+          <thead><tr>
+            <th class="num">ID</th><th>Nome</th><th>Cargo</th><th>MQL</th>
+            <th>Funil</th><th>Etapa</th><th>Proprietário</th>
+            <th>Rede</th><th>Aplicação</th><th class="num">Valor</th>
+            <th>utm_campaign</th>
+          </tr></thead>
+          <tbody>
+            ${leads
+              .sort((a, b) => (b.aplicacao || '').localeCompare(a.aplicacao || ''))
+              .map(b => `
+                <tr>
+                  <td class="num">
+                    <a class="link-pipe" href="${URL_PIPEDRIVE}${b.id}"
+                       target="_blank" rel="noopener"
+                       onclick="rastrear('abrir_pipedrive', '${b.id}')">${b.id}</a>
+                  </td>
+                  <td>${corta(b.nome, 26)}</td>
+                  <td style="color:var(--gray-light)">${corta(b.cargo, 24)}</td>
+                  <td style="text-align:center">${
+                    b.mql ? '<span style="color:var(--blue)">✓</span>' : ''}</td>
+                  <td>${corta(b.funil, 14)}</td>
+                  <td>${corta(b.etapa, 20)}</td>
+                  <td>${corta(b.proprietario, 20)}</td>
+                  <td>${redeDoLead(b)}</td>
+                  <td class="utm">${(b.aplicacao || '').slice(0, 10) || '—'}</td>
+                  <td class="num">${b.valor ? fmtBRL(b.valor) : '—'}</td>
+                  <td class="utm" title="${b.campanha || ''}">${corta(b.campanha, 34)}</td>
+                </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
 }
 
 // ── Ganhos: de onde veio cada venda ─────────────────────────────────────────
@@ -1478,6 +1587,11 @@ function renderGanhos(v) {
                 };
                 return `
                 <tr>
+                  <td class="num">
+                    <a class="link-pipe" href="${URL_PIPEDRIVE}${g.id}"
+                       target="_blank" rel="noopener"
+                       onclick="rastrear('abrir_pipedrive', '${g.id}')">${g.id}</a>
+                  </td>
                   <td>${g.data}</td>
                   <td>${g.nome || '—'}</td>
                   <td style="color:var(--gray-light)">${corta(g.produto, 18)}</td>
@@ -1562,10 +1676,11 @@ function funilHtml(v) {
 
 // ── Cards de rede ───────────────────────────────────────────────────────────
 function cardsRedes(v) {
-  const PAGAS = ['Meta', 'Google', 'LinkedIn'];
-  const CORES = { Meta: '#4a6dd4', Google: '#2980b9', LinkedIn: '#0e76a8' };
+  const CORES = {
+    Meta: '#4a6dd4', LinkedIn: '#0e76a8', Google: '#2980b9', 'Orgânico': '#4ade80',
+  };
 
-  return PAGAS.map(rede => {
+  return REDES.map(rede => {
     const d = v.porRede[rede];
     const sel = filtros.rede === rede;
     const cor = CORES[rede];
@@ -1776,34 +1891,6 @@ function comCanvas(id, fn) {
   catch (err) { console.error(`Falha no gráfico ${id}:`, err); return null; }
 }
 
-// Quando "Outros" cresce demais e' porque alguma utm_source nova apareceu.
-// Em vez de caçar no console, o dashboard mesmo aponta o que nao classificou.
-let jaDiagnosticou = false;
-
-function diagnosticarOutros(backlog) {
-  // Uma vez por carga — antes rodava a cada render e inundava o console
-  if (jaDiagnosticou) return;
-  jaDiagnosticou = true;
-
-  const soltos = backlog.filter(b => {
-    const r = redeDoLead(b);
-    return r === 'Outros' || r === 'Sem origem';
-  });
-  if (!soltos.length) return;
-
-  const porFonte = {};
-  for (const b of soltos) {
-    const k = (b.source || '(vazio)').trim();
-    porFonte[k] = (porFonte[k] || 0) + 1;
-  }
-  const lista = Object.entries(porFonte).sort((a, b) => b[1] - a[1]);
-
-  console.groupCollapsed(
-    `⚠️ ${soltos.length} leads sem rede definida — utm_source encontradas:`);
-  lista.forEach(([fonte, qtd]) => console.log(`${String(qtd).padStart(5)} × ${fonte}`));
-  console.groupEnd();
-}
-
 function desenharGraficos(v) {
   // Ao trocar de modo, os canvas antigos ja sairam do DOM. Se destroy()
   // lancar, a funcao abortaria antes de desenhar o grafico novo — foi o
@@ -1882,15 +1969,10 @@ function desenharGraficos(v) {
   }));
 
   // Leads por rede — barras de volume, linha de CPL (mesma leitura do gráfico acima)
-  // Midia paga primeiro (tem CPL), depois eventos e origens soltas
-  const PAGAS = ['Meta', 'Google', 'LinkedIn'];
-  const redes = Object.keys(v.porRede)
-    .filter(r => v.porRede[r].leads > 0 || v.porRede[r].investimento > 0)
-    .sort((a, b) => {
-      const pa = PAGAS.includes(a), pb = PAGAS.includes(b);
-      if (pa !== pb) return pa ? -1 : 1;
-      return v.porRede[b].leads - v.porRede[a].leads;
-    });
+  // Ordem fixa das quatro entradas; Organico por ultimo, pois nao tem CPL
+  const PAGAS = ['Meta', 'LinkedIn', 'Google'];
+  const redes = REDES.filter(r =>
+    v.porRede[r] && (v.porRede[r].leads > 0 || v.porRede[r].investimento > 0));
 
   const opaco = r => !filtros.rede || filtros.rede === r;
 
