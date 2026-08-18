@@ -132,15 +132,15 @@
 
   /* ── Mapa de calor ── */
   .calor-wrap{overflow-x:auto;}
-  .calor{display:grid;gap:2px;min-width:640px;}
+  .calor{display:grid;gap:2px;min-width:880px;}
   .calor-canto{}
   .calor-hora{font-family:'DM Mono',monospace;font-size:8px;color:var(--gray-light);
     text-align:center;padding-bottom:3px;}
   .calor-dia{font-family:'DM Mono',monospace;font-size:9px;color:var(--white);
     display:flex;align-items:center;padding-right:7px;justify-content:flex-end;}
-  .calor-cel{aspect-ratio:1;border-radius:2px;min-height:16px;
+  .calor-cel{border-radius:2px;height:26px;
     display:flex;align-items:center;justify-content:center;
-    font-family:'DM Mono',monospace;font-size:8px;color:#fff;
+    font-family:'DM Mono',monospace;font-size:9px;font-weight:500;
     transition:outline .1s;cursor:default;}
   .calor-cel:hover{outline:1px solid var(--blue);}
   .calor-total{font-family:'DM Mono',monospace;font-size:8.5px;color:var(--gray-light);
@@ -1769,10 +1769,16 @@ function mapaCalor(v) {
           <div class="calor-dia">${nome}</div>
           ${horas.map(h => {
             const qtd = grade[d][h];
-            return `<div class="calor-cel" style="${cor(qtd)}"
+            // Todo valor e' rotulado. Em celula clara o texto escurece,
+            // senao o numero sumiria no azul.
+            const claro = qtd / maior > 0.62;
+            const corTexto = !qtd ? '#3a3a3a'
+                           : claro ? '#0a1420'
+                           : 'rgba(255,255,255,.82)';
+            return `<div class="calor-cel"
+                      style="${cor(qtd)};color:${corTexto}"
                       title="${nome}, ${String(h).padStart(2,'0')}h — ${qtd} ${
-                        metrica === 'mqls' ? 'MQL' : 'leads'}">${
-              qtd && qtd / maior > 0.55 ? qtd : ''}</div>`;
+                        metrica === 'mqls' ? 'MQL' : 'leads'}">${qtd || '·'}</div>`;
           }).join('')}
           <div class="calor-total">${fmtNum(porDia[d])}</div>
         `).join('')}
