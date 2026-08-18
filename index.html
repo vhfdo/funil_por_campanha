@@ -164,6 +164,19 @@
   tr.selecionado td{background:#16283d;}
   .table-scroll{overflow:auto;max-height:230px;}
   /* Tabela de rastreio: muitas colunas, entao fonte menor e sem quebra */
+  .busca-wrap{position:relative;display:inline-flex;align-items:center;flex:1;
+    max-width:320px;margin:0 12px;}
+  .campo-busca{width:100%;padding:5px 26px 5px 10px;background:var(--bg);
+    border:1px solid var(--border);color:var(--white);
+    font-family:'DM Mono',monospace;font-size:10.5px;outline:none;
+    transition:border-color .12s;}
+  .campo-busca:focus{border-color:var(--blue);}
+  .campo-busca::placeholder{color:var(--gray);text-transform:none;
+    letter-spacing:0;}
+  .busca-limpar{position:absolute;right:4px;background:none;border:none;
+    color:var(--gray);font-size:15px;line-height:1;cursor:pointer;padding:0 4px;}
+  .busca-limpar:hover{color:var(--white);}
+
   .agrupa-switch{display:flex;gap:1px;background:var(--border);border:1px solid var(--border);}
   .agrupa-btn{font-family:'DM Mono',monospace;font-size:8.5px;letter-spacing:.05em;
     text-transform:uppercase;padding:4px 8px;background:var(--panel);
@@ -726,6 +739,10 @@ const URL_PIPEDRIVE = 'https://boardacademy.pipedrive.com/deal/';
 
 // Por qual utm a tabela de ganhos agrupa
 let agrupaGanhos = 'campanha';
+
+// Texto digitado na busca da aba Ganhos. Filtra por qualquer utm, nome
+// ou produto — a tabela tem coluna demais pra procurar no olho.
+let buscaGanhos = '';
 const rotuloMetrica = () => metrica === 'mqls' ? 'MQL' : 'Leads';
 let charts = {};
 
@@ -816,6 +833,14 @@ function alternarBase() {
   if (modoBase) { modoReport = false; modoGanhos = false; }
   atualizarBotoesModo();
   render();
+}
+
+function buscarGanhos(texto) {
+  buscaGanhos = texto;
+  render();
+  // O render refaz o HTML, entao o foco e o cursor voltam pro campo
+  const el = document.getElementById('campoBusca');
+  if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
 }
 
 function agruparGanhosPor(campo) {
@@ -1481,13 +1506,26 @@ function renderBase(v) {
 // ── Ganhos: de onde veio cada venda ─────────────────────────────────────────
 function renderGanhos(v) {
   // So entram os ganhos validados manualmente na planilha
-  const validos = v.ganhos.filter(g => g.vale === 'sim');
+  let validos = v.ganhos.filter(g => g.vale === 'sim');
+
+  // Busca livre: varre as utms, o nome e o produto de uma vez
+  const termo = semAcento(buscaGanhos);
+  if (termo) {
+    validos = validos.filter(g => [
+      g.campanha, g.source, g.medium, g.content, g.term,
+      g.nome, g.produto, redeDoLead(g),
+    ].some(campo => semAcento(campo).includes(termo)));
+  }
 
   if (!validos.length) {
+    const semBusca = v.ganhos.filter(g => g.vale === 'sim').length;
     document.getElementById('conteudo').innerHTML = `
       <div class="card"><div class="empty">
-        Nenhum ganho com "sim" na coluna Vale? no período.<br><br>
-        <span style="font-size:11px">A marcação é manual, na aba GANHOS da planilha.</span>
+        ${buscaGanhos && semBusca
+          ? `Nenhuma venda encontrada para "${buscaGanhos}".<br><br>
+             <button class="btn" onclick="buscarGanhos('')">Limpar busca</button>`
+          : `Nenhum ganho com "sim" na coluna Vale? no período.<br><br>
+             <span style="font-size:11px">A marcação é manual, na aba GANHOS da planilha.</span>`}
       </div></div>`;
     return;
   }
@@ -1520,8 +1558,10 @@ function renderGanhos(v) {
   document.getElementById('conteudo').innerHTML = `
     <div class="kpi-strip" style="grid-template-columns:repeat(4,1fr)">
       <div class="kpi-card">
-        <div class="kpi-label">Vendas validadas</div>
+        <div class="kpi-label">Vendas ${buscaGanhos ? 'na busca' : 'validadas'}</div>
         <div class="kpi-val blue">${fmtNum(validos.length)}</div>
+        ${buscaGanhos ? `<div class="kpi-linha"><span>de ${
+          fmtNum(v.ganhos.filter(g => g.vale === 'sim').length)} no total</span></div>` : ''}
       </div>
       <div class="kpi-card">
         <div class="kpi-label">Faturamento</div>
@@ -1593,6 +1633,14 @@ function renderGanhos(v) {
     <div class="card" style="margin-top:16px">
       <div class="card-title">
         Vendas validadas · rastreio completo
+        <span class="busca-wrap">
+          <input type="text" id="campoBusca" class="campo-busca"
+                 placeholder="filtrar por campanha, criativo, nome..."
+                 value="${(buscaGanhos || '').replace(/"/g, '&quot;')}"
+                 oninput="buscarGanhos(this.value)">
+          ${buscaGanhos ? `<button class="busca-limpar"
+                 onclick="buscarGanhos('')" title="limpar">×</button>` : ''}
+        </span>
         <span class="card-tag">${fmtNum(validos.length)} negócios</span>
       </div>
       <div class="table-scroll" style="max-height:420px">
@@ -1745,14 +1793,17 @@ function mapaCalor(v) {
   const porHora = Array.from({ length: 24 },
     (_, h) => grade.reduce((s, linha) => s + linha[h], 0));
 
-  // Escala cinza → azul: o volume baixo fica neutro e o alto puxa pro azul
-  // da marca. A saturacao sobe junto com a luminosidade, entao a diferenca
-  // entre uma celula fraca e uma forte fica visivel mesmo de longe.
+  // Escala cinza → azul com raiz quadrada.
+  //
+  // A distribuicao e' torta: a maioria das celulas tem 1-9 leads e o pico
+  // passa de 30. Numa escala linear (ou pior, quadratica) todas essas
+  // celulas baixas caem na mesma faixa de cinza e o mapa vira uma mancha.
+  // A raiz expande justamente a parte de baixo, onde estao os dados.
   const cor = qtd => {
     if (!qtd) return 'background:#141414';
-    const i = qtd / maior;
-    const sat = Math.round(i * i * 72);      // quadratico: segura o cinza mais tempo
-    const lum = Math.round(20 + i * 38);
+    const i = Math.sqrt(qtd / maior);
+    const sat = Math.round(i * 75);
+    const lum = Math.round(18 + i * 42);
     return `background:hsl(207,${sat}%,${lum}%)`;
   };
 
@@ -1771,7 +1822,7 @@ function mapaCalor(v) {
             const qtd = grade[d][h];
             // Todo valor e' rotulado. Em celula clara o texto escurece,
             // senao o numero sumiria no azul.
-            const claro = qtd / maior > 0.62;
+            const claro = Math.sqrt(qtd / maior) > 0.72;
             const corTexto = !qtd ? '#3a3a3a'
                            : claro ? '#0a1420'
                            : 'rgba(255,255,255,.82)';
