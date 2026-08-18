@@ -130,6 +130,24 @@
   .rede-barra{height:3px;background:var(--border);border-radius:2px;overflow:hidden;margin-top:4px;}
   .rede-barra div{height:100%;border-radius:2px;}
 
+  /* ── Mapa de calor ── */
+  .calor-wrap{overflow-x:auto;}
+  .calor{display:grid;gap:2px;min-width:640px;}
+  .calor-canto{}
+  .calor-hora{font-family:'DM Mono',monospace;font-size:8px;color:var(--gray-light);
+    text-align:center;padding-bottom:3px;}
+  .calor-dia{font-family:'DM Mono',monospace;font-size:9px;color:var(--white);
+    display:flex;align-items:center;padding-right:7px;justify-content:flex-end;}
+  .calor-cel{aspect-ratio:1;border-radius:2px;min-height:16px;
+    display:flex;align-items:center;justify-content:center;
+    font-family:'DM Mono',monospace;font-size:8px;color:#fff;
+    transition:outline .1s;cursor:default;}
+  .calor-cel:hover{outline:1px solid var(--blue);}
+  .calor-total{font-family:'DM Mono',monospace;font-size:8.5px;color:var(--gray-light);
+    display:flex;align-items:center;justify-content:center;}
+  .calor-nota{font-family:'DM Mono',monospace;font-size:9px;color:var(--gray);
+    margin-top:8px;}
+
   /* ── Tabela ── */
   table{width:100%;border-collapse:collapse;font-size:11px;}
   th{font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.05em;
@@ -1214,6 +1232,14 @@ function render() {
       </div>
     </div>
 
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-title">
+        Quando os leads chegam
+        <span class="card-tag">${rotuloMetrica().toLowerCase()} por dia e hora</span>
+      </div>
+      ${mapaCalor(v)}
+    </div>
+
     <div class="grid-topo">
       <div class="card">
         <div class="card-title">
@@ -1675,6 +1701,90 @@ function funilHtml(v) {
       <div class="funil-pct" title="${fmtNum(e.qtd)} negócios">${pct}%</div>
     </div>`;
   }).join('') + '</div>';
+}
+
+// ── Mapa de calor: quando os leads chegam ───────────────────────────────────
+// Le a data e hora da ultima aplicacao ("01/08/2026 20:48:46") e cruza
+// dia da semana com hora do dia. Serve pra dimensionar plantao de SDR e
+// programar veiculacao de midia.
+const DIAS_SEMANA = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+
+function mapaCalor(v) {
+  // grade[dia][hora]
+  const grade = Array.from({ length: 7 }, () => new Array(24).fill(0));
+  let total = 0;
+  let semHora = 0;
+
+  for (const b of v.backlog) {
+    if (metrica === 'mqls' && !b.mql) continue;
+
+    const bruto = (b.aplicacao || '').trim();
+    // Esperado: dd/mm/aaaa hh:mm:ss
+    const m = bruto.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}):/);
+    if (!m) { semHora++; continue; }
+
+    const [, dia, mes, ano, hora] = m;
+    const d = new Date(Number(ano), Number(mes) - 1, Number(dia));
+    if (isNaN(d)) { semHora++; continue; }
+
+    const h = Number(hora);
+    if (h < 0 || h > 23) { semHora++; continue; }
+
+    grade[d.getDay()][h]++;
+    total++;
+  }
+
+  if (!total) {
+    return '<div class="empty">Sem data e hora nos leads do período.</div>';
+  }
+
+  const maior = Math.max(...grade.flat());
+
+  // Totais das bordas, pra leitura rapida
+  const porDia  = grade.map(linha => linha.reduce((s, x) => s + x, 0));
+  const porHora = Array.from({ length: 24 },
+    (_, h) => grade.reduce((s, linha) => s + linha[h], 0));
+
+  // Escala cinza → azul: o volume baixo fica neutro e o alto puxa pro azul
+  // da marca. A saturacao sobe junto com a luminosidade, entao a diferenca
+  // entre uma celula fraca e uma forte fica visivel mesmo de longe.
+  const cor = qtd => {
+    if (!qtd) return 'background:#141414';
+    const i = qtd / maior;
+    const sat = Math.round(i * i * 72);      // quadratico: segura o cinza mais tempo
+    const lum = Math.round(20 + i * 38);
+    return `background:hsl(207,${sat}%,${lum}%)`;
+  };
+
+  const horas = Array.from({ length: 24 }, (_, h) => h);
+
+  return `
+    <div class="calor-wrap">
+      <div class="calor" style="grid-template-columns:64px repeat(24,1fr) 42px">
+        <div class="calor-canto"></div>
+        ${horas.map(h => `<div class="calor-hora">${String(h).padStart(2, '0')}</div>`).join('')}
+        <div class="calor-hora" style="color:var(--gray-light)">Σ</div>
+
+        ${DIAS_SEMANA.map((nome, d) => `
+          <div class="calor-dia">${nome}</div>
+          ${horas.map(h => {
+            const qtd = grade[d][h];
+            return `<div class="calor-cel" style="${cor(qtd)}"
+                      title="${nome}, ${String(h).padStart(2,'0')}h — ${qtd} ${
+                        metrica === 'mqls' ? 'MQL' : 'leads'}">${
+              qtd && qtd / maior > 0.55 ? qtd : ''}</div>`;
+          }).join('')}
+          <div class="calor-total">${fmtNum(porDia[d])}</div>
+        `).join('')}
+
+        <div class="calor-dia" style="color:var(--gray-light)">Σ</div>
+        ${horas.map(h => `<div class="calor-total">${
+          porHora[h] || ''}</div>`).join('')}
+        <div class="calor-total" style="color:var(--blue)">${fmtNum(total)}</div>
+      </div>
+    </div>
+    ${semHora ? `<div class="calor-nota">${fmtNum(semHora)} sem hora registrada</div>` : ''}
+  `;
 }
 
 // ── Cards de rede ───────────────────────────────────────────────────────────
