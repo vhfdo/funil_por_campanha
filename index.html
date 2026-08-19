@@ -727,7 +727,8 @@ function ordenarEtapas(etapas) {
 
 let dados = null;            // resposta crua da API
 let produtoAtivo = CONSOLIDADO;
-let filtros = { rede: null, etapa: null, proprietario: null, funil: null, cargo: null };
+let filtros = { rede: null, etapa: null, proprietario: null, funil: null,
+                cargo: null, motivo: null };
 
 // 'leads' ou 'mqls' — define o que as barras dos cards medem
 let metrica = 'leads';
@@ -932,7 +933,8 @@ function toggleFiltro(tipo, valor) {
 
 function limparFiltros(silencioso) {
   if (!silencioso && Object.values(filtros).some(Boolean)) rastrear('limpar_filtros');
-  filtros = { rede: null, etapa: null, proprietario: null, funil: null, cargo: null };
+  filtros = { rede: null, etapa: null, proprietario: null, funil: null,
+              cargo: null, motivo: null };
   if (!silencioso) render();
 }
 
@@ -1117,11 +1119,15 @@ function dadosVisiveis() {
   let descartes = (dados.perdidos || [])
     .filter(p => alvos.includes(semAcento(p.produto)))
     .filter(p => noPeriodo(p.dataPerda) && noPeriodo(p.aplicacao));
-  if (filtros.etapa)        descartes = descartes.filter(p => p.etapa === filtros.etapa);
-  if (filtros.proprietario) descartes = descartes.filter(p => p.proprietario === filtros.proprietario);
+  // Os rotulos vazios viram "—" e "(sem motivo)" no agrupamento; o filtro
+  // precisa normalizar igual, senao clicar nessas barras nao casa com nada.
+  const rot = (t, vazio) => (t || '').trim() || vazio;
+  if (filtros.etapa)        descartes = descartes.filter(p => rot(p.etapa, '—') === filtros.etapa);
+  if (filtros.proprietario) descartes = descartes.filter(p => rot(p.proprietario, '—') === filtros.proprietario);
   if (filtros.funil)        descartes = descartes.filter(p => p.funil === filtros.funil);
   if (filtros.cargo)        descartes = descartes.filter(p => normalizarCargo(p.cargo) === filtros.cargo);
   if (filtros.rede)         descartes = descartes.filter(p => redeDoLead(p) === filtros.rede);
+  if (filtros.motivo)       descartes = descartes.filter(p => rot(p.motivo, '(sem motivo)') === filtros.motivo);
 
   // ── Taxas ────────────────────────────────────────────────────────────
   // Conexao: dos MQLs criados, quantos chegaram a Contatado ou alem.
@@ -1858,7 +1864,14 @@ function renderGanhos(v) {
 // sentido — se pegasse todo deal perdido no mes, entraria base antiga e o
 // total passaria do volume de leads.
 function renderDescartes(v) {
-  const perdas = v.descartes || [];
+  // O seletor Leads/MQL do topo vale aqui tambem: em modo MQL a tela inteira
+  // passa a falar so dos descartes que eram MQL.
+  const soMql  = metrica === 'mqls';
+  const perdas = (v.descartes || []).filter(p => !soMql || p.mql);
+
+  // Denominador: comparar descarte de MQL com volume de leads daria uma
+  // taxa sem sentido, entao ele acompanha a metrica selecionada.
+  const universo = soMql ? v.kpis.mqls : v.kpis.leads;
 
   if (!perdas.length) {
     document.getElementById('conteudo').innerHTML = `
@@ -1897,8 +1910,9 @@ function renderDescartes(v) {
   const semMotivo = motivos.find(([n]) => n === '(sem motivo)');
   const pctSem = semMotivo ? (semMotivo[1].qtd / perdas.length * 100) : 0;
 
-  // Barras horizontais: mesmo desenho do funil, sem clique
-  const barras = (lista, cor, limite) => {
+  // Barras horizontais clicaveis: cada uma liga o filtro da sua dimensao,
+  // e o clique de novo desliga. Mesmo comportamento do funil do dashboard.
+  const barras = (lista, cor, tipo, limite) => {
     let itens = lista;
     let resto = null;
     if (limite && itens.length > limite) {
@@ -1907,18 +1921,22 @@ function renderDescartes(v) {
       itens = itens.slice(0, limite);
     }
     const maior = Math.max(...itens.map(([, d]) => d.qtd), 1);
-    return '<div class="funil">' + itens.map(([nome, d]) => `
-      <div class="funil-step" style="cursor:default">
+    return '<div class="funil">' + itens.map(([nome, d]) => {
+      const sel = filtros[tipo] === nome;
+      return `
+      <div class="funil-step ${sel ? 'selecionado' : ''}"
+           onclick="toggleFiltro('${tipo}', ${attr(nome)})">
         <div class="funil-label" title="${nome}">${nome}</div>
         <div class="funil-track">
           <div class="funil-bar" style="width:${
-            Math.max(d.qtd / maior * 100, 3)}%;background:${cor}">
+            Math.max(d.qtd / maior * 100, 3)}%;background:${sel ? 'var(--amber)' : cor}">
             <span class="funil-val">${fmtNum(d.qtd)}</span>
           </div>
         </div>
         <div class="funil-pct" title="${fmtNum(d.mqls)} eram MQL">${
           (d.qtd / perdas.length * 100).toFixed(0)}%</div>
-      </div>`).join('') + (resto ? `
+      </div>`;
+    }).join('') + (resto ? `
       <div class="funil-step" style="opacity:.55;cursor:default">
         <div class="funil-label">+${resto.n} outros</div>
         <div class="funil-track">
@@ -1940,17 +1958,24 @@ function renderDescartes(v) {
   document.getElementById('conteudo').innerHTML = `
     <div class="kpi-strip" style="grid-template-columns:repeat(5,1fr)">
       <div class="kpi-card">
-        <div class="kpi-label">Descartes no período</div>
+        <div class="kpi-label">${soMql ? 'MQL descartados' : 'Descartes no período'}</div>
         <div class="kpi-val blue">${fmtNum(perdas.length)}</div>
-        <div class="kpi-linha"><span>de ${fmtNum(v.kpis.leads)} leads</span>
+        <div class="kpi-linha"><span>de ${fmtNum(universo)} ${
+          soMql ? 'MQL' : 'leads'}</span>
           <span style="color:var(--amber)">${
-            v.kpis.leads ? (perdas.length / v.kpis.leads * 100).toFixed(1) : 0}%</span></div>
+            universo ? (perdas.length / universo * 100).toFixed(1) : 0}%</span></div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-label">Eram MQL</div>
-        <div class="kpi-val blue">${fmtNum(mqls)}</div>
-        <div class="kpi-linha"><span>${
-          (mqls / perdas.length * 100).toFixed(0)}% dos descartes</span></div>
+        <div class="kpi-label">${soMql ? 'Ticket médio' : 'MQL descartados'}</div>
+        <div class="kpi-val blue">${
+          soMql ? fmtBRL(valor / perdas.length) : fmtNum(mqls)}</div>
+        ${soMql
+          ? `<div class="kpi-linha"><span>por MQL descartado</span></div>`
+          : `<div class="kpi-linha"><span>de ${fmtNum(v.kpis.mqls)} MQL</span>
+               <span style="color:var(--amber)">${
+                 v.kpis.mqls ? (mqls / v.kpis.mqls * 100).toFixed(1) : 0}%</span></div>
+             <div class="kpi-linha"><span>${
+               (mqls / perdas.length * 100).toFixed(0)}% dos descartes</span></div>`}
       </div>
       <div class="kpi-card">
         <div class="kpi-label">Valor descartado</div>
@@ -1973,16 +1998,16 @@ function renderDescartes(v) {
       <div class="card">
         <div class="card-title">
           Motivo do descarte
-          <span class="card-tag">% do total · MQL no tooltip</span>
+          <span class="card-tag">clique pra filtrar</span>
         </div>
-        <div class="card-body" style="max-height:300px">${barras(motivos, '#8a4a4a', 12)}</div>
+        <div class="card-body" style="max-height:300px">${barras(motivos, '#8a4a4a', 'motivo', 12)}</div>
       </div>
       <div class="card">
         <div class="card-title">
-          Etapa onde morreu
-          <span class="card-tag">% do total</span>
+          Etapa do descarte
+          <span class="card-tag">clique pra filtrar</span>
         </div>
-        <div class="card-body" style="max-height:300px">${barras(etapas, '#5b6f9e', 12)}</div>
+        <div class="card-body" style="max-height:300px">${barras(etapas, '#5b6f9e', 'etapa', 12)}</div>
       </div>
     </div>
 
@@ -1990,16 +2015,16 @@ function renderDescartes(v) {
       <div class="card">
         <div class="card-title">
           Descartes por proprietário
-          <span class="card-tag">% do total</span>
+          <span class="card-tag">clique pra filtrar</span>
         </div>
-        <div class="card-body" style="max-height:260px">${barras(donosLt, '#3a7ca8', 10)}</div>
+        <div class="card-body" style="max-height:260px">${barras(donosLt, '#3a7ca8', 'proprietario', 10)}</div>
       </div>
       <div class="card">
         <div class="card-title">
           Descartes por rede
-          <span class="card-tag">de onde o lead veio</span>
+          <span class="card-tag">clique pra filtrar</span>
         </div>
-        <div class="card-body" style="max-height:260px">${barras(redes, '#4a6dd4')}</div>
+        <div class="card-body" style="max-height:260px">${barras(redes, '#4a6dd4', 'rede')}</div>
       </div>
     </div>
 
@@ -2007,8 +2032,10 @@ function renderDescartes(v) {
       <div class="card-title">
         Descartes · entraram e foram perdidos no período
         <span style="display:flex;align-items:center;gap:10px">
-          <span class="card-tag">${labelFiltros()
-            ? labelFiltros().replace(' — limpar ×', '') : 'sem filtro'}</span>
+          <span class="card-tag">${fmtNum(perdas.length)} ${
+            soMql ? 'MQL' : 'leads'}${labelFiltros()
+            ? ' · ' + labelFiltros().replace('Filtrando: ', '').replace(' — limpar ×', '')
+            : ''}</span>
           <button class="btn-mini" onclick="exportarDescartesCSV()"
                   title="Baixa em CSV exatamente os descartes desta seleção">↓ CSV</button>
         </span>
@@ -2058,9 +2085,12 @@ function renderDescartes(v) {
 // sem acento quebrado.
 function exportarDescartesCSV() {
   const v = dadosVisiveis();
-  if (!v || !(v.descartes || []).length) return;
+  // Exporta o que esta na tela — inclusive o recorte do seletor Leads/MQL
+  const linhasFonte = (v ? v.descartes || [] : [])
+    .filter(p => metrica !== 'mqls' || p.mql);
+  if (!linhasFonte.length) return;
 
-  rastrear('exportar_descartes', `${v.descartes.length} descartes`);
+  rastrear('exportar_descartes', `${linhasFonte.length} descartes`);
 
   const cabecalho = [
     'ID', 'Produto', 'Nome', 'Cargo', 'MQL', 'Funil', 'Etapa',
@@ -2073,7 +2103,7 @@ function exportarDescartesCSV() {
     return /[";\n]/.test(s) ? `"${s}"` : s;
   };
 
-  const linhas = v.descartes.map(p => [
+  const linhas = linhasFonte.map(p => [
     p.id, p.produto, p.nome, p.cargo,
     p.mql ? 'Sim' : 'Não',
     p.funil, p.etapa, p.proprietario,
