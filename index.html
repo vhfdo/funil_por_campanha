@@ -1268,7 +1268,7 @@ function render() {
     <div class="grid-topo">
       <div class="card">
         <div class="card-title">
-          Faturamento acumulado
+          Vendas e faturamento
           ${(METAS[produtoAtivo] || {}).faturamento
             ? `<span class="card-tag">meta ${fmtBRL(METAS[produtoAtivo].faturamento)}</span>`
             : ''}
@@ -2265,13 +2265,15 @@ function desenharGraficos(v) {
   const tituloGanhos = document.querySelector('#chartGanhos')
     ?.closest('.card')?.querySelector('.card-title');
   if (tituloGanhos && usarTodos) {
-    tituloGanhos.innerHTML = 'Faturamento acumulado <span class="card-tag" ' +
-      'style="background:var(--amber)">sem validação</span>';
+    tituloGanhos.innerHTML = 'Vendas e faturamento <span class="card-tag" ' +
+      'style="background:var(--amber);color:#0a0a0a">sem validação</span>';
   }
 
   const ganhosPorDia = {};
+  const qtdPorDia    = {};
   for (const g of base) {
     ganhosPorDia[g.data] = (ganhosPorDia[g.data] || 0) + g.valor;
+    qtdPorDia[g.data]    = (qtdPorDia[g.data] || 0) + 1;
   }
   const diasGanhos = Object.keys(ganhosPorDia).sort((a, b) => paraData(a) - paraData(b));
   let acum = 0;
@@ -2288,14 +2290,26 @@ function desenharGraficos(v) {
     : null;
 
   charts.ganhos = comCanvas('chartGanhos', el => new Chart(el, {
-    type: 'line',
     data: {
       labels: diasGanhos,
       datasets: [
+        // Barras: quantas vendas em cada dia. O acumulado sozinho nao
+        // mostra em que dia o resultado aconteceu.
         {
-          label: 'Realizado', data: acumulado,
-          borderColor:'#4ade80', borderWidth:2.5,
+          type: 'bar', label: 'Vendas no dia', yAxisID: 'y1',
+          data: diasGanhos.map(d => qtdPorDia[d] || 0),
+          backgroundColor: '#2f6b46', borderRadius: 2, order: 3,
+          datalabels: {
+            display: ctx => ctx.dataset.data[ctx.dataIndex] > 0,
+            anchor:'end', align:'end', offset:-1, color:'#8fd6ab',
+            font:{ family:'DM Mono', size:8 }, formatter: v => fmtNum(v),
+          },
+        },
+        {
+          type: 'line', label: 'Faturamento acum.', data: acumulado,
+          borderColor:'#4ade80', borderWidth:2.5, yAxisID: 'y',
           pointRadius:3, pointBackgroundColor:'#4ade80', fill:false, tension:.3,
+          order: 1,
           datalabels: {
             display: ctx => ctx.dataIndex === ctx.dataset.data.length - 1,
             anchor:'end', align:'left', color:'#4ade80',
@@ -2304,9 +2318,9 @@ function desenharGraficos(v) {
           },
         },
         ...(linhaMeta ? [{
-          label: 'Projeção', data: linhaMeta,
+          type: 'line', label: 'Projeção', data: linhaMeta, yAxisID: 'y',
           borderColor:'#d9a441', borderWidth:2, borderDash:[6,4],
-          pointRadius:0, fill:false, tension:0,
+          pointRadius:0, fill:false, tension:0, order: 2,
           datalabels: {
             display: ctx => ctx.dataIndex === ctx.dataset.data.length - 1,
             anchor:'end', align:'left', offset:6, color:'#d9a441',
@@ -2320,18 +2334,23 @@ function desenharGraficos(v) {
       ...opcoesBase(),
       plugins: {
         ...opcoesBase().plugins,
-        legend: linhaMeta
-          ? { display:true, labels:{ color:'#e8e8e8',
-              font:{ family:'DM Mono', size:9 }, boxWidth:9 } }
-          : { display:false },
+        legend: { display:true, labels:{ color:'#e8e8e8',
+          font:{ family:'DM Mono', size:9 }, boxWidth:9 } },
         tooltip: { ...opcoesBase().plugins.tooltip,
-          callbacks: { label: ctx => ` ${ctx.dataset.label}: ${fmtBRL(ctx.raw)}` } },
+          callbacks: { label: ctx => ctx.dataset.label === 'Vendas no dia'
+            ? ` ${fmtNum(ctx.raw)} venda${ctx.raw === 1 ? '' : 's'}`
+            : ` ${ctx.dataset.label}: ${fmtBRL(ctx.raw)}` } },
       },
       scales: {
         ...opcoesBase().scales,
-        y: { ...opcoesBase().scales.y,
+        // Eixo esquerdo: faturamento acumulado (cresce sempre)
+        y: { ...opcoesBase().scales.y, position: 'left',
              ticks: { ...opcoesBase().scales.y.ticks,
                       callback: val => 'R$ ' + (val/1000).toFixed(0) + 'k' } },
+        // Eixo direito: volume de vendas do dia, em escala propria
+        y1: { position:'right', beginAtZero:true, grid:{ display:false },
+              ticks:{ color:'#8fd6ab', font:{ family:'DM Mono', size:9 },
+                      precision: 0 } },
       },
     },
   }));
