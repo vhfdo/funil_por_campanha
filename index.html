@@ -1481,7 +1481,7 @@ function renderBase(v) {
           <thead><tr>
             <th class="num">ID</th><th>Nome</th><th>Cargo</th><th>MQL</th>
             <th>Funil</th><th>Etapa</th><th>Proprietário</th>
-            <th>Rede</th><th>Aplicação</th><th class="num">Valor</th>
+            <th>Rede</th><th>Status</th><th>Aplicação</th><th class="num">Valor</th>
             <th>utm_campaign</th>
           </tr></thead>
           <tbody>
@@ -1502,6 +1502,7 @@ function renderBase(v) {
                   <td>${corta(b.etapa, 20)}</td>
                   <td>${corta(b.proprietario, 20)}</td>
                   <td>${redeDoLead(b)}</td>
+                  <td>${corta(b.status, 14)}</td>
                   <td class="utm">${(b.aplicacao || '').slice(0, 10) || '—'}</td>
                   <td class="num">${b.valor ? fmtBRL(b.valor) : '—'}</td>
                   <td class="utm" title="${b.campanha || ''}">${corta(b.campanha, 34)}</td>
