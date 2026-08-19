@@ -754,6 +754,10 @@ let agrupaGanhos = 'campanha';
 // Texto digitado na busca da aba Ganhos. Filtra por qualquer utm, nome
 // ou produto — a tabela tem coluna demais pra procurar no olho.
 let buscaGanhos = '';
+
+// Mesma ideia na aba Descartes: motivo, cargo e campanha sao texto livre,
+// entao procurar no olho numa lista de 200 linhas nao funciona.
+let buscaDescartes = '';
 const rotuloMetrica = () => metrica === 'mqls' ? 'MQL' : 'Leads';
 let charts = {};
 
@@ -859,6 +863,14 @@ function buscarGanhos(texto) {
   render();
   // O render refaz o HTML, entao o foco e o cursor voltam pro campo
   const el = document.getElementById('campoBusca');
+  if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+}
+
+function buscarDescartes(texto) {
+  buscaDescartes = texto;
+  render();
+  // O render refaz o HTML, entao devolvemos o foco e o cursor pro campo
+  const el = document.getElementById('campoBuscaDesc');
   if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
 }
 
@@ -1866,8 +1878,18 @@ function renderGanhos(v) {
 function renderDescartes(v) {
   // O seletor Leads/MQL do topo vale aqui tambem: em modo MQL a tela inteira
   // passa a falar so dos descartes que eram MQL.
-  const soMql  = metrica === 'mqls';
-  const perdas = (v.descartes || []).filter(p => !soMql || p.mql);
+  const soMql = metrica === 'mqls';
+  const termo = semAcento(buscaDescartes);
+
+  // A busca refina o que ja passou pelos filtros das barras — varre nome,
+  // cargo, motivo, etapa, dono, campanha e as utms de uma vez.
+  const perdas = (v.descartes || [])
+    .filter(p => !soMql || p.mql)
+    .filter(p => !termo || [
+      p.nome, p.cargo, p.motivo, p.etapa, p.funil, p.proprietario,
+      p.campanha, p.source, p.medium, p.content, p.term,
+      p.nomeProduto, redeDoLead(p), String(p.id),
+    ].some(campo => semAcento(campo).includes(termo)));
 
   // Denominador: comparar descarte de MQL com volume de leads daria uma
   // taxa sem sentido, entao ele acompanha a metrica selecionada.
@@ -1876,10 +1898,13 @@ function renderDescartes(v) {
   if (!perdas.length) {
     document.getElementById('conteudo').innerHTML = `
       <div class="card"><div class="empty">
-        Nenhum lead entrou e foi descartado dentro do período selecionado.<br><br>
-        <span style="font-size:11px">Só entram aqui os leads com data de aplicação
-        E data de perda dentro da janela. A aba BACKLOG PERDIDOS é preenchida pelo
-        update_all.py — se ela ainda não existe na planilha, rode o script.</span>
+        ${buscaDescartes
+          ? `Nenhum descarte encontrado para "${buscaDescartes}".<br><br>
+             <button class="btn" onclick="buscarDescartes('')">Limpar busca</button>`
+          : `Nenhum lead entrou e foi descartado dentro do período selecionado.<br><br>
+             <span style="font-size:11px">Só entram aqui os leads com data de aplicação
+             E data de perda dentro da janela. A aba BACKLOG PERDIDOS é preenchida pelo
+             update_all.py — se ela ainda não existe na planilha, rode o script.</span>`}
       </div></div>`;
     return;
   }
@@ -2031,6 +2056,14 @@ function renderDescartes(v) {
     <div class="card" style="margin-top:16px">
       <div class="card-title">
         Descartes · entraram e foram perdidos no período
+        <span class="busca-wrap">
+          <input type="text" id="campoBuscaDesc" class="campo-busca"
+                 placeholder="filtrar por motivo, cargo, nome, campanha..."
+                 value="${(buscaDescartes || '').replace(/"/g, '&quot;')}"
+                 oninput="buscarDescartes(this.value)">
+          ${buscaDescartes ? `<button class="busca-limpar"
+                 onclick="buscarDescartes('')" title="limpar">×</button>` : ''}
+        </span>
         <span style="display:flex;align-items:center;gap:10px">
           <span class="card-tag">${fmtNum(perdas.length)} ${
             soMql ? 'MQL' : 'leads'}${labelFiltros()
@@ -2086,8 +2119,14 @@ function renderDescartes(v) {
 function exportarDescartesCSV() {
   const v = dadosVisiveis();
   // Exporta o que esta na tela — inclusive o recorte do seletor Leads/MQL
+  const termoCsv = semAcento(buscaDescartes);
   const linhasFonte = (v ? v.descartes || [] : [])
-    .filter(p => metrica !== 'mqls' || p.mql);
+    .filter(p => metrica !== 'mqls' || p.mql)
+    .filter(p => !termoCsv || [
+      p.nome, p.cargo, p.motivo, p.etapa, p.funil, p.proprietario,
+      p.campanha, p.source, p.medium, p.content, p.term,
+      p.nomeProduto, redeDoLead(p), String(p.id),
+    ].some(campo => semAcento(campo).includes(termoCsv)));
   if (!linhasFonte.length) return;
 
   rastrear('exportar_descartes', `${linhasFonte.length} descartes`);
