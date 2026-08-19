@@ -188,6 +188,13 @@
   .agrupa-btn:hover{color:var(--white);}
   .agrupa-btn.ativo{background:var(--blue);color:var(--bg);}
 
+  /* Botao pequeno pro cabecalho dos cards — o .btn padrao e' grande demais */
+  .btn-mini{font-family:'DM Mono',monospace;font-size:9.5px;letter-spacing:.08em;
+    text-transform:uppercase;padding:5px 12px;border:1px solid var(--blue);
+    background:transparent;color:var(--blue);cursor:pointer;transition:all .15s;
+    white-space:nowrap;}
+  .btn-mini:hover{background:var(--blue);color:var(--bg);}
+
   .link-pipe{color:var(--blue);text-decoration:none;font-family:'DM Mono',monospace;
     border-bottom:1px dotted transparent;transition:border-color .12s;}
   .link-pipe:hover{border-bottom-color:var(--blue);}
@@ -278,7 +285,7 @@
     .wrap{max-width:100%;padding:0;}
 
     /* Controles nao fazem sentido no papel */
-    .header, .produtos, .status-bar, .btn,
+    .header, .produtos, .status-bar, .btn, .btn-mini,
     .metrica-switch, .date-range{display:none !important;}
     .card-tag{display:none;}
 
@@ -605,10 +612,6 @@ const FUNIS_PRINCIPAIS = ['SNIPER', 'ELITE', 'OLYMPUS'];
 const PRODUTOS_REAIS = ['PFCC BRASIL', 'PFCC MÉXICO', 'PFCC CHILE', 'LEAN', 'CES'];
 const ORDEM_PRODUTOS = [CONSOLIDADO, ...PRODUTOS_REAIS];
 
-// Metas do mes. Deixe null no que ainda nao tem meta definida — o card
-// simplesmente nao mostra a linha de meta nesse caso.
-// Metas do mes. Deixe null no que ainda nao tem meta — o card simplesmente
-// nao mostra a linha, e o grafico nao desenha a linha de ritmo.
 // Metas do mes. Deixe null no que ainda nao tem meta — o card simplesmente
 // nao mostra a linha, e o grafico nao desenha a linha de ritmo.
 // Investimento do Brasil = 427.722 total menos os outros quatro produtos.
@@ -628,7 +631,6 @@ const METAS = {
 };
 const CORES_REDE = { Meta: '#4a6dd4', Google: '#2980b9', LinkedIn: '#0e76a8' };
 
-// Ordem em que as etapas aparecem no funil. O que não estiver aqui vai pro fim.
 // Etapas que existem no Pipedrive mas nao fazem parte do funil de venda.
 // Ficam de fora do card e nao entram no calculo do percentual.
 const ETAPAS_IGNORADAS = ['reabertura'];
@@ -962,13 +964,14 @@ function dadosVisiveis() {
       investPorDia[dia] = (investPorDia[dia] || 0) + val;
     }
 
+    // O ganho tambem respeita o filtro de rede: sem isso o ROAS dividia o
+    // faturamento inteiro pelo investimento de uma rede so.
     ganhos = ganhos.concat(
-  p.ganhos.filter(g =>
-    dentroDoPeriodo(g.data) &&
-    (!filtros.rede || redeDoLead(g) === filtros.rede)
-  )
-);
-
+      p.ganhos.filter(g =>
+        dentroDoPeriodo(g.data) &&
+        (!filtros.rede || redeDoLead(g) === filtros.rede)
+      )
+    );
   }
 
   let leadsPorDia = Object.values(leadsMap).sort((a, b) => paraData(a.data) - paraData(b.data));
@@ -1424,6 +1427,69 @@ function renderReport(v) {
   desenharGraficos(v);
 }
 
+// ── Exportar a base filtrada em CSV ─────────────────────────────────────────
+// Exporta exatamente o que esta na tela: os mesmos filtros de produto,
+// periodo, rede, etapa, funil, cargo e proprietario.
+//
+// Separador ponto e virgula e BOM no inicio: e' o que o Excel brasileiro
+// espera. Sem o BOM os acentos saem corrompidos.
+function exportarBaseCSV() {
+  const v = dadosVisiveis();
+  if (!v || !v.backlog.length) return;
+
+  rastrear('exportar_base', `${v.backlog.length} leads`);
+
+  const cabecalho = [
+    'ID', 'Produto', 'Nome', 'Cargo', 'MQL', 'Funil', 'Etapa',
+    'Proprietário', 'Rede', 'Status', 'Reaplicação', 'Aplicação',
+    'Valor', 'utm_campaign', 'utm_source',
+  ];
+
+  // Campo com ; aspas ou quebra de linha estraga o CSV — envolvemos em
+  // aspas e dobramos as internas.
+  const escapa = t => {
+    const s = String(t ?? '').replace(/"/g, '""');
+    return /[";\n]/.test(s) ? `"${s}"` : s;
+  };
+
+  const linhas = v.backlog
+    .slice()
+    .sort((a, b) => (b.aplicacao || '').localeCompare(a.aplicacao || ''))
+    .map(b => [
+      b.id,
+      b.produto,
+      b.nome,
+      b.cargo,
+      b.mql ? 'Sim' : 'Não',
+      b.funil,
+      b.etapa,
+      b.proprietario,
+      redeDoLead(b),
+      b.status,
+      b.reaplicacao ? 'Sim' : 'Não',
+      b.aplicacao,
+      // Virgula decimal: assim o Excel BR entende como numero
+      String(b.valor || 0).replace('.', ','),
+      b.campanha,
+      b.source,
+    ].map(escapa).join(';'));
+
+  const csv = '\uFEFF' + [cabecalho.join(';'), ...linhas].join('\n');
+
+  const hoje = new Date().toISOString().slice(0, 10);
+  const filtro = Object.values(filtros).filter(Boolean).join('-') || 'completa';
+  const nome = `base_${produtoAtivo}_${filtro}_${hoje}`
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\w-]/g, '_').toLowerCase() + '.csv';
+
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = nome;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 // ── Base: os leads por tras dos numeros ─────────────────────────────────────
 // Respeita todos os filtros ativos, entao serve de drill-down: filtre por
 // proprietario e etapa no dashboard, venha aqui e veja exatamente quais
@@ -1474,7 +1540,11 @@ function renderBase(v) {
     <div class="card" style="margin-top:16px">
       <div class="card-title">
         Leads · clique no ID para abrir no Pipedrive
-        <span class="card-tag">${labelFiltros() ? labelFiltros().replace(' — limpar ×', '') : 'sem filtro'}</span>
+        <span style="display:flex;align-items:center;gap:10px">
+          <span class="card-tag">${labelFiltros() ? labelFiltros().replace(' — limpar ×', '') : 'sem filtro'}</span>
+          <button class="btn-mini" onclick="exportarBaseCSV()"
+                  title="Baixa em CSV exatamente os leads desta seleção">↓ CSV</button>
+        </span>
       </div>
       <div class="table-scroll" style="max-height:600px">
         <table class="tabela-utm">
@@ -2109,8 +2179,6 @@ function desenharGraficos(v) {
   charts = {};
 
   // Tudo vem de v: no Consolidado nao existe dados.produtos['CONSOLIDADO']
-  // Sem dados o Chart.js desenha um retangulo vazio sem explicacao —
-  // melhor dizer o que aconteceu.
   // Aviso de "sem dados" sobrepoe o canvas em vez de trocar o innerHTML:
   // trocar apagava o proprio canvas e o grafico nao tinha onde nascer.
   const aviso = (id, texto) => {
