@@ -422,6 +422,7 @@
       <button class="btn" id="btnAtualizar" onclick="carregar()">⟳ Atualizar</button>
       <button class="btn" id="btnBase" onclick="alternarBase()">Base</button>
       <button class="btn" id="btnGanhos" onclick="alternarGanhos()">Ganhos</button>
+      <button class="btn" id="btnDescartes" onclick="alternarDescartes()">Descartes</button>
       <button class="btn" id="btnReport" onclick="alternarReport()">Report</button>
       <button class="btn" onclick="exportarPDF()">↓ PDF</button>
       <span class="user-info" id="userInfo"></span>
@@ -560,7 +561,9 @@ function rastrear(type, detalhe = '') {
       // Onde ele estava quando fez
       produto: produtoAtivo,
       metrica,
-      modo: modoGanhos ? 'ganhos' : modoReport ? 'report' : 'dashboard',
+      modo: modoGanhos ? 'ganhos'
+          : modoDescartes ? 'descartes'
+          : modoReport ? 'report' : 'dashboard',
       periodo: `${document.getElementById('dataInicio')?.value || ''} a ${
         document.getElementById('dataFim')?.value || ''}`,
       filtros: Object.entries(filtros)
@@ -736,9 +739,10 @@ let ordemProp    = 'desc';
 let ordemPropCol = 'mqls';
 
 // Modo report: uma pagina so, com o essencial pra leitura executiva
-let modoReport = false;
-let modoGanhos = false;
-let modoBase   = false;
+let modoReport    = false;
+let modoGanhos    = false;
+let modoBase      = false;
+let modoDescartes = false;
 
 // Cada negocio no Pipedrive tem uma URL propria; o ID abre direto la
 const URL_PIPEDRIVE = 'https://boardacademy.pipedrive.com/deal/';
@@ -820,7 +824,7 @@ function renderTabs() {
 function alternarReport() {
   rastrear('modo', modoReport ? 'sair_report' : 'abrir_report');
   modoReport = !modoReport;
-  if (modoReport) { modoGanhos = false; modoBase = false; }   // um modo por vez
+  if (modoReport) { modoGanhos = false; modoBase = false; modoDescartes = false; }   // um modo por vez
   atualizarBotoesModo();
   render();
 }
@@ -828,7 +832,7 @@ function alternarReport() {
 function alternarGanhos() {
   rastrear('modo', modoGanhos ? 'sair_ganhos' : 'abrir_ganhos');
   modoGanhos = !modoGanhos;
-  if (modoGanhos) { modoReport = false; modoBase = false; }
+  if (modoGanhos) { modoReport = false; modoBase = false; modoDescartes = false; }
   atualizarBotoesModo();
   render();
 }
@@ -836,7 +840,15 @@ function alternarGanhos() {
 function alternarBase() {
   rastrear('modo', modoBase ? 'sair_base' : 'abrir_base');
   modoBase = !modoBase;
-  if (modoBase) { modoReport = false; modoGanhos = false; }
+  if (modoBase) { modoReport = false; modoGanhos = false; modoDescartes = false; }
+  atualizarBotoesModo();
+  render();
+}
+
+function alternarDescartes() {
+  rastrear('modo', modoDescartes ? 'sair_descartes' : 'abrir_descartes');
+  modoDescartes = !modoDescartes;
+  if (modoDescartes) { modoReport = false; modoGanhos = false; modoBase = false; }
   atualizarBotoesModo();
   render();
 }
@@ -870,6 +882,11 @@ function atualizarBotoesModo() {
   if (g) {
     g.textContent = modoGanhos ? '← Dashboard' : 'Ganhos';
     g.classList.toggle('ativo', modoGanhos);
+  }
+  const d = document.getElementById('btnDescartes');
+  if (d) {
+    d.textContent = modoDescartes ? '← Dashboard' : 'Descartes';
+    d.classList.toggle('ativo', modoDescartes);
   }
 }
 
@@ -1089,6 +1106,22 @@ function dadosVisiveis() {
   const faturamento   = ganhosValidos.reduce((s, g) => s + g.valor, 0);
   const qtdGanhos     = ganhosValidos.length;
 
+  // ── Descartes do periodo ─────────────────────────────────────────────
+  // A data que vale aqui e' a da PERDA, nao a da aplicacao: um lead que
+  // entrou em maio e foi descartado agora conta no mes corrente. Por isso
+  // este numero NAO fecha com o volume de leads — sao recortes diferentes.
+  let descartes = (dados.perdidos || [])
+    .filter(p => alvos.includes(semAcento(p.produto)))
+    .filter(p => {
+      const dia = (p.dataPerda || '').trim().slice(0, 5);   // DD/MM
+      return dia.includes('/') && dentroDoPeriodo(dia);
+    });
+  if (filtros.etapa)        descartes = descartes.filter(p => p.etapa === filtros.etapa);
+  if (filtros.proprietario) descartes = descartes.filter(p => p.proprietario === filtros.proprietario);
+  if (filtros.funil)        descartes = descartes.filter(p => p.funil === filtros.funil);
+  if (filtros.cargo)        descartes = descartes.filter(p => normalizarCargo(p.cargo) === filtros.cargo);
+  if (filtros.rede)         descartes = descartes.filter(p => redeDoLead(p) === filtros.rede);
+
   // ── Taxas ────────────────────────────────────────────────────────────
   // Conexao: dos MQLs criados, quantos chegaram a Contatado ou alem.
   const mqlsBacklog = backlog.filter(b => b.mql);
@@ -1110,7 +1143,7 @@ function dadosVisiveis() {
   return {
     leadsPorDia, ganhos, backlog, investPorRede, investPorDia, porRede, etapas,
     ehConsolidado, mqlTresFunisPorDia, mqlTresFunis, filtraFunil,
-    reunioes, taxas,
+    reunioes, taxas, descartes,
     kpis: {
       leads, mqls, investimento,
       ganhos: qtdGanhos, faturamento,
@@ -1144,9 +1177,10 @@ function render() {
 
   document.getElementById('filtroAtivo').textContent = labelFiltros();
 
-  if (modoBase)   { renderBase(v); return; }
-  if (modoGanhos) { renderGanhos(v); return; }
-  if (modoReport) { renderReport(v); return; }
+  if (modoBase)      { renderBase(v); return; }
+  if (modoGanhos)    { renderGanhos(v); return; }
+  if (modoDescartes) { renderDescartes(v); return; }
+  if (modoReport)    { renderReport(v); return; }
 
   const k = v.kpis;
   const metas = METAS[produtoAtivo] || {};
@@ -1441,8 +1475,8 @@ function exportarBaseCSV() {
 
   const cabecalho = [
     'ID', 'Produto', 'Nome', 'Cargo', 'MQL', 'Funil', 'Etapa',
-    'Proprietário', 'Rede', 'Status', 'Reaplicação', 'Aplicação',
-    'Valor', 'utm_campaign', 'utm_source',
+    'Proprietário', 'Rede', 'Status', 'Motivo Perda', 'Data Perda',
+    'Reaplicação', 'Aplicação', 'Valor', 'utm_campaign', 'utm_source',
   ];
 
   // Campo com ; aspas ou quebra de linha estraga o CSV — envolvemos em
@@ -1466,6 +1500,8 @@ function exportarBaseCSV() {
       b.proprietario,
       redeDoLead(b),
       b.status,
+      b.motivoPerda,
+      b.dataPerda,
       b.reaplicacao ? 'Sim' : 'Não',
       b.aplicacao,
       // Virgula decimal: assim o Excel BR entende como numero
@@ -1509,6 +1545,18 @@ function renderBase(v) {
   const reapl = leads.filter(b => b.reaplicacao).length;
   const donos = new Set(leads.map(b => b.proprietario || '—')).size;
 
+  // Perdidos DESTA safra: entraram no periodo e ja foram descartados.
+  // Diferente da aba Descartes, este numero fecha com o total de leads.
+  const perdas    = leads.filter(b => b.status === 'lost');
+  const perdidos  = perdas.length;
+  const aggMotivo = {};
+  for (const b of perdas) {
+    const m = (b.motivoPerda || '').trim() || '(sem motivo)';
+    aggMotivo[m] = (aggMotivo[m] || 0) + 1;
+  }
+  const topoMotivos = Object.entries(aggMotivo)
+    .sort((a, b) => b[1] - a[1]).slice(0, 8);
+
   const corta = (t, n) => {
     const s = (t || '').trim();
     if (!s) return '<span style="color:var(--gray)">—</span>';
@@ -1532,10 +1580,39 @@ function renderBase(v) {
         <div class="kpi-val">${fmtNum(reapl)}</div>
       </div>
       <div class="kpi-card">
+        <div class="kpi-label">Perdidos</div>
+        <div class="kpi-val">${fmtNum(perdidos)}</div>
+        ${perdidos ? `<div class="kpi-linha"><span>${
+          (perdidos / leads.length * 100).toFixed(0)}% da seleção</span></div>` : ''}
+      </div>
+      <div class="kpi-card">
         <div class="kpi-label">Proprietários</div>
         <div class="kpi-val">${fmtNum(donos)}</div>
       </div>
     </div>
+
+    ${topoMotivos.length ? `
+    <div class="card" style="margin-top:16px">
+      <div class="card-title">
+        Por que a safra do mês foi descartada
+        <span class="card-tag">${fmtNum(perdidos)} de ${fmtNum(leads.length)} leads</span>
+      </div>
+      <div class="card-body">
+        <div class="funil">
+          ${topoMotivos.map(([nome, qtd]) => `
+            <div class="funil-step" style="cursor:default">
+              <div class="funil-label" title="${nome}">${nome}</div>
+              <div class="funil-track">
+                <div class="funil-bar" style="width:${
+                  Math.max(qtd / topoMotivos[0][1] * 100, 3)}%;background:#8a4a4a">
+                  <span class="funil-val">${fmtNum(qtd)}</span>
+                </div>
+              </div>
+              <div class="funil-pct">${(qtd / perdidos * 100).toFixed(0)}%</div>
+            </div>`).join('')}
+        </div>
+      </div>
+    </div>` : ''}
 
     <div class="card" style="margin-top:16px">
       <div class="card-title">
@@ -1551,7 +1628,8 @@ function renderBase(v) {
           <thead><tr>
             <th class="num">ID</th><th>Nome</th><th>Cargo</th><th>MQL</th>
             <th>Funil</th><th>Etapa</th><th>Proprietário</th>
-            <th>Rede</th><th>Status</th><th>Aplicação</th><th class="num">Valor</th>
+            <th>Rede</th><th>Status</th><th>Motivo Perda</th>
+            <th>Aplicação</th><th class="num">Valor</th>
             <th>utm_campaign</th>
           </tr></thead>
           <tbody>
@@ -1573,6 +1651,9 @@ function renderBase(v) {
                   <td>${corta(b.proprietario, 20)}</td>
                   <td>${redeDoLead(b)}</td>
                   <td>${corta(b.status, 14)}</td>
+                  <td title="${b.motivoPerda || ''}" style="color:${
+                    b.motivoPerda ? 'var(--amber)' : 'var(--gray)'}">${
+                    corta(b.motivoPerda, 22)}</td>
                   <td class="utm">${(b.aplicacao || '').slice(0, 10) || '—'}</td>
                   <td class="num">${b.valor ? fmtBRL(b.valor) : '—'}</td>
                   <td class="utm" title="${b.campanha || ''}">${corta(b.campanha, 34)}</td>
@@ -1767,6 +1848,260 @@ function renderGanhos(v) {
       </div>
     </div>
   `;
+}
+
+
+// ── Descartes: quem o comercial perdeu no periodo ───────────────────────────
+// Diferente de todo o resto do dashboard, o recorte aqui e' a data da PERDA.
+// Um lead que entrou em maio e foi descartado agora aparece neste mes — por
+// isso o total NAO bate com o volume de leads, e nao existe "taxa de
+// descarte" nesta tela: seria dividir dois recortes diferentes.
+function renderDescartes(v) {
+  const perdas = v.descartes || [];
+
+  if (!perdas.length) {
+    document.getElementById('conteudo').innerHTML = `
+      <div class="card"><div class="empty">
+        Nenhum descarte no período para os filtros atuais.<br><br>
+        <span style="font-size:11px">A aba BACKLOG PERDIDOS é preenchida pelo
+        update_all.py — se ela ainda não existe na planilha, rode o script.</span>
+      </div></div>`;
+    return;
+  }
+
+  const mqls   = perdas.filter(p => p.mql).length;
+  const valor  = perdas.reduce((s, p) => s + (p.valor || 0), 0);
+  const donos  = new Set(perdas.map(p => p.proprietario || '—')).size;
+
+  // Agrupa por um campo qualquer e devolve ordenado do maior pro menor
+  const agrupar = (chave) => {
+    const agg = {};
+    for (const p of perdas) {
+      const k = chave(p);
+      if (!agg[k]) agg[k] = { qtd: 0, mqls: 0 };
+      agg[k].qtd++;
+      if (p.mql) agg[k].mqls++;
+    }
+    return Object.entries(agg).sort((a, b) => b[1].qtd - a[1].qtd);
+  };
+
+  // Motivo em branco vira rotulo proprio: saber o tamanho do "sem motivo"
+  // e' o que diz se da pra confiar no ranking dos outros.
+  const motivos = agrupar(p => (p.motivo || '').trim() || '(sem motivo)');
+  const etapas  = agrupar(p => (p.etapa || '').trim() || '—');
+  const redes   = agrupar(p => redeDoLead(p));
+  const donosLt = agrupar(p => p.proprietario || '—');
+
+  const semMotivo = motivos.find(([n]) => n === '(sem motivo)');
+  const pctSem = semMotivo ? (semMotivo[1].qtd / perdas.length * 100) : 0;
+
+  // Barras horizontais: mesmo desenho do funil, sem clique
+  const barras = (lista, cor, limite) => {
+    let itens = lista;
+    let resto = null;
+    if (limite && itens.length > limite) {
+      const corta = itens.slice(limite);
+      resto = { qtd: corta.reduce((s, [, d]) => s + d.qtd, 0), n: corta.length };
+      itens = itens.slice(0, limite);
+    }
+    const maior = Math.max(...itens.map(([, d]) => d.qtd), 1);
+    return '<div class="funil">' + itens.map(([nome, d]) => `
+      <div class="funil-step" style="cursor:default">
+        <div class="funil-label" title="${nome}">${nome}</div>
+        <div class="funil-track">
+          <div class="funil-bar" style="width:${
+            Math.max(d.qtd / maior * 100, 3)}%;background:${cor}">
+            <span class="funil-val">${fmtNum(d.qtd)}</span>
+          </div>
+        </div>
+        <div class="funil-pct" title="${fmtNum(d.mqls)} eram MQL">${
+          (d.qtd / perdas.length * 100).toFixed(0)}%</div>
+      </div>`).join('') + (resto ? `
+      <div class="funil-step" style="opacity:.55;cursor:default">
+        <div class="funil-label">+${resto.n} outros</div>
+        <div class="funil-track">
+          <div class="funil-bar" style="width:${
+            Math.max(resto.qtd / maior * 100, 3)}%;background:#3a4a55">
+            <span class="funil-val">${fmtNum(resto.qtd)}</span>
+          </div>
+        </div>
+        <div class="funil-pct"></div>
+      </div>` : '') + '</div>';
+  };
+
+  const corta = (t, n) => {
+    const s = (t || '').trim();
+    if (!s) return '<span style="color:var(--gray)">—</span>';
+    return s.length > n ? s.slice(0, n) + '…' : s;
+  };
+
+  document.getElementById('conteudo').innerHTML = `
+    <div class="kpi-strip" style="grid-template-columns:repeat(5,1fr)">
+      <div class="kpi-card">
+        <div class="kpi-label">Descartes no período</div>
+        <div class="kpi-val blue">${fmtNum(perdas.length)}</div>
+        <div class="kpi-linha"><span>pela data da perda</span></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Eram MQL</div>
+        <div class="kpi-val blue">${fmtNum(mqls)}</div>
+        <div class="kpi-linha"><span>${
+          (mqls / perdas.length * 100).toFixed(0)}% dos descartes</span></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Valor descartado</div>
+        <div class="kpi-val">${fmtBRL(valor)}</div>
+        <div class="kpi-linha"><span>soma do campo Valor</span></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Motivos distintos</div>
+        <div class="kpi-val">${fmtNum(motivos.length)}</div>
+        ${pctSem ? `<div class="kpi-linha"><span>sem motivo</span>
+          <span style="color:var(--amber)">${pctSem.toFixed(0)}%</span></div>` : ''}
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Proprietários</div>
+        <div class="kpi-val">${fmtNum(donos)}</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px;margin-bottom:16px">
+      <div class="empty" style="padding:10px;text-align:left;color:var(--gray-light)">
+        Este recorte usa a <b>data da perda</b>, não a data de entrada do lead —
+        então inclui gente que se inscreveu em meses anteriores. Por isso o total
+        não fecha com o volume de leads do período.
+      </div>
+    </div>
+
+    <div class="grid-topo">
+      <div class="card">
+        <div class="card-title">
+          Motivo do descarte
+          <span class="card-tag">% do total · MQL no tooltip</span>
+        </div>
+        <div class="card-body" style="max-height:300px">${barras(motivos, '#8a4a4a', 12)}</div>
+      </div>
+      <div class="card">
+        <div class="card-title">
+          Etapa onde morreu
+          <span class="card-tag">% do total</span>
+        </div>
+        <div class="card-body" style="max-height:300px">${barras(etapas, '#5b6f9e', 12)}</div>
+      </div>
+    </div>
+
+    <div class="grid-topo">
+      <div class="card">
+        <div class="card-title">
+          Descartes por proprietário
+          <span class="card-tag">% do total</span>
+        </div>
+        <div class="card-body" style="max-height:260px">${barras(donosLt, '#3a7ca8', 10)}</div>
+      </div>
+      <div class="card">
+        <div class="card-title">
+          Descartes por rede
+          <span class="card-tag">de onde o lead veio</span>
+        </div>
+        <div class="card-body" style="max-height:260px">${barras(redes, '#4a6dd4')}</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="card-title">
+        Descartes · clique no ID para abrir no Pipedrive
+        <span style="display:flex;align-items:center;gap:10px">
+          <span class="card-tag">${labelFiltros()
+            ? labelFiltros().replace(' — limpar ×', '') : 'sem filtro'}</span>
+          <button class="btn-mini" onclick="exportarDescartesCSV()"
+                  title="Baixa em CSV exatamente os descartes desta seleção">↓ CSV</button>
+        </span>
+      </div>
+      <div class="table-scroll" style="max-height:600px">
+        <table class="tabela-utm">
+          <thead><tr>
+            <th class="num">ID</th><th>Nome</th><th>Cargo</th><th>MQL</th>
+            <th>Funil</th><th>Etapa</th><th>Proprietário</th>
+            <th>Rede</th><th>Data Perda</th><th>Motivo</th>
+            <th class="num">Valor</th><th>utm_campaign</th>
+          </tr></thead>
+          <tbody>
+            ${perdas
+              .slice()
+              .sort((a, b) => (b.dataPerda || '').slice(3, 5).localeCompare((a.dataPerda || '').slice(3, 5))
+                           || (b.dataPerda || '').slice(0, 2).localeCompare((a.dataPerda || '').slice(0, 2)))
+              .map(p => `
+                <tr>
+                  <td class="num">
+                    <a class="link-pipe" href="${URL_PIPEDRIVE}${p.id}"
+                       target="_blank" rel="noopener"
+                       onclick="rastrear('abrir_pipedrive', '${p.id}')">${p.id}</a>
+                  </td>
+                  <td>${corta(p.nome, 24)}</td>
+                  <td style="color:var(--gray-light)">${corta(p.cargo, 22)}</td>
+                  <td style="text-align:center">${
+                    p.mql ? '<span style="color:var(--blue)">✓</span>' : ''}</td>
+                  <td>${corta(p.funil, 13)}</td>
+                  <td>${corta(p.etapa, 18)}</td>
+                  <td>${corta(p.proprietario, 18)}</td>
+                  <td>${redeDoLead(p)}</td>
+                  <td class="utm">${p.dataPerda || '—'}</td>
+                  <td title="${p.motivo || ''}">${corta(p.motivo, 26)}</td>
+                  <td class="num">${p.valor ? fmtBRL(p.valor) : '—'}</td>
+                  <td class="utm" title="${p.campanha || ''}">${corta(p.campanha, 30)}</td>
+                </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+// ── Exportar os descartes filtrados em CSV ──────────────────────────────────
+// Mesmo formato do CSV da Base: ; como separador e BOM, pro Excel BR abrir
+// sem acento quebrado.
+function exportarDescartesCSV() {
+  const v = dadosVisiveis();
+  if (!v || !(v.descartes || []).length) return;
+
+  rastrear('exportar_descartes', `${v.descartes.length} descartes`);
+
+  const cabecalho = [
+    'ID', 'Produto', 'Nome', 'Cargo', 'MQL', 'Funil', 'Etapa',
+    'Proprietário', 'Rede', 'Data Perda', 'Motivo', 'Valor',
+    'Última Aplicação', 'utm_campaign', 'utm_source',
+  ];
+
+  const escapa = t => {
+    const s = String(t ?? '').replace(/"/g, '""');
+    return /[";\n]/.test(s) ? `"${s}"` : s;
+  };
+
+  const linhas = v.descartes.map(p => [
+    p.id, p.produto, p.nome, p.cargo,
+    p.mql ? 'Sim' : 'Não',
+    p.funil, p.etapa, p.proprietario,
+    redeDoLead(p),
+    p.dataPerda,
+    p.motivo,
+    String(p.valor || 0).replace('.', ','),
+    p.aplicacao, p.campanha, p.source,
+  ].map(escapa).join(';'));
+
+  const csv = '\uFEFF' + [cabecalho.join(';'), ...linhas].join('\n');
+
+  const hoje = new Date().toISOString().slice(0, 10);
+  const filtro = Object.values(filtros).filter(Boolean).join('-') || 'completa';
+  const nome = `descartes_${produtoAtivo}_${filtro}_${hoje}`
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\w-]/g, '_').toLowerCase() + '.csv';
+
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = nome;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // ── Reaplicação ─────────────────────────────────────────────────────────────
