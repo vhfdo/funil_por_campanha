@@ -62,6 +62,7 @@ const PRODUTOS = {
 
 const ABA_BACKLOG  = 'BACKLOG MQL';
 const ABA_REUNIOES = 'BACKLOG REUNIÕES';
+const ABA_PERDIDOS = 'BACKLOG PERDIDOS';
 
 function checkAuth(req) {
   const secret = process.env.SESSION_SECRET;
@@ -133,6 +134,9 @@ export default async function handler(req, res) {
 
     const idxReunioes = tarefas.length;
     tarefas.push(lerAba(ABA_REUNIOES));
+
+    const idxPerdidos = tarefas.length;
+    tarefas.push(lerAba(ABA_PERDIDOS));
 
     const resultados = await Promise.all(tarefas);
 
@@ -255,6 +259,9 @@ export default async function handler(req, res) {
         aplicacao:   linha[13] || '',
         campanha:    linha[14] || '',
         source:      linha[15] || '',
+        // So vem preenchido em lead perdido; vazio no resto
+        motivoPerda: linha[19] || '',
+        dataPerda:   linha[20] || '',
       });
     }
 
@@ -282,11 +289,41 @@ export default async function handler(req, res) {
       });
     }
 
+    // ── Perdidos: descartes do mes, independente de quando o lead entrou ──
+    // Diferente do backlog, aqui a data que importa e' a da PERDA, nao a da
+    // aplicacao: um lead de maio descartado agora conta no mes corrente.
+    const perdidos = [];
+    for (const linha of (resultados[idxPerdidos] || []).slice(1)) {
+      if (!linha[0]) continue;
+      perdidos.push({
+        id:           linha[0],
+        produto:      linha[1]  || '',
+        nomeProduto:  linha[2]  || '',
+        nome:         linha[3]  || '',
+        email:        linha[4]  || '',
+        cargo:        linha[5]  || '',
+        mql:          String(linha[6] || '').trim() !== '',
+        funil:        linha[7]  || '',
+        etapa:        linha[8]  || '',
+        proprietario: linha[9]  || '',
+        valor:        parseNum(linha[10]),
+        dataPerda:    linha[11] || '',
+        motivo:       linha[12] || '',
+        aplicacao:    linha[13] || '',
+        campanha:     linha[14] || '',
+        source:       linha[15] || '',
+        medium:       linha[16] || '',
+        content:      linha[17] || '',
+        term:         linha[18] || '',
+      });
+    }
+
     return res.status(200).json({
       atualizadoEm: new Date().toISOString(),
       produtos,
       backlog,
       reunioes,
+      perdidos,
     });
 
   } catch (err) {
