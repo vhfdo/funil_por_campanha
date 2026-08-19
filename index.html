@@ -1107,15 +1107,16 @@ function dadosVisiveis() {
   const qtdGanhos     = ganhosValidos.length;
 
   // ── Descartes do periodo ─────────────────────────────────────────────
-  // A data que vale aqui e' a da PERDA, nao a da aplicacao: um lead que
-  // entrou em maio e foi descartado agora conta no mes corrente. Por isso
-  // este numero NAO fecha com o volume de leads — sao recortes diferentes.
+  // Exige as DUAS datas dentro da janela: o lead entrou no periodo E foi
+  // descartado nele. Sem a checagem da aplicacao, entrava base antiga
+  // descartada agora e o total passava do volume de leads do mes.
+  const noPeriodo = (texto) => {
+    const dia = (texto || '').trim().slice(0, 5);   // DD/MM
+    return dia.includes('/') && dentroDoPeriodo(dia);
+  };
   let descartes = (dados.perdidos || [])
     .filter(p => alvos.includes(semAcento(p.produto)))
-    .filter(p => {
-      const dia = (p.dataPerda || '').trim().slice(0, 5);   // DD/MM
-      return dia.includes('/') && dentroDoPeriodo(dia);
-    });
+    .filter(p => noPeriodo(p.dataPerda) && noPeriodo(p.aplicacao));
   if (filtros.etapa)        descartes = descartes.filter(p => p.etapa === filtros.etapa);
   if (filtros.proprietario) descartes = descartes.filter(p => p.proprietario === filtros.proprietario);
   if (filtros.funil)        descartes = descartes.filter(p => p.funil === filtros.funil);
@@ -1851,19 +1852,20 @@ function renderGanhos(v) {
 }
 
 
-// ── Descartes: quem o comercial perdeu no periodo ───────────────────────────
-// Diferente de todo o resto do dashboard, o recorte aqui e' a data da PERDA.
-// Um lead que entrou em maio e foi descartado agora aparece neste mes — por
-// isso o total NAO bate com o volume de leads, e nao existe "taxa de
-// descarte" nesta tela: seria dividir dois recortes diferentes.
+// ── Descartes: a safra do periodo que ja morreu ─────────────────────────────
+// So entra quem ENTROU e foi DESCARTADO dentro da janela selecionada. Assim o
+// numero fecha com o volume de leads do periodo e a taxa de descarte faz
+// sentido — se pegasse todo deal perdido no mes, entraria base antiga e o
+// total passaria do volume de leads.
 function renderDescartes(v) {
   const perdas = v.descartes || [];
 
   if (!perdas.length) {
     document.getElementById('conteudo').innerHTML = `
       <div class="card"><div class="empty">
-        Nenhum descarte no período para os filtros atuais.<br><br>
-        <span style="font-size:11px">A aba BACKLOG PERDIDOS é preenchida pelo
+        Nenhum lead entrou e foi descartado dentro do período selecionado.<br><br>
+        <span style="font-size:11px">Só entram aqui os leads com data de aplicação
+        E data de perda dentro da janela. A aba BACKLOG PERDIDOS é preenchida pelo
         update_all.py — se ela ainda não existe na planilha, rode o script.</span>
       </div></div>`;
     return;
@@ -1940,7 +1942,9 @@ function renderDescartes(v) {
       <div class="kpi-card">
         <div class="kpi-label">Descartes no período</div>
         <div class="kpi-val blue">${fmtNum(perdas.length)}</div>
-        <div class="kpi-linha"><span>pela data da perda</span></div>
+        <div class="kpi-linha"><span>de ${fmtNum(v.kpis.leads)} leads</span>
+          <span style="color:var(--amber)">${
+            v.kpis.leads ? (perdas.length / v.kpis.leads * 100).toFixed(1) : 0}%</span></div>
       </div>
       <div class="kpi-card">
         <div class="kpi-label">Eram MQL</div>
@@ -1962,14 +1966,6 @@ function renderDescartes(v) {
       <div class="kpi-card">
         <div class="kpi-label">Proprietários</div>
         <div class="kpi-val">${fmtNum(donos)}</div>
-      </div>
-    </div>
-
-    <div class="card" style="margin-top:16px;margin-bottom:16px">
-      <div class="empty" style="padding:10px;text-align:left;color:var(--gray-light)">
-        Este recorte usa a <b>data da perda</b>, não a data de entrada do lead —
-        então inclui gente que se inscreveu em meses anteriores. Por isso o total
-        não fecha com o volume de leads do período.
       </div>
     </div>
 
@@ -2009,7 +2005,7 @@ function renderDescartes(v) {
 
     <div class="card" style="margin-top:16px">
       <div class="card-title">
-        Descartes · clique no ID para abrir no Pipedrive
+        Descartes · entraram e foram perdidos no período
         <span style="display:flex;align-items:center;gap:10px">
           <span class="card-tag">${labelFiltros()
             ? labelFiltros().replace(' — limpar ×', '') : 'sem filtro'}</span>
