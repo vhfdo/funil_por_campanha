@@ -962,7 +962,12 @@ function dadosVisiveis() {
       investPorDia[dia] = (investPorDia[dia] || 0) + val;
     }
 
-    ganhos = ganhos.concat(p.ganhos.filter(g => dentroDoPeriodo(g.data)));
+    ganhos = ganhos.concat(
+  p.ganhos.filter(g =>
+    dentroDoPeriodo(g.data) &&
+    (!filtros.rede || redeDoLead(g) === filtros.rede)
+  )
+);
 
   }
 
