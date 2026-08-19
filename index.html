@@ -72,7 +72,7 @@
   .filtro-ativo:hover{text-decoration:underline;}
 
   /* ── KPIs ── */
-  .kpi-strip{display:grid;grid-template-columns:repeat(9,1fr);gap:1px;
+  .kpi-strip{display:grid;grid-template-columns:repeat(10,1fr);gap:1px;
     background:var(--border);border:1px solid var(--border);margin-bottom:16px;}
   .kpi-card{background:var(--panel);padding:13px 12px;}
   .kpi-label{font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;
@@ -84,6 +84,10 @@
   .kpi-linha span:last-child{color:var(--white);}
   .kpi-barra{height:3px;background:var(--border);border-radius:2px;overflow:hidden;margin-top:7px;}
   .kpi-barra div{height:100%;border-radius:2px;}
+  /* Barra dividida: o preenchido sao os leads novos, o fundo a reaplicacao */
+  .reapl-barra{height:4px;background:var(--amber);border-radius:2px;
+    overflow:hidden;margin-top:7px;}
+  .reapl-barra div{height:100%;background:var(--blue);border-radius:2px 0 0 2px;}
   @media(max-width:1200px){.kpi-strip{grid-template-columns:repeat(5,1fr);}}
   @media(max-width:700px){.kpi-strip{grid-template-columns:repeat(3,1fr);}}
 
@@ -1200,6 +1204,7 @@ function render() {
       { meta: metas.cpmql, bruto: k.cpmql, fmt: fmtBRL, menorMelhor: true }),
     kpiCard('CAC', fmtBRL(k.cac),
       { meta: metas.cac, bruto: k.cac, fmt: fmtBRL, menorMelhor: true }),
+    cardReaplicacao(v),
   ].join('');
 
   document.getElementById('conteudo').innerHTML = `
@@ -1688,14 +1693,40 @@ function renderGanhos(v) {
   `;
 }
 
+// ── Reaplicação ─────────────────────────────────────────────────────────────
+// Lead que ja tinha entrado antes e voltou. Vale acompanhar porque uma taxa
+// alta significa que boa parte do volume nao e' publico novo — a base esta
+// sendo reimpactada.
+function cardReaplicacao(v) {
+  const total  = v.backlog.length;
+  const reapl  = v.backlog.filter(b => b.reaplicacao).length;
+  const novos  = total - reapl;
+  const pct    = total ? (reapl / total * 100) : 0;
+
+  // Barra dividida: parte nova e parte que voltou
+  return `<div class="kpi-card">
+    <div class="kpi-label">Reaplicação</div>
+    <div class="kpi-val">${fmtNum(reapl)}</div>
+    <div class="kpi-linha"><span>% dos leads</span>
+      <span style="color:var(--amber)">${pct.toFixed(1)}%</span></div>
+    <div class="kpi-linha"><span>Novos</span><span>${fmtNum(novos)}</span></div>
+    <div class="reapl-barra" title="${fmtNum(novos)} novos · ${fmtNum(reapl)} reaplicações">
+      <div style="width:${100 - pct}%"></div>
+    </div>
+  </div>`;
+}
+
 // ── Tabela comparativa ──────────────────────────────────────────────────────
 function tabelaProdutos() {
   const linhas = ORDEM_PRODUTOS.map(nome => {
     const p = dados.produtos[nome];
     if (!p) return '';
     const k = p.kpis;
-    const backlogProduto = dados.backlog.filter(b => b.produto === nome);
+    const backlogProduto = dados.backlog.filter(b =>
+      semAcento(b.produto) === semAcento(nome));
     const reaplicacoes   = backlogProduto.filter(b => b.reaplicacao).length;
+    const pctReapl       = backlogProduto.length
+      ? (reaplicacoes / backlogProduto.length * 100) : 0;
     const pctLeads = k.leads ? (k.ganhos / k.leads * 100) : 0;
     const pctMqls  = k.mqls  ? (k.ganhos / k.mqls  * 100) : 0;
 
@@ -1703,7 +1734,8 @@ function tabelaProdutos() {
       <td style="font-weight:600">${nome}</td>
       <td class="num">${fmtBRL(k.investimento)}</td>
       <td class="num">${fmtNum(k.leads)}</td>
-      <td class="num">${fmtNum(reaplicacoes)}</td>
+      <td class="num">${fmtNum(reaplicacoes)}<span style="color:var(--gray);font-size:9px"> ${
+        pctReapl.toFixed(0)}%</span></td>
       <td class="num">${fmtNum(k.ganhos)}</td>
       <td class="num">${pctLeads.toFixed(1)}%</td>
       <td class="num">${pctMqls.toFixed(1)}%</td>
