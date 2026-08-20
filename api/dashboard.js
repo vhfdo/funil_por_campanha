@@ -8,7 +8,11 @@ import { getValues } from '../lib/sheets.js';
 const SPREADSHEET_ID = '1yw82Xywh0pTDj10Kwq7jfpezE14gyBGwFsbDLiAXjYY';
 
 // Cada produto sabe de quais abas puxar seus dados.
-// As abas de investimento tem colunas diferentes — por isso o par [data, valor].
+//
+// As colunas do investimento sao descobertas pelo CABECALHO, nao pela
+// posicao: cada rede exporta num layout diferente e as abas mudam de tempos
+// em tempos. Os indices abaixo sao so o plano B, usados quando o cabecalho
+// nao e' reconhecido.
 const PRODUTOS = {
   'PFCC BRASIL': {
     leads:  'LEADS PFCC BRASIL',
@@ -104,6 +108,61 @@ function normalizarData(v) {
     return `${d.slice(0, 2).padStart(2, '0')}/${m.padStart(2, '0')}`;
   }
   return null;
+}
+
+// Minusculas, sem acento — pra comparar cabecalho sem depender de grafia
+const chave = s => String(s || '').toLowerCase().trim()
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+// ── Onde estao as colunas do investimento ────────────────────────────────
+// Cada rede exporta com nomes proprios (Meta em ingles, Google e LinkedIn
+// as vezes em portugues), entao cada campo aceita varios rotulos. O que nao
+// for encontrado volta -1 e simplesmente nao e' lido.
+const ROTULOS = {
+  data:     ['day', 'dia', 'data', 'date', 'reporting starts'],
+  // "campaign name" antes de "campaign": no LinkedIn existem as duas
+  // colunas (Campaign Name e Campaign Group Name) e a busca frouxa por
+  // "campaign" acharia a primeira que aparecesse
+  campanha: ['campaign name', 'campanha', 'nome da campanha', 'campaign'],
+  conjunto: ['ad set name', 'campaign group name', 'conjunto',
+             'nome do conjunto de anuncios', 'ad set', 'grupo de anuncios',
+             'ad group name', 'ad group', 'campaign group'],
+  anuncio:  ['ad name', 'anuncio', 'nome do anuncio', 'creative name', 'ad'],
+  // O Google grava o ID numerico na utm_campaign do lead, nao o nome.
+  // Entao o cruzamento e' por ID e o nome serve so pra exibir. Precisa vir
+  // como campo proprio: 'ad id' bate exato na passada 1 e fica reservado,
+  // senao a busca frouxa por 'ad' levaria essa coluna pro anuncio.
+  idCampanha: ['ad id', 'campaign id', 'id da campanha', 'ad group id', 'id'],
+  valor:    ['amount spent', 'cost in local currency', 'valor gasto',
+             'valor usado', 'investimento', 'custo', 'cost', 'spend', 'gasto'],
+};
+
+function acharColunas(cabecalho) {
+  const cols = {};
+  const norm = (cabecalho || []).map(chave);
+  const campos = Object.keys(ROTULOS);
+
+  // Passada 1: igualdade exata. E' inequivoca, entao vem antes — sem ela,
+  // procurar "ad" acharia "Ad Set Name" e trocaria anuncio por conjunto.
+  for (const campo of campos) {
+    const nomes = ROTULOS[campo];
+    cols[campo] = norm.findIndex(c => c && nomes.some(n => c === chave(n)));
+  }
+
+  // Passada 2: "contem", pra pegar "Amount spent (BRL)" e
+  // "Cost In Local Currency (Spend)". Colunas ja tomadas na passada 1
+  // ficam de fora — no LinkedIn, "campaign" bateria em Campaign Name de
+  // novo e o conjunto herdaria a coluna errada.
+  const usadas = new Set(Object.values(cols).filter(i => i >= 0));
+  for (const campo of campos) {
+    if (cols[campo] >= 0) continue;
+    const nomes = ROTULOS[campo];
+    const i = norm.findIndex((c, idx) =>
+      c && !usadas.has(idx) && nomes.some(n => c.includes(chave(n))));
+    if (i >= 0) { cols[campo] = i; usadas.add(i); }
+  }
+
+  return cols;
 }
 
 // Le uma aba e nunca derruba a resposta inteira se ela nao existir
@@ -202,22 +261,47 @@ export default async function handler(req, res) {
         });
       }
 
-      // Investimento por rede e por dia
+      // ── Investimento ────────────────────────────────────────────────
+      // Quatro saidas da mesma leitura:
+      //   investPorRede / investPorDia / investDiaRede — totais que o
+      //     dashboard ja usava
+      //   investLinhas — uma linha por dia+campanha+conjunto+anuncio, que
+      //     e' o que alimenta a aba Campanhas
       const investPorRede = {};
       const investPorDia  = {};
-      // Tambem guardamos por rede e por dia: sem isso, filtrar por rede no
-      // dashboard nao teria como recalcular a linha de investimento do grafico.
       const investDiaRede = {};
+      const investLinhas  = [];
+
       for (const inv of ref.investimento) {
+        const aba = resultados[inv.idx] || [];
         let totalRede = 0;
         investDiaRede[inv.rede] = {};
-        for (const linha of (resultados[inv.idx] || []).slice(1)) {
-          const data = normalizarData(linha[inv.colData]);
-          const val  = parseNum(linha[inv.colValor]);
+
+        // Descobre as colunas pelo cabecalho; se nao achar, usa o plano B
+        const cols = acharColunas(aba[0] || []);
+        const cData  = cols.data  >= 0 ? cols.data  : inv.colData;
+        const cValor = cols.valor >= 0 ? cols.valor : inv.colValor;
+
+        for (const linha of aba.slice(1)) {
+          const data = normalizarData(linha[cData]);
+          const val  = parseNum(linha[cValor]);
           if (!data || !val) continue;
+
           totalRede += val;
           investPorDia[data] = (investPorDia[data] || 0) + val;
           investDiaRede[inv.rede][data] = (investDiaRede[inv.rede][data] || 0) + val;
+
+          investLinhas.push({
+            data,
+            rede:     inv.rede,
+            campanha: cols.campanha >= 0 ? String(linha[cols.campanha] || '').trim() : '',
+            conjunto: cols.conjunto >= 0 ? String(linha[cols.conjunto] || '').trim() : '',
+            anuncio:  cols.anuncio  >= 0 ? String(linha[cols.anuncio]  || '').trim() : '',
+            // So numeros: e' assim que a utm do Google chega no Pipedrive
+            idCampanha: cols.idCampanha >= 0
+              ? String(linha[cols.idCampanha] || '').trim().replace(/\D/g, '') : '',
+            valor:    val,
+          });
         }
         investPorRede[inv.rede] = totalRede;
       }
@@ -238,6 +322,7 @@ export default async function handler(req, res) {
         investPorRede,
         investPorDia,
         investDiaRede,
+        investLinhas,
         kpis: {
           leads:        totalLeads,
           mqls:         totalMqls,
@@ -274,6 +359,11 @@ export default async function handler(req, res) {
         aplicacao:   linha[13] || '',
         campanha:    linha[14] || '',
         source:      linha[15] || '',
+        // medium e content sao conjunto e anuncio: a aba Campanhas cruza
+        // os leads com o investimento por estes campos
+        medium:      linha[16] || '',
+        content:     linha[17] || '',
+        term:        linha[18] || '',
         // So vem preenchido em lead perdido; vazio no resto
         motivoPerda: linha[19] || '',
         dataPerda:   linha[20] || '',
