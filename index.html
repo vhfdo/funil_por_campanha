@@ -613,6 +613,11 @@ const CONSOLIDADO = 'CONSOLIDADO';
 // Os tres funis de venda direta. Ganham barra propria no grafico principal.
 const FUNIS_PRINCIPAIS = ['SNIPER', 'ELITE', 'OLYMPUS'];
 const PRODUTOS_REAIS = ['PFCC BRASIL', 'PFCC MÉXICO', 'PFCC CHILE', 'LEAN', 'CES'];
+
+// Lean e CES qualificam MQL por pontuacao, nao por cargo. O corte espelha o
+// MQL_SCORE_MINIMO do update_all.py — se mudar la, muda aqui.
+const PRODUTOS_COM_SCORE = ['LEAN', 'CES'];
+const SCORE_MINIMO = 6;
 const ORDEM_PRODUTOS = [CONSOLIDADO, ...PRODUTOS_REAIS];
 
 // Metas do mes. Deixe null no que ainda nao tem meta — o card simplesmente
@@ -728,7 +733,7 @@ function ordenarEtapas(etapas) {
 let dados = null;            // resposta crua da API
 let produtoAtivo = CONSOLIDADO;
 let filtros = { rede: null, etapa: null, proprietario: null, funil: null,
-                cargo: null, motivo: null };
+                cargo: null, motivo: null, score: null };
 
 // 'leads' ou 'mqls' — define o que as barras dos cards medem
 let metrica = 'leads';
@@ -946,7 +951,7 @@ function toggleFiltro(tipo, valor) {
 function limparFiltros(silencioso) {
   if (!silencioso && Object.values(filtros).some(Boolean)) rastrear('limpar_filtros');
   filtros = { rede: null, etapa: null, proprietario: null, funil: null,
-              cargo: null, motivo: null };
+              cargo: null, motivo: null, score: null };
   if (!silencioso) render();
 }
 
@@ -1046,6 +1051,10 @@ function dadosVisiveis() {
   if (filtros.funil)        backlog = backlog.filter(b => b.funil === filtros.funil);
   if (filtros.cargo)        backlog = backlog.filter(b => normalizarCargo(b.cargo) === filtros.cargo);
   if (filtros.rede)         backlog = backlog.filter(b => redeDoLead(b) === filtros.rede);
+  // A faixa e' a parte inteira do score: clicar em "6" pega 6.0 ate 6.9
+  if (filtros.score)        backlog = backlog.filter(b =>
+    b.score !== null && b.score !== undefined
+    && String(Math.floor(b.score)) === filtros.score);
 
   // ── Etapas do funil ──────────────────────────────────────────────────
   // Sai sempre do backlog, nao da aba ETAPA. A aba traz todos os deals
@@ -1111,7 +1120,7 @@ function dadosVisiveis() {
   // Filtros vindos do backlog reescrevem a contagem de leads e MQL:
   // com filtro ativo, contar da aba LEADS daria o total do produto inteiro.
   const filtrandoBacklog = !!(filtros.etapa || filtros.proprietario
-    || filtros.funil || filtros.cargo || filtros.rede);
+    || filtros.funil || filtros.cargo || filtros.rede || filtros.score);
 
   // Com filtro ativo o grafico tambem passa a sair do backlog. A aba LEADS
   // so tem o total do dia, sem quebra por rede/dono/etapa — se ela continuasse
@@ -1334,10 +1343,16 @@ function render() {
       </div>
       <div class="card">
         <div class="card-title">
-          Cargos
-          <span class="card-tag">% dos leads</span>
+          ${PRODUTOS_COM_SCORE.includes(produtoAtivo) ? 'Pontuação' : 'Cargos'}
+          <span class="card-tag">${
+            PRODUTOS_COM_SCORE.includes(produtoAtivo)
+              ? 'MQL a partir de ' + SCORE_MINIMO
+              : '% dos leads'}</span>
         </div>
-        <div class="card-body" style="max-height:230px">${tabelaCargos(v)}</div>
+        <div class="card-body" style="max-height:230px">${
+          PRODUTOS_COM_SCORE.includes(produtoAtivo)
+            ? tabelaScore(v)
+            : tabelaCargos(v)}</div>
       </div>
       <div class="card">
         <div class="card-title">
@@ -1520,7 +1535,7 @@ function exportarBaseCSV() {
 
   const cabecalho = [
     'ID', 'Produto', 'Nome', 'Cargo', 'MQL', 'Funil', 'Etapa',
-    'Proprietário', 'Rede', 'Status', 'Motivo Perda', 'Data Perda',
+    'Proprietário', 'Rede', 'Score', 'Status', 'Motivo Perda', 'Data Perda',
     'Reaplicação', 'Aplicação', 'Valor', 'utm_campaign', 'utm_source',
   ];
 
@@ -1544,6 +1559,9 @@ function exportarBaseCSV() {
       b.etapa,
       b.proprietario,
       redeDoLead(b),
+      // Virgula decimal pro Excel BR reconhecer como numero
+      b.score === null || b.score === undefined
+        ? '' : String(b.score).replace('.', ','),
       b.status,
       b.motivoPerda,
       b.dataPerda,
@@ -1673,7 +1691,8 @@ function renderBase(v) {
           <thead><tr>
             <th class="num">ID</th><th>Nome</th><th>Cargo</th><th>MQL</th>
             <th>Funil</th><th>Etapa</th><th>Proprietário</th>
-            <th>Rede</th><th>Status</th><th>Motivo Perda</th>
+            <th>Rede</th><th class="num">Score</th><th>Status</th>
+            <th>Motivo Perda</th>
             <th>Aplicação</th><th class="num">Valor</th>
             <th>utm_campaign</th>
           </tr></thead>
@@ -1695,6 +1714,11 @@ function renderBase(v) {
                   <td>${corta(b.etapa, 20)}</td>
                   <td>${corta(b.proprietario, 20)}</td>
                   <td>${redeDoLead(b)}</td>
+                  <td class="num" style="color:${
+                    b.score === null || b.score === undefined ? 'var(--gray)'
+                    : b.score >= SCORE_MINIMO ? 'var(--green)' : 'var(--gray-light)'}">${
+                    b.score === null || b.score === undefined
+                      ? '—' : b.score.toFixed(2)}</td>
                   <td>${corta(b.status, 14)}</td>
                   <td title="${b.motivoPerda || ''}" style="color:${
                     b.motivoPerda ? 'var(--amber)' : 'var(--gray)'}">${
@@ -2478,6 +2502,62 @@ function tabelaFunis(v, limite) {
       </div>
       <div class="funil-pct">${fmtNum(resto[outra])}</div>
     </div>` : '') + '</div>';
+}
+
+// ── Distribuicao de score (so Lean e CES) ───────────────────────────────────
+// Agrupa pela parte inteira: a nota e' decimal e tem mais de cem valores
+// distintos, entao a lista crua nao diz nada. Cada faixa mostra quantos
+// leads tem e quantos viraram venda.
+function tabelaScore(v) {
+  const comScore = v.backlog.filter(b => b.score !== null && b.score !== undefined);
+  if (!comScore.length) {
+    return `<div class="empty">
+      Nenhum lead com pontuação no período.<br><br>
+      <span style="font-size:11px">A coluna Score é preenchida pelo update_all.py —
+      se ela ainda não existe na aba BACKLOG MQL, rode o script.</span>
+    </div>`;
+  }
+
+  const agg = {};
+  for (const b of comScore) {
+    const faixa = Math.floor(b.score);
+    if (!agg[faixa]) agg[faixa] = { qtd: 0, ganhos: 0 };
+    agg[faixa].qtd++;
+    if (b.status === 'won') agg[faixa].ganhos++;
+  }
+
+  const faixas = Object.keys(agg).map(Number).sort((a, b) => a - b);
+  const maior  = Math.max(...faixas.map(f => agg[f].qtd), 1);
+  const total  = comScore.length;
+  const acima  = comScore.filter(b => b.score >= SCORE_MINIMO).length;
+  const semScore = v.backlog.length - total;
+
+  const linhas = faixas.map(f => {
+    const d   = agg[f];
+    const mql = f >= SCORE_MINIMO;
+    const sel = filtros.score === String(f);
+    // Verde nas faixas que qualificam, cinza-azulado nas que nao
+    const cor = sel ? 'var(--amber)' : (mql ? '#2f6b46' : '#4a4a52');
+    return `<div class="funil-step ${sel ? 'selecionado' : ''}"
+              onclick="toggleFiltro('score', '${f}')">
+      <div class="funil-label" title="${d.ganhos} vendas nesta faixa">${
+        f}.0 – ${f}.9${mql ? ' ✓' : ''}</div>
+      <div class="funil-track">
+        <div class="funil-bar" style="width:${
+          Math.max(d.qtd / maior * 100, 3)}%;background:${cor}">
+          <span class="funil-val">${fmtNum(d.qtd)}</span>
+        </div>
+      </div>
+      <div class="funil-pct">${(d.qtd / total * 100).toFixed(0)}%</div>
+    </div>`;
+  }).join('');
+
+  return `<div class="funil">${linhas}</div>
+    <div class="calor-nota">
+      ${fmtNum(acima)} de ${fmtNum(total)} chegam a ${SCORE_MINIMO}
+      (${(acima / total * 100).toFixed(0)}%) — são estes que contam como MQL${
+      semScore ? ` · ${fmtNum(semScore)} sem pontuação ficam de fora` : ''}
+    </div>`;
 }
 
 // ── Cargos ──────────────────────────────────────────────────────────────────
