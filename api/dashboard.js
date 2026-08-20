@@ -63,6 +63,7 @@ const PRODUTOS = {
 const ABA_BACKLOG  = 'BACKLOG MQL';
 const ABA_REUNIOES = 'BACKLOG REUNIÕES';
 const ABA_PERDIDOS = 'BACKLOG PERDIDOS';
+const ABA_META     = 'ATUALIZAÇÃO';
 
 function checkAuth(req) {
   const secret = process.env.SESSION_SECRET;
@@ -148,6 +149,9 @@ export default async function handler(req, res) {
 
     const idxPerdidos = tarefas.length;
     tarefas.push(lerAba(ABA_PERDIDOS));
+
+    const idxMeta = tarefas.length;
+    tarefas.push(lerAba(ABA_META));
 
     const resultados = await Promise.all(tarefas);
 
@@ -332,8 +336,15 @@ export default async function handler(req, res) {
       });
     }
 
+    // Quando o update_all.py rodou pela ultima vez. Diferente do
+    // atualizadoEm, que e' so a hora desta resposta da API — o que importa
+    // pro usuario e' a idade do DADO, nao a do request.
+    const linhaMeta = (resultados[idxMeta] || [])[0] || [];
+    const dadosDe = String(linhaMeta[1] || '').trim() || null;
+
     return res.status(200).json({
       atualizadoEm: new Date().toISOString(),
+      dadosDe,
       produtos,
       backlog,
       reunioes,
