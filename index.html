@@ -771,6 +771,8 @@ let buscaCampanha = '';
 // Coluna e sentido da ordenacao da tabela
 let ordemCampCol = 'investimento';
 let ordemCampDir = 'desc';
+// Chave da linha aberta no drill-down. null = tabela fechada.
+let campanhaAberta = null;
 
 // Cada negocio no Pipedrive tem uma URL propria; o ID abre direto la
 const URL_PIPEDRIVE = 'https://boardacademy.pipedrive.com/deal/';
@@ -957,6 +959,17 @@ function filtrarRedeCampanha(rede) {
 function trocarNivelCampanha(nivel) {
   rastrear('nivel_campanha', nivel);
   nivelCampanha = nivel;
+  // A chave muda de significado entre os niveis, entao o drill-down
+  // aberto nao faz mais sentido depois da troca
+  campanhaAberta = null;
+  render();
+}
+
+function abrirCampanha(chave) {
+  // Clicar na linha ja aberta fecha
+  campanhaAberta = (chave && campanhaAberta === chave) ? null : chave;
+  rastrear(campanhaAberta ? 'abrir_campanha' : 'fechar_campanha',
+           String(chave || '').slice(0, 80));
   render();
 }
 
@@ -2473,13 +2486,24 @@ function dadosCampanhas(v) {
   const pega = (k, rotulo, rede) => {
     if (!agg[k]) {
       agg[k] = {
-        rotulo, rede: rede || '', investimento: 0,
+        chave: k, rotulo, rede: rede || '', investimento: 0,
         leads: 0, mqls: 0, ganhos: 0, faturamento: 0,
+        // Quebra diaria, montada junto com os totais: e' o que o
+        // drill-down desenha. Calcular de novo depois seria repetir toda
+        // a logica de chave (ID do Google vs nome) e abrir espaco pros
+        // dois lados divergirem.
+        porDia: {},
       };
     } else if (soDigitos(agg[k].rotulo) && rotulo && !soDigitos(rotulo)) {
       agg[k].rotulo = rotulo;
     }
     return agg[k];
+  };
+
+  // Acumula no dia certo dentro de uma linha da tabela
+  const noDia = (d, dia) => {
+    if (!d.porDia[dia]) d.porDia[dia] = { inv: 0, leads: 0, mqls: 0 };
+    return d.porDia[dia];
   };
 
   // ── Investimento ────────────────────────────────────────────────────
@@ -2498,7 +2522,9 @@ function dadosCampanhas(v) {
       const k = usaId ? l.idCampanha : chaveCamp(rotulo);
 
       if (!k) { investSemNome += l.valor; continue; }
-      pega(k, rotulo || l.idCampanha, l.rede).investimento += l.valor;
+      const d = pega(k, rotulo || l.idCampanha, l.rede);
+      d.investimento += l.valor;
+      noDia(d, l.data).inv += l.valor;
     }
   }
 
@@ -2525,6 +2551,13 @@ function dadosCampanhas(v) {
     const d = pega(k, rotulo, redeDoLead(b));
     d.leads++;
     if (b.mql) d.mqls++;
+
+    const dia = (b.aplicacao || '').trim().slice(0, 5);   // DD/MM
+    if (dia.includes('/')) {
+      const nd = noDia(d, dia);
+      nd.leads++;
+      if (b.mql) nd.mqls++;
+    }
   }
 
   // ── Ganhos ──────────────────────────────────────────────────────────
@@ -2620,6 +2653,12 @@ function renderCampanhas(v) {
     return;
   }
 
+  // A linha aberta pode ter sumido: o usuario trocou de nivel, filtrou por
+  // outra rede ou digitou na busca. Nesse caso o card simplesmente nao
+  // aparece, e o clique seguinte reabre.
+  const aberta = campanhaAberta
+    ? linhas.find(l => l.chave === campanhaAberta) : null;
+
   // Cabecalho ordenavel
   const col = (campo, texto, classe) => {
     const ativa = ordemCampCol === campo;
@@ -2676,6 +2715,21 @@ function renderCampanhas(v) {
       </div>
     </div>` : ''}
 
+    ${aberta ? `
+    <div class="card" style="margin-top:16px;border-color:var(--blue)">
+      <div class="card-title">
+        <span title="${aberta.rotulo}">${
+          aberta.rotulo.length > 70 ? aberta.rotulo.slice(0, 70) + '…' : aberta.rotulo}</span>
+        <span style="display:flex;align-items:center;gap:10px">
+          <span class="card-tag">${fmtBRL(aberta.investimento)} · ${
+            fmtNum(aberta.leads)} leads · ${fmtNum(aberta.mqls)} MQL${
+            aberta.ganhos ? ' · ' + fmtNum(aberta.ganhos) + ' vendas' : ''}</span>
+          <button class="btn-mini" onclick="abrirCampanha(null)">fechar ×</button>
+        </span>
+      </div>
+      <div class="chart-box" style="height:320px"><canvas id="chartCampanha"></canvas></div>
+    </div>` : ''}
+
     <div class="card" style="margin-top:16px">
       <div class="card-title">
         ${rotuloNivel}s
@@ -2713,8 +2767,10 @@ function renderCampanhas(v) {
           </tr></thead>
           <tbody>
             ${linhas.map(l => `
-              <tr>
+              <tr class="clicavel ${campanhaAberta === l.chave ? 'selecionado' : ''}"
+                  onclick="abrirCampanha(${attr(l.chave)})">
                 <td title="${l.rotulo}">${
+                  campanhaAberta === l.chave ? '▾ ' : ''}${
                   l.rotulo.length > 52 ? l.rotulo.slice(0, 52) + '…' : l.rotulo}</td>
                 <td style="color:var(--gray-light)">${l.rede || '—'}</td>
                 <td class="num">${fmtBRL(l.investimento)}</td>
@@ -2738,6 +2794,113 @@ function renderCampanhas(v) {
       </div>
     </div>
   `;
+
+  if (aberta) desenharGraficoCampanha(aberta);
+}
+
+// ── Grafico do drill-down ───────────────────────────────────────────────────
+// Barras de leads e MQL no eixo esquerdo, linha de CPMQL no direito.
+// Sao grandezas diferentes: sem o segundo eixo, um CPMQL de 300 achataria
+// as barras de 20 leads ate sumirem.
+function desenharGraficoCampanha(linha) {
+  // O render trocou o innerHTML inteiro, entao os canvas antigos ja sairam
+  // do DOM. Destruir aqui evita o Chart.js segurar referencia morta.
+  Object.values(charts).forEach(c => {
+    try { c && c.destroy(); } catch (e) { /* canvas ja removido */ }
+  });
+  charts = {};
+
+  // So os dias que existem, ordenados por data de verdade — ordenar
+  // "10/08" como texto colocaria ele antes de "09/08"
+  const dias = Object.keys(linha.porDia)
+    .filter(d => d.includes('/'))
+    .sort((a, b) => paraData(a) - paraData(b));
+
+  if (!dias.length) {
+    const box = document.getElementById('chartCampanha');
+    if (box && box.parentElement) {
+      box.parentElement.innerHTML =
+        '<div class="empty">Sem movimento diário nesta linha.</div>';
+    }
+    return;
+  }
+
+  const leads = dias.map(d => linha.porDia[d].leads || 0);
+  const mqls  = dias.map(d => linha.porDia[d].mqls  || 0);
+  const cpmql = dias.map(d => {
+    const p = linha.porDia[d];
+    // null onde falta investimento ou MQL: o ponto some em vez de cair
+    // pra zero e puxar a escala inteira pra baixo
+    return p.inv && p.mqls ? Math.round(p.inv / p.mqls) : null;
+  });
+
+  charts.campanha = comCanvas('chartCampanha', el => new Chart(el, {
+    data: {
+      labels: dias,
+      datasets: [
+        { type:'bar', label:'Leads', data: leads, yAxisID:'y',
+          backgroundColor:'#2c5f8a', borderRadius:2, order: 3,
+          datalabels: { display: ctx => ctx.dataset.data[ctx.dataIndex] > 0,
+            anchor:'end', align:'end', offset:-2, color:'#9dc4e8',
+            font:{ family:'DM Mono', size:10 }, formatter: v => fmtNum(v) } },
+        { type:'bar', label:'MQL', data: mqls, yAxisID:'y',
+          backgroundColor:'#4a9eed', borderRadius:2, order: 2,
+          datalabels: { display: ctx => ctx.dataset.data[ctx.dataIndex] > 0,
+            anchor:'end', align:'end', offset:-2, color:'#cfe4f7',
+            font:{ family:'DM Mono', size:10 }, formatter: v => fmtNum(v) } },
+        { type:'line', label:'CPMQL', data: cpmql, yAxisID:'y1',
+          borderColor:'#d9a441', borderWidth:2.5, tension:.3, spanGaps:true,
+          pointRadius:4, pointHoverRadius:6, pointBackgroundColor:'#d9a441',
+          order: 1,
+          datalabels: {
+            display: ctx => ctx.dataset.data[ctx.dataIndex] !== null,
+            anchor:'end', align:'top', offset:5, color:'#ffffff',
+            font:{ family:'DM Mono', size:11, weight:500 },
+            backgroundColor:'rgba(10,10,10,.82)',
+            borderRadius:3, padding:{ top:2, bottom:2, left:5, right:5 },
+            formatter: v => 'R$ ' + fmtNum(v) } },
+      ],
+    },
+    options: {
+      ...opcoesBase(),
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        ...opcoesBase().plugins,
+        legend: { display:true, labels:{ color:'#e8e8e8',
+          font:{ family:'DM Mono', size:11 }, boxWidth:12, padding:14 } },
+        tooltip: { ...opcoesBase().plugins.tooltip, callbacks: {
+          label: ctx => {
+            if (ctx.dataset.label !== 'CPMQL') {
+              return ` ${ctx.dataset.label}: ${fmtNum(ctx.raw)}`;
+            }
+            if (ctx.raw === null) return ' CPMQL: sem MQL no dia';
+            return ` CPMQL: ${fmtBRL(ctx.raw)}`;
+          },
+          afterBody: items => {
+            const p = linha.porDia[dias[items[0].dataIndex]] || {};
+            return 'Investimento ' + fmtBRL(p.inv || 0);
+          },
+        } },
+      },
+      scales: {
+        x: { ticks:{ color:'#e8e8e8', font:{ family:'DM Mono', size:11 },
+                     maxRotation: 45 },
+             grid:{ color:'#1a1a1a' } },
+        y: { beginAtZero:true, position:'left', grace:'12%',
+             title:{ display:true, text:'Volume', color:'#9dc4e8',
+                     font:{ family:'DM Mono', size:10 } },
+             ticks:{ color:'#c8c8c8', font:{ family:'DM Mono', size:11 },
+                     precision: 0 },
+             grid:{ color:'#1c1c1c' } },
+        y1:{ beginAtZero:true, position:'right', grace:'15%',
+             title:{ display:true, text:'CPMQL', color:'#d9a441',
+                     font:{ family:'DM Mono', size:10 } },
+             grid:{ display:false },
+             ticks:{ color:'#d9a441', font:{ family:'DM Mono', size:11 },
+                     callback: val => 'R$ ' + fmtNum(val) } },
+      },
+    },
+  }));
 }
 
 // ── Exportar a tabela de campanhas ──────────────────────────────────────────
