@@ -1517,7 +1517,7 @@ function render() {
           ? 'uma linha por produto' : produtoAtivo}${
           filtros.rede ? ' · ' + filtros.rede : ''} · em R$</span>
       </div>
-      <div class="chart-box" style="height:300px"><canvas id="chartCpmqlProdutos"></canvas></div>
+      <div class="chart-box" style="height:360px"><canvas id="chartCpmqlProdutos"></canvas></div>
     </div>
 
     <div class="taxas">
@@ -3015,8 +3015,9 @@ function desenharGraficos(v) {
         data: s.dados,
         borderColor: CORES_PRODUTO[s.nome] || '#4a9eed',
         backgroundColor: CORES_PRODUTO[s.nome] || '#4a9eed',
-        borderWidth: 2,
-        pointRadius: 2.5,
+        borderWidth: 2.5,
+        pointRadius: 4,
+        pointHoverRadius: 6,
         pointBackgroundColor: CORES_PRODUTO[s.nome] || '#4a9eed',
         tension: .3,
         // Sem isso a linha corta em todo dia sem MQL e vira tracejado
@@ -3025,14 +3026,14 @@ function desenharGraficos(v) {
         datalabels: {
           // Rotulo em todo ponto que tem valor
           display: ctx => ctx.dataset.data[ctx.dataIndex] !== null,
-          anchor: 'end', align: 'top', offset: 3,
-          color: CORES_PRODUTO[s.nome] || '#4a9eed',
-          font: { family: 'DM Mono', size: 8 },
+          anchor: 'end', align: 'top', offset: 6,
+          color: '#ffffff',
+          font: { family: 'DM Mono', size: 12, weight: 500 },
           // Fundo escuro atras do numero: com varias linhas cruzando, o
           // rotulo solto some por cima da grade e das outras series
-          backgroundColor: 'rgba(10,10,10,.72)',
-          borderRadius: 2,
-          padding: { top: 1, bottom: 1, left: 3, right: 3 },
+          backgroundColor: 'rgba(10,10,10,.82)',
+          borderRadius: 3,
+          padding: { top: 3, bottom: 3, left: 6, right: 6 },
           formatter: v => fmtNum(v),
         },
       })),
@@ -3043,7 +3044,8 @@ function desenharGraficos(v) {
       plugins: {
         ...opcoesBase().plugins,
         legend: { display: cpmqlDia.series.length > 1,
-          labels:{ color:'#e8e8e8', font:{ family:'DM Mono', size:9 }, boxWidth:9 } },
+          labels:{ color:'#e8e8e8', font:{ family:'DM Mono', size:11 },
+                   boxWidth:12, padding:14 } },
         tooltip: { ...opcoesBase().plugins.tooltip, callbacks: {
           label: ctx => {
             if (ctx.raw === null) return null;   // esconde produto sem dado no dia
@@ -3057,10 +3059,16 @@ function desenharGraficos(v) {
         } },
       },
       scales: {
-        ...opcoesBase().scales,
-        y: { ...opcoesBase().scales.y,
-             ticks: { ...opcoesBase().scales.y.ticks,
-                      callback: val => 'R$ ' + fmtNum(val) } },
+        x: { ticks:{ color:'#e8e8e8', font:{ family:'DM Mono', size:11 },
+                     maxRotation: 45 },
+             grid:{ color:'#1a1a1a' } },
+        y: { beginAtZero:true,
+             // Folga no topo pro rotulo do ponto mais alto nao encostar
+             // na borda do card
+             grace: '12%',
+             ticks:{ color:'#c8c8c8', font:{ family:'DM Mono', size:11 },
+                     callback: val => 'R$ ' + fmtNum(val) },
+             grid:{ color:'#1c1c1c' } },
       },
     },
   }));
