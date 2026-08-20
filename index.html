@@ -992,16 +992,32 @@ function dadosVisiveis() {
       leadsMap[d.data].mqls  += d.mqls;
     }
 
-    for (const [rede, total] of Object.entries(p.investPorRede)) {
-      if (filtros.rede && filtros.rede !== rede) continue;
-      investPorRede[rede] = (investPorRede[rede] || 0) + total;
-    }
-    // Com filtro de rede, o investimento diario vem so daquela rede
-    const fonteDia = filtros.rede
-      ? ((p.investDiaRede || {})[filtros.rede] || {})
-      : p.investPorDia;
-    for (const [dia, val] of Object.entries(fonteDia)) {
-      investPorDia[dia] = (investPorDia[dia] || 0) + val;
+    // O investimento e' somado dia a dia, nao pelo total fechado do mes:
+    // so assim ele acompanha o seletor de data. O investDiaRede da API tem
+    // a quebra por rede E por dia, que e' exatamente o que precisamos —
+    // o total por rede vira a soma dos dias que caem na janela.
+    const diaPorRede = p.investDiaRede || {};
+    const temQuebra  = Object.keys(diaPorRede).length > 0;
+
+    if (temQuebra) {
+      for (const [rede, dias] of Object.entries(diaPorRede)) {
+        if (filtros.rede && filtros.rede !== rede) continue;
+        for (const [dia, val] of Object.entries(dias)) {
+          if (!dentroDoPeriodo(dia)) continue;
+          investPorRede[rede] = (investPorRede[rede] || 0) + val;
+          investPorDia[dia]   = (investPorDia[dia] || 0) + val;
+        }
+      }
+    } else {
+      // API antiga, sem investDiaRede: melhor mostrar o total do mes do que
+      // zerar o investimento e estourar o CPL e o ROAS.
+      for (const [rede, total] of Object.entries(p.investPorRede || {})) {
+        if (filtros.rede && filtros.rede !== rede) continue;
+        investPorRede[rede] = (investPorRede[rede] || 0) + total;
+      }
+      for (const [dia, val] of Object.entries(p.investPorDia || {})) {
+        investPorDia[dia] = (investPorDia[dia] || 0) + val;
+      }
     }
 
     // O ganho tambem respeita o filtro de rede: sem isso o ROAS dividia o
