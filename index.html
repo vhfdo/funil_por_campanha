@@ -966,6 +966,15 @@ function dadosVisiveis() {
   const ehConsolidado = produtoAtivo === CONSOLIDADO;
   const nomes = ehConsolidado ? PRODUTOS_REAIS : [produtoAtivo];
 
+  // Le uma data "DD/MM/AAAA hh:mm" (ou so DD/MM) e diz se cai na janela.
+  // Todo bloco que sai do backlog precisa passar por aqui: a aba traz o mes
+  // inteiro, entao sem esse corte os cards ficavam parados no total do mes
+  // enquanto o seletor de data mexia so nos KPIs.
+  const noPeriodo = (texto) => {
+    const dia = (texto || '').trim().slice(0, 5);   // DD/MM
+    return dia.includes('/') && dentroDoPeriodo(dia);
+  };
+
   // Junta os produtos: no consolidado sao os cinco, senao e' so um.
   const leadsMap = {};      // data → {leads, mqls}
   const investPorRede = {};
@@ -1012,7 +1021,9 @@ function dadosVisiveis() {
   // Comparamos sem acento porque a planilha grava "PFCC MEXICO" e a aba
   // se chama "PFCC MÉXICO".
   const alvos = nomes.map(semAcento);
-  let backlog = dados.backlog.filter(b => alvos.includes(semAcento(b.produto)));
+  let backlog = dados.backlog
+    .filter(b => alvos.includes(semAcento(b.produto)))
+    .filter(b => noPeriodo(b.aplicacao));
 
   if (filtros.etapa)        backlog = backlog.filter(b => b.etapa === filtros.etapa);
   if (filtros.proprietario) backlog = backlog.filter(b => b.proprietario === filtros.proprietario);
@@ -1030,8 +1041,9 @@ function dadosVisiveis() {
   const etapas = (() => {
     // Só negócios em aberto: o backlog traz perdidos e ganhos também, e
     // contá-los aqui inflava as etapas de um funil que se diz "em aberto".
-    let base = dados.backlog.filter(b =>
-      alvos.includes(semAcento(b.produto)) && b.status === 'open');
+    let base = dados.backlog
+      .filter(b => alvos.includes(semAcento(b.produto)) && b.status === 'open')
+      .filter(b => noPeriodo(b.aplicacao));
     if (filtros.proprietario) base = base.filter(b => b.proprietario === filtros.proprietario);
     if (filtros.funil)        base = base.filter(b => b.funil === filtros.funil);
     if (filtros.cargo)        base = base.filter(b => normalizarCargo(b.cargo) === filtros.cargo);
@@ -1110,7 +1122,8 @@ function dadosVisiveis() {
 
   // ── Reunioes agendadas no mes, do(s) produto(s) em foco ─────────────
   let reunioes = (dados.reunioes || [])
-    .filter(r => alvos.includes(semAcento(r.produto)));
+    .filter(r => alvos.includes(semAcento(r.produto)))
+    .filter(r => noPeriodo(r.dataReuniao));
   if (filtros.proprietario) reunioes = reunioes.filter(r => r.proprietario === filtros.proprietario);
   if (filtros.funil)        reunioes = reunioes.filter(r => r.funil === filtros.funil);
   if (filtros.cargo)        reunioes = reunioes.filter(r => normalizarCargo(r.cargo) === filtros.cargo);
@@ -1124,10 +1137,6 @@ function dadosVisiveis() {
   // Exige as DUAS datas dentro da janela: o lead entrou no periodo E foi
   // descartado nele. Sem a checagem da aplicacao, entrava base antiga
   // descartada agora e o total passava do volume de leads do mes.
-  const noPeriodo = (texto) => {
-    const dia = (texto || '').trim().slice(0, 5);   // DD/MM
-    return dia.includes('/') && dentroDoPeriodo(dia);
-  };
   let descartes = (dados.perdidos || [])
     .filter(p => alvos.includes(semAcento(p.produto)))
     .filter(p => noPeriodo(p.dataPerda) && noPeriodo(p.aplicacao));
@@ -1344,7 +1353,8 @@ function render() {
       <div class="card">
         <div class="card-title">
           Comparativo entre produtos
-          <span class="card-tag">clique para trocar</span>
+          <span class="card-tag" style="background:var(--amber);color:#0a0a0a"
+                title="Esta tabela vem fechada da API e não acompanha o seletor de data">mês inteiro</span>
         </div>
         <div class="table-scroll">${tabelaProdutos()}</div>
       </div>
