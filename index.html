@@ -436,6 +436,7 @@
 
   <div class="status-bar">
     <span id="statusTexto">Carregando dados…</span>
+    <span id="statusAtualizacao" title="Quando a planilha foi atualizada pela última vez"></span>
     <span class="filtro-ativo" id="filtroAtivo" onclick="limparFiltros()"></span>
   </div>
 
@@ -472,6 +473,7 @@ function exportarPDF() {
       <div>Período: ${br(ini)} a ${br(fim)}</div>
       <div>Métrica: ${rotuloMetrica()}</div>
       <div>Gerado em ${new Date().toLocaleString('pt-BR')}</div>
+      ${dados && dados.dadosDe ? `<div>Dados de ${dados.dadosDe}</div>` : ''}
     </div>`;
 
   // Espera o report montar e os graficos desenharem
@@ -806,6 +808,7 @@ async function carregar() {
     const qtd = Object.keys(dados.produtos).length;
     document.getElementById('statusTexto').textContent =
       `${qtd} produtos · ${fmtNum(dados.backlog.length)} leads no backlog`;
+    mostrarAtualizacao(dados.dadosDe);
   } catch (err) {
     document.getElementById('conteudo').innerHTML =
       `<div class="empty">Não foi possível carregar: ${err.message}</div>`;
@@ -813,6 +816,42 @@ async function carregar() {
   } finally {
     btn.disabled = false; btn.textContent = '⟳ Atualizar';
   }
+}
+
+// ── Idade do dado ───────────────────────────────────────────────────────────
+// O update_all.py roda 3x ao dia. Se der problema no GitHub Actions, o
+// dashboard continua abrindo com os numeros de ontem sem nenhum aviso — foi
+// pra isso que o carimbo existe. Acima de 12h a cor vira alerta.
+function mostrarAtualizacao(carimbo) {
+  const el = document.getElementById('statusAtualizacao');
+  if (!el) return;
+
+  if (!carimbo) {
+    el.textContent = '';
+    return;
+  }
+
+  // Vem como "20/08/2026 14:32"
+  const m = String(carimbo).match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})/);
+  if (!m) { el.textContent = `atualizado em ${carimbo}`; return; }
+
+  const [, d, mes, a, h, min] = m;
+  const quando = new Date(+a, +mes - 1, +d, +h, +min);
+  const horas  = (Date.now() - quando.getTime()) / 36e5;
+
+  let idade;
+  if (horas < 1)       idade = 'agora há pouco';
+  else if (horas < 24) idade = `há ${Math.floor(horas)}h`;
+  else                 idade = `há ${Math.floor(horas / 24)}d`;
+
+  // 12h e' uma rodada e meia: abaixo disso o atraso e' normal
+  const cor = horas >= 12 ? 'var(--amber)' : 'var(--gray-light)';
+  el.style.color = cor;
+  el.textContent = `dados de ${carimbo} · ${idade}`
+    + (horas >= 12 ? '  ⚠' : '');
+  el.title = horas >= 12
+    ? 'A planilha não é atualizada há mais de 12h — confira o GitHub Actions'
+    : 'Quando o update_all.py gravou a planilha pela última vez';
 }
 
 // ── Abas de produto ─────────────────────────────────────────────────────────
@@ -1209,6 +1248,60 @@ function dadosVisiveis() {
   };
 }
 
+// ── Metricas produto a produto, no periodo selecionado ──────────────────────
+// Nao da pra usar dados.produtos[x].kpis: aqueles vem fechados do mes e
+// ficariam parados enquanto o resto da tela filtra por data. Aqui refazemos
+// a conta com a mesma janela e os mesmos filtros do dashboard.
+function metricasPorProduto() {
+  return PRODUTOS_REAIS.map(nome => {
+    const p = dados.produtos[nome];
+    if (!p) return { nome, leads: 0, mqls: 0, investimento: 0, cpl: null, cpmql: null };
+
+    // Investimento: soma dia a dia dentro da janela
+    let investimento = 0;
+    const diaPorRede = p.investDiaRede || {};
+    if (Object.keys(diaPorRede).length) {
+      for (const [rede, dias] of Object.entries(diaPorRede)) {
+        if (filtros.rede && filtros.rede !== rede) continue;
+        for (const [dia, val] of Object.entries(dias)) {
+          if (dentroDoPeriodo(dia)) investimento += val;
+        }
+      }
+    } else {
+      // API antiga, sem quebra diaria: melhor o total do mes que zero
+      investimento = Object.values(p.investPorRede || {})
+        .reduce((s, v) => s + v, 0);
+    }
+
+    // Leads e MQL: do backlog, com os mesmos cortes da tela
+    const alvo = semAcento(nome);
+    let base = dados.backlog.filter(b =>
+      semAcento(b.produto) === alvo
+      && (b.aplicacao || '').trim().slice(0, 5).includes('/')
+      && dentroDoPeriodo((b.aplicacao || '').trim().slice(0, 5)));
+
+    if (filtros.etapa)        base = base.filter(b => b.etapa === filtros.etapa);
+    if (filtros.proprietario) base = base.filter(b => b.proprietario === filtros.proprietario);
+    if (filtros.funil)        base = base.filter(b => b.funil === filtros.funil);
+    if (filtros.cargo)        base = base.filter(b => normalizarCargo(b.cargo) === filtros.cargo);
+    if (filtros.rede)         base = base.filter(b => redeDoLead(b) === filtros.rede);
+    if (filtros.score)        base = base.filter(b =>
+      b.score !== null && b.score !== undefined
+      && String(Math.floor(b.score)) === filtros.score);
+
+    const leads = base.length;
+    const mqls  = base.filter(b => b.mql).length;
+
+    return {
+      nome, leads, mqls, investimento,
+      // Sem investimento nao existe custo — null vira buraco no grafico,
+      // que e' mais honesto que uma barra zerada
+      cpl:   investimento && leads ? investimento / leads : null,
+      cpmql: investimento && mqls  ? investimento / mqls  : null,
+    };
+  });
+}
+
 // Quanto deveria estar a esta altura do mes, no ritmo da meta
 function metaAteHoje(meta) {
   if (!meta) return null;
@@ -1389,6 +1482,14 @@ function render() {
         </div>
         <div class="table-scroll">${tabelaProdutos()}</div>
       </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-title">
+        Custo por MQL · por produto
+        <span class="card-tag">no período · clique pra trocar de produto</span>
+      </div>
+      <div class="chart-box baixo"><canvas id="chartCpmqlProdutos"></canvas></div>
     </div>
 
     <div class="taxas">
@@ -2864,6 +2965,79 @@ function desenharGraficos(v) {
         y: { ...opcoesBase().scales.y,
              ticks: { ...opcoesBase().scales.y.ticks,
                       callback: val => 'R$ ' + fmtNum(val) } },
+      },
+    },
+  }));
+
+  // ── CPMQL por produto ────────────────────────────────────────────────
+  // Barras de custo, linha de volume de MQL no eixo direito: um CPMQL otimo
+  // em cima de 3 MQLs nao diz nada, e sem o volume ao lado nao da pra ver.
+  const porProduto = metricasPorProduto().filter(m => m.investimento > 0 || m.mqls > 0);
+  const metaCpmql  = (METAS[produtoAtivo] || {}).cpmql;
+
+  charts.cpmqlProdutos = comCanvas('chartCpmqlProdutos', el => new Chart(el, {
+    data: {
+      labels: porProduto.map(m => m.nome),
+      datasets: [
+        { type:'bar', label:'CPMQL', yAxisID:'y',
+          data: porProduto.map(m => m.cpmql === null ? null : Math.round(m.cpmql)),
+          backgroundColor: porProduto.map(m => {
+            // Produto ativo em destaque; se ha teto, vermelho quando estoura
+            const teto = (METAS[m.nome] || {}).cpmql;
+            if (teto && m.cpmql && m.cpmql > teto) return '#8a4a4a';
+            return m.nome === produtoAtivo ? '#4a9eed' : '#2c5f8a';
+          }),
+          borderRadius: 2,
+          datalabels: {
+            display: ctx => ctx.dataset.data[ctx.dataIndex] > 0,
+            anchor:'end', align:'top', offset:0, color:'#cfe4f7',
+            font:{ family:'DM Mono', size:9 },
+            formatter: v => 'R$ ' + fmtNum(v) } },
+        { type:'line', label:'Volume de MQL', yAxisID:'y1',
+          data: porProduto.map(m => m.mqls),
+          borderColor:'#7ee0a8', borderWidth:2, pointRadius:3,
+          pointBackgroundColor:'#7ee0a8', tension:.3,
+          datalabels: {
+            display: ctx => ctx.dataset.data[ctx.dataIndex] > 0,
+            anchor:'end', align:'bottom', color:'#7ee0a8',
+            font:{ family:'DM Mono', size:9 }, formatter: v => fmtNum(v) } },
+      ],
+    },
+    options: {
+      ...opcoesBase(),
+      onClick: (_, els) => {
+        if (els.length) trocarProduto(porProduto[els[0].index].nome);
+      },
+      plugins: {
+        ...opcoesBase().plugins,
+        legend: { display:true, labels:{ color:'#e8e8e8',
+          font:{ family:'DM Mono', size:9 }, boxWidth:9 } },
+        tooltip: { ...opcoesBase().plugins.tooltip, callbacks: {
+          label: ctx => ctx.dataset.label === 'CPMQL'
+            ? (ctx.raw === null ? ' sem investimento no período'
+                                : ' CPMQL ' + fmtBRL(ctx.raw))
+            : ` ${fmtNum(ctx.raw)} MQL`,
+          afterBody: items => {
+            const m = porProduto[items[0].dataIndex];
+            const teto = (METAS[m.nome] || {}).cpmql;
+            return [
+              'Investimento ' + fmtBRL(m.investimento),
+              fmtNum(m.leads) + ' leads · CPL ' +
+                (m.cpl === null ? '—' : fmtBRL(m.cpl)),
+            ].concat(teto ? ['Teto ' + fmtBRL(teto)] : []);
+          },
+        } },
+      },
+      scales: {
+        x: { ticks:{ color:'#e8e8e8', font:{ family:'DM Mono', size:9 } },
+             grid:{ display:false } },
+        y: { beginAtZero:true, position:'left',
+             ticks:{ color:'#c8c8c8', font:{ family:'DM Mono', size:9 },
+                     callback: val => 'R$ ' + fmtNum(val) },
+             grid:{ color:'#1c1c1c' } },
+        y1:{ position:'right', beginAtZero:true, grid:{ display:false },
+             ticks:{ color:'#7ee0a8', font:{ family:'DM Mono', size:9 },
+                     precision: 0 } },
       },
     },
   }));
