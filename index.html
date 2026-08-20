@@ -169,7 +169,7 @@
   .table-scroll{overflow:auto;max-height:230px;}
   /* Tabela de rastreio: muitas colunas, entao fonte menor e sem quebra */
   .busca-wrap{position:relative;display:inline-flex;align-items:center;flex:1;
-    max-width:320px;margin:0 12px;}
+    min-width:150px;max-width:320px;margin:0 12px;}
   .campo-busca{width:100%;padding:5px 26px 5px 10px;background:var(--bg);
     border:1px solid var(--border);color:var(--white);
     font-family:'DM Mono',monospace;font-size:10.5px;outline:none;
@@ -939,6 +939,19 @@ function alternarCampanhas() {
   }
   atualizarBotoesModo();
   render();
+}
+
+function filtrarRedeCampanha(rede) {
+  // null = todas. Passa pelo toggleFiltro pra manter um caminho unico de
+  // filtro — assim a barra de status e o "limpar ×" continuam funcionando.
+  if (rede === null) {
+    if (filtros.rede) toggleFiltro('rede', filtros.rede);
+    else render();
+    return;
+  }
+  if (filtros.rede === rede) { render(); return; }   // ja esta ativo
+  filtros.rede = null;
+  toggleFiltro('rede', rede);
 }
 
 function trocarNivelCampanha(nivel) {
@@ -2578,12 +2591,22 @@ function renderCampanhas(v) {
             onclick="trocarNivelCampanha('${n}')">${
       n === 'anuncio' ? 'anúncio' : n}</button>`).join('');
 
+  // Seletor de rede: e' o mesmo filtros.rede do dashboard, entao a escolha
+  // continua valendo ao voltar pras outras abas. "Todas" limpa o filtro.
+  const seletorRede = `
+    <button class="agrupa-btn ${!filtros.rede ? 'ativo' : ''}"
+            onclick="filtrarRedeCampanha(null)">todas</button>`
+    + REDES.map(r => `
+    <button class="agrupa-btn ${filtros.rede === r ? 'ativo' : ''}"
+            onclick="filtrarRedeCampanha(${attr(r)})">${r}</button>`).join('');
+
   if (!linhas.length) {
     document.getElementById('conteudo').innerHTML = `
       <div class="card">
         <div class="card-title">
           Campanhas
           <span class="agrupa-switch">${seletor}</span>
+          <span class="agrupa-switch">${seletorRede}</span>
         </div>
         <div class="empty">
           ${buscaCampanha
@@ -2657,6 +2680,7 @@ function renderCampanhas(v) {
       <div class="card-title">
         ${rotuloNivel}s
         <span class="agrupa-switch">${seletor}</span>
+        <span class="agrupa-switch">${seletorRede}</span>
         <span class="busca-wrap">
           <input type="text" id="campoBuscaCamp" class="campo-busca"
                  placeholder="filtrar por nome..."
