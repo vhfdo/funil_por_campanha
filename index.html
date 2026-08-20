@@ -1515,9 +1515,9 @@ function render() {
         CPMQL por dia
         <span class="card-tag">${produtoAtivo === CONSOLIDADO
           ? 'uma linha por produto' : produtoAtivo}${
-          filtros.rede ? ' · ' + filtros.rede : ''}</span>
+          filtros.rede ? ' · ' + filtros.rede : ''} · em R$</span>
       </div>
-      <div class="chart-box baixo"><canvas id="chartCpmqlProdutos"></canvas></div>
+      <div class="chart-box" style="height:300px"><canvas id="chartCpmqlProdutos"></canvas></div>
     </div>
 
     <div class="taxas">
@@ -3023,19 +3023,17 @@ function desenharGraficos(v) {
         spanGaps: true,
         fill: false,
         datalabels: {
-          // So o ultimo ponto de cada linha: com cinco produtos, rotular
-          // tudo cobre o grafico de numero
-          display: ctx => {
-            const d = ctx.dataset.data;
-            for (let i = d.length - 1; i >= 0; i--) {
-              if (d[i] !== null) return i === ctx.dataIndex;
-            }
-            return false;
-          },
-          anchor: 'end', align: 'right', offset: 4,
+          // Rotulo em todo ponto que tem valor
+          display: ctx => ctx.dataset.data[ctx.dataIndex] !== null,
+          anchor: 'end', align: 'top', offset: 3,
           color: CORES_PRODUTO[s.nome] || '#4a9eed',
-          font: { family: 'DM Mono', size: 9 },
-          formatter: v => 'R$ ' + fmtNum(v),
+          font: { family: 'DM Mono', size: 8 },
+          // Fundo escuro atras do numero: com varias linhas cruzando, o
+          // rotulo solto some por cima da grade e das outras series
+          backgroundColor: 'rgba(10,10,10,.72)',
+          borderRadius: 2,
+          padding: { top: 1, bottom: 1, left: 3, right: 3 },
+          formatter: v => fmtNum(v),
         },
       })),
     },
