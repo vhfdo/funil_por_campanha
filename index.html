@@ -618,6 +618,15 @@ const PRODUTOS_REAIS = ['PFCC BRASIL', 'PFCC MÉXICO', 'PFCC CHILE', 'LEAN', 'CE
 
 // Lean e CES qualificam MQL por pontuacao, nao por cargo. O corte espelha o
 // MQL_SCORE_MINIMO do update_all.py — se mudar la, muda aqui.
+// Uma cor por produto, usada nas linhas do CPMQL diario
+const CORES_PRODUTO = {
+  'PFCC BRASIL': '#4a9eed',
+  'PFCC MÉXICO': '#7ee0a8',
+  'PFCC CHILE':  '#d9a441',
+  'LEAN':        '#b07de0',
+  'CES':         '#e07d7d',
+};
+
 const PRODUTOS_COM_SCORE = ['LEAN', 'CES'];
 const SCORE_MINIMO = 6;
 const ORDEM_PRODUTOS = [CONSOLIDADO, ...PRODUTOS_REAIS];
@@ -1248,38 +1257,37 @@ function dadosVisiveis() {
   };
 }
 
-// ── Metricas produto a produto, no periodo selecionado ──────────────────────
-// Nao da pra usar dados.produtos[x].kpis: aqueles vem fechados do mes e
-// ficariam parados enquanto o resto da tela filtra por data. Aqui refazemos
-// a conta com a mesma janela e os mesmos filtros do dashboard.
-function metricasPorProduto() {
-  return PRODUTOS_REAIS.map(nome => {
-    const p = dados.produtos[nome];
-    if (!p) return { nome, leads: 0, mqls: 0, investimento: 0, cpl: null, cpmql: null };
+// ── CPMQL dia a dia, por produto ────────────────────────────────────────────
+// Investimento do dia dividido pelos MQL do dia. Devolve uma serie por
+// produto — no Consolidado sao cinco linhas, numa aba de produto e' uma so.
+//
+// O filtro de rede entra nas duas pontas: so o investimento daquela rede e
+// so os leads que vieram dela. Dividir gasto de uma rede pelos MQL de todas
+// daria um CPMQL fantasia.
+function cpmqlPorDiaProduto() {
+  const nomes = produtoAtivo === CONSOLIDADO ? PRODUTOS_REAIS : [produtoAtivo];
+  const dias = new Set();
+  const series = [];
 
-    // Investimento: soma dia a dia dentro da janela
-    let investimento = 0;
+  for (const nome of nomes) {
+    const p = dados.produtos[nome];
+    if (!p) continue;
+
+    // Investimento por dia
+    const invDia = {};
     const diaPorRede = p.investDiaRede || {};
-    if (Object.keys(diaPorRede).length) {
-      for (const [rede, dias] of Object.entries(diaPorRede)) {
-        if (filtros.rede && filtros.rede !== rede) continue;
-        for (const [dia, val] of Object.entries(dias)) {
-          if (dentroDoPeriodo(dia)) investimento += val;
-        }
+    for (const [rede, porDia] of Object.entries(diaPorRede)) {
+      if (filtros.rede && filtros.rede !== rede) continue;
+      for (const [dia, val] of Object.entries(porDia)) {
+        if (!dentroDoPeriodo(dia)) continue;
+        invDia[dia] = (invDia[dia] || 0) + val;
+        dias.add(dia);
       }
-    } else {
-      // API antiga, sem quebra diaria: melhor o total do mes que zero
-      investimento = Object.values(p.investPorRede || {})
-        .reduce((s, v) => s + v, 0);
     }
 
-    // Leads e MQL: do backlog, com os mesmos cortes da tela
+    // MQL por dia, com os mesmos filtros da tela
     const alvo = semAcento(nome);
-    let base = dados.backlog.filter(b =>
-      semAcento(b.produto) === alvo
-      && (b.aplicacao || '').trim().slice(0, 5).includes('/')
-      && dentroDoPeriodo((b.aplicacao || '').trim().slice(0, 5)));
-
+    let base = dados.backlog.filter(b => semAcento(b.produto) === alvo && b.mql);
     if (filtros.etapa)        base = base.filter(b => b.etapa === filtros.etapa);
     if (filtros.proprietario) base = base.filter(b => b.proprietario === filtros.proprietario);
     if (filtros.funil)        base = base.filter(b => b.funil === filtros.funil);
@@ -1289,17 +1297,35 @@ function metricasPorProduto() {
       b.score !== null && b.score !== undefined
       && String(Math.floor(b.score)) === filtros.score);
 
-    const leads = base.length;
-    const mqls  = base.filter(b => b.mql).length;
+    const mqlDia = {};
+    for (const b of base) {
+      const dia = (b.aplicacao || '').trim().slice(0, 5);   // DD/MM
+      if (!dia.includes('/') || !dentroDoPeriodo(dia)) continue;
+      mqlDia[dia] = (mqlDia[dia] || 0) + 1;
+      dias.add(dia);
+    }
 
-    return {
-      nome, leads, mqls, investimento,
-      // Sem investimento nao existe custo — null vira buraco no grafico,
-      // que e' mais honesto que uma barra zerada
-      cpl:   investimento && leads ? investimento / leads : null,
-      cpmql: investimento && mqls  ? investimento / mqls  : null,
-    };
-  });
+    series.push({ nome, invDia, mqlDia });
+  }
+
+  const labels = [...dias].sort((a, b) => paraData(a) - paraData(b));
+
+  return {
+    labels,
+    series: series.map(s => ({
+      nome: s.nome,
+      // null onde falta investimento ou MQL: o ponto some em vez de
+      // desabar pra zero e achatar a escala do grafico inteiro
+      dados: labels.map(d => {
+        const inv = s.invDia[d] || 0;
+        const mql = s.mqlDia[d] || 0;
+        return inv && mql ? Math.round(inv / mql) : null;
+      }),
+      // Guardados pro tooltip explicar de onde saiu o numero
+      invDia: s.invDia,
+      mqlDia: s.mqlDia,
+    })),
+  };
 }
 
 // Quanto deveria estar a esta altura do mes, no ritmo da meta
@@ -1486,8 +1512,10 @@ function render() {
 
     <div class="card" style="margin-bottom:16px">
       <div class="card-title">
-        Custo por MQL · por produto
-        <span class="card-tag">no período · clique pra trocar de produto</span>
+        CPMQL por dia
+        <span class="card-tag">${produtoAtivo === CONSOLIDADO
+          ? 'uma linha por produto' : produtoAtivo}${
+          filtros.rede ? ' · ' + filtros.rede : ''}</span>
       </div>
       <div class="chart-box baixo"><canvas id="chartCpmqlProdutos"></canvas></div>
     </div>
@@ -2969,75 +2997,72 @@ function desenharGraficos(v) {
     },
   }));
 
-  // ── CPMQL por produto ────────────────────────────────────────────────
-  // Barras de custo, linha de volume de MQL no eixo direito: um CPMQL otimo
-  // em cima de 3 MQLs nao diz nada, e sem o volume ao lado nao da pra ver.
-  const porProduto = metricasPorProduto().filter(m => m.investimento > 0 || m.mqls > 0);
-  const metaCpmql  = (METAS[produtoAtivo] || {}).cpmql;
+  // ── CPMQL por dia ────────────────────────────────────────────────────
+  // Serie temporal: no Consolidado uma linha por produto, numa aba de
+  // produto so a dele. Dia sem investimento ou sem MQL fica sem ponto.
+  const cpmqlDia = cpmqlPorDiaProduto();
+
+  if (!cpmqlDia.labels.length) {
+    aviso('chartCpmqlProdutos', 'Sem investimento ou MQL no período.');
+  }
 
   charts.cpmqlProdutos = comCanvas('chartCpmqlProdutos', el => new Chart(el, {
     data: {
-      labels: porProduto.map(m => m.nome),
-      datasets: [
-        { type:'bar', label:'CPMQL', yAxisID:'y',
-          data: porProduto.map(m => m.cpmql === null ? null : Math.round(m.cpmql)),
-          backgroundColor: porProduto.map(m => {
-            // Produto ativo em destaque; se ha teto, vermelho quando estoura
-            const teto = (METAS[m.nome] || {}).cpmql;
-            if (teto && m.cpmql && m.cpmql > teto) return '#8a4a4a';
-            return m.nome === produtoAtivo ? '#4a9eed' : '#2c5f8a';
-          }),
-          borderRadius: 2,
-          datalabels: {
-            display: ctx => ctx.dataset.data[ctx.dataIndex] > 0,
-            anchor:'end', align:'top', offset:0, color:'#cfe4f7',
-            font:{ family:'DM Mono', size:9 },
-            formatter: v => 'R$ ' + fmtNum(v) } },
-        { type:'line', label:'Volume de MQL', yAxisID:'y1',
-          data: porProduto.map(m => m.mqls),
-          borderColor:'#7ee0a8', borderWidth:2, pointRadius:3,
-          pointBackgroundColor:'#7ee0a8', tension:.3,
-          datalabels: {
-            display: ctx => ctx.dataset.data[ctx.dataIndex] > 0,
-            anchor:'end', align:'bottom', color:'#7ee0a8',
-            font:{ family:'DM Mono', size:9 }, formatter: v => fmtNum(v) } },
-      ],
+      labels: cpmqlDia.labels,
+      datasets: cpmqlDia.series.map(s => ({
+        type: 'line',
+        label: s.nome,
+        data: s.dados,
+        borderColor: CORES_PRODUTO[s.nome] || '#4a9eed',
+        backgroundColor: CORES_PRODUTO[s.nome] || '#4a9eed',
+        borderWidth: 2,
+        pointRadius: 2.5,
+        pointBackgroundColor: CORES_PRODUTO[s.nome] || '#4a9eed',
+        tension: .3,
+        // Sem isso a linha corta em todo dia sem MQL e vira tracejado
+        spanGaps: true,
+        fill: false,
+        datalabels: {
+          // So o ultimo ponto de cada linha: com cinco produtos, rotular
+          // tudo cobre o grafico de numero
+          display: ctx => {
+            const d = ctx.dataset.data;
+            for (let i = d.length - 1; i >= 0; i--) {
+              if (d[i] !== null) return i === ctx.dataIndex;
+            }
+            return false;
+          },
+          anchor: 'end', align: 'right', offset: 4,
+          color: CORES_PRODUTO[s.nome] || '#4a9eed',
+          font: { family: 'DM Mono', size: 9 },
+          formatter: v => 'R$ ' + fmtNum(v),
+        },
+      })),
     },
     options: {
       ...opcoesBase(),
-      onClick: (_, els) => {
-        if (els.length) trocarProduto(porProduto[els[0].index].nome);
-      },
+      interaction: { mode: 'index', intersect: false },
       plugins: {
         ...opcoesBase().plugins,
-        legend: { display:true, labels:{ color:'#e8e8e8',
-          font:{ family:'DM Mono', size:9 }, boxWidth:9 } },
+        legend: { display: cpmqlDia.series.length > 1,
+          labels:{ color:'#e8e8e8', font:{ family:'DM Mono', size:9 }, boxWidth:9 } },
         tooltip: { ...opcoesBase().plugins.tooltip, callbacks: {
-          label: ctx => ctx.dataset.label === 'CPMQL'
-            ? (ctx.raw === null ? ' sem investimento no período'
-                                : ' CPMQL ' + fmtBRL(ctx.raw))
-            : ` ${fmtNum(ctx.raw)} MQL`,
-          afterBody: items => {
-            const m = porProduto[items[0].dataIndex];
-            const teto = (METAS[m.nome] || {}).cpmql;
-            return [
-              'Investimento ' + fmtBRL(m.investimento),
-              fmtNum(m.leads) + ' leads · CPL ' +
-                (m.cpl === null ? '—' : fmtBRL(m.cpl)),
-            ].concat(teto ? ['Teto ' + fmtBRL(teto)] : []);
+          label: ctx => {
+            if (ctx.raw === null) return null;   // esconde produto sem dado no dia
+            const s = cpmqlDia.series[ctx.datasetIndex];
+            const dia = cpmqlDia.labels[ctx.dataIndex];
+            const inv = s.invDia[dia] || 0;
+            const mql = s.mqlDia[dia] || 0;
+            return ` ${ctx.dataset.label}: ${fmtBRL(ctx.raw)}`
+                 + `  (${fmtBRL(inv)} / ${fmtNum(mql)} MQL)`;
           },
         } },
       },
       scales: {
-        x: { ticks:{ color:'#e8e8e8', font:{ family:'DM Mono', size:9 } },
-             grid:{ display:false } },
-        y: { beginAtZero:true, position:'left',
-             ticks:{ color:'#c8c8c8', font:{ family:'DM Mono', size:9 },
-                     callback: val => 'R$ ' + fmtNum(val) },
-             grid:{ color:'#1c1c1c' } },
-        y1:{ position:'right', beginAtZero:true, grid:{ display:false },
-             ticks:{ color:'#7ee0a8', font:{ family:'DM Mono', size:9 },
-                     precision: 0 } },
+        ...opcoesBase().scales,
+        y: { ...opcoesBase().scales.y,
+             ticks: { ...opcoesBase().scales.y.ticks,
+                      callback: val => 'R$ ' + fmtNum(val) } },
       },
     },
   }));
