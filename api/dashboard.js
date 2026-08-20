@@ -64,22 +64,44 @@ const PRODUTOS = {
   },
 };
 
-// ── Campanhas de LATAM dentro da conta do Google ─────────────────────────
-// A mesma exportacao do Google traz Brasil, Mexico e Chile misturados: o
-// pais so aparece no nome da campanha. Sem separar, o investimento do
-// Mexico e do Chile era somado no Brasil e os tres CPLs saiam errados.
+// ── Separacao por pais dentro da mesma conta ─────────────────────────────
+// Google e LinkedIn exportam Brasil, Mexico e Chile misturados: o pais so
+// aparece no nome da campanha. Sem separar, o gasto de LATAM era somado no
+// Brasil e os tres CPLs saiam errados.
 //
-// ATENCAO ao editar: MX = Mexico, CL = Chile, pelo codigo ISO do pais.
-// Se as campanhas no Google Ads estiverem nomeadas ao contrario, e' aqui
-// que se inverte — e so aqui.
+// Comparamos sobre o nome normalizado (minusculo, sem acento, pontuacao
+// virando espaco), entao "[MX]", "[ MX ]" e "MEXICO" caem no mesmo teste.
+// O \b evita que "mx" case dentro de outra palavra.
+//
+// ATENCAO ao editar: MX = Mexico, CL = Chile, pelo codigo ISO. Se as
+// campanhas estiverem nomeadas ao contrario na plataforma, e' aqui que se
+// inverte — e so aqui.
 const MARCA_PAIS = {
-  'PFCC MÉXICO': /\[\s*MX\s*\]/i,
-  'PFCC CHILE':  /\[\s*CL\s*\]/i,
+  'PFCC MÉXICO': /\b(mx|mexico)\b/,
+  'PFCC CHILE':  /\b(cl|chile)\b/,
 };
 
 // Brasil e' o que sobra: entra tudo que NAO carrega marca de outro pais.
-// Mesma logica que o update_all.py ja usa pra classificar os leads.
-const MARCA_LATAM = /\[\s*(MX|CL)\s*\]/i;
+// Mesma logica que o update_all.py usa pra classificar os leads.
+const MARCA_LATAM = /\b(mx|mexico|cl|chile)\b/;
+
+// Campanhas que existem mas nao sao de aquisicao dos produtos: eventos,
+// pesquisas e afins.
+//
+// Espelha a CAMPANHAS_FORA do update_all.py de proposito. La estes termos
+// ja tiram os LEADS, em todas as redes — se o investimento nao tirasse os
+// mesmos, uma campanha de workshop entraria com gasto e sem lead nenhum, e
+// o CPL do produto subiria por um motivo que ninguem consegue rastrear.
+const CAMPANHAS_FORA = [
+  'hotseat', 'summit', 'ppc', 'pesquisa', 'masterclass', 'coautoria',
+  'workshop',
+];
+
+// Minusculo, sem acento, pontuacao virando espaco: "[TD][PFCC][MX]" vira
+// "td pfcc mx", e ai o \b funciona nos testes acima
+const normNome = s => String(s || '').toLowerCase()
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .replace(/[^a-z0-9]+/g, ' ').trim();
 
 const ABA_BACKLOG  = 'BACKLOG MQL';
 const ABA_REUNIOES = 'BACKLOG REUNIÕES';
@@ -302,33 +324,66 @@ export default async function handler(req, res) {
         const cData  = cols.data  >= 0 ? cols.data  : inv.colData;
         const cValor = cols.valor >= 0 ? cols.valor : inv.colValor;
 
-        // Quem decide se a linha e' deste produto. So o Google precisa:
-        // Meta e LinkedIn ja tem uma aba por pais.
+        // Google e LinkedIn misturam paises na mesma exportacao; o Meta
+        // ja vem com uma aba por pais.
         const marca = MARCA_PAIS[nomeProduto];
-        const filtraPais = inv.rede === 'Google'
+        const filtraPais = (inv.rede === 'Google' || inv.rede === 'LinkedIn')
           && (marca || nomeProduto === 'PFCC BRASIL');
+
+        // Primeira passada: separa o que passa nas regras do que nao passa.
+        // Nao gravamos direto porque o filtro de pais precisa de uma rede
+        // de seguranca — ver o bloco logo abaixo.
+        const candidatas = [];
+        let barradasPorPais = 0;
 
         for (const linha of aba.slice(1)) {
           const data = normalizarData(linha[cData]);
           const val  = parseNum(linha[cValor]);
           if (!data || !val) continue;
 
+          // O nome pode estar em Campaign Name ou no grupo, dependendo da
+          // exportacao — olhamos os dois
+          const nomeCamp = normNome([
+            cols.campanha >= 0 ? linha[cols.campanha] : '',
+            cols.grupo    >= 0 ? linha[cols.grupo]    : '',
+          ].join(' '));
+
+          // Fora de aquisicao: vale pra toda rede e todo produto
+          if (CAMPANHAS_FORA.some(t => nomeCamp.includes(t))) continue;
+
           if (filtraPais) {
-            // O nome pode estar em Campaign Name ou no grupo, dependendo
-            // da exportacao — olhamos os dois
-            const nomeCamp = [
+            const doPais = marca
+              ? marca.test(nomeCamp)        // Mexico/Chile: precisa da marca
+              : !MARCA_LATAM.test(nomeCamp); // Brasil: nao pode ter marca
+            if (!doPais) { barradasPorPais++; continue; }
+          }
+
+          candidatas.push({ linha, data, val });
+        }
+
+        // Rede de seguranca: se o filtro de pais barrou TUDO numa aba que
+        // ja e' daquele pais, o nome das campanhas nao segue o padrao
+        // esperado. Melhor contar tudo do que zerar o investimento e
+        // mostrar CPL vazio sem explicacao.
+        const usarTodas = filtraPais && marca
+          && candidatas.length === 0 && barradasPorPais > 0;
+        if (usarTodas) {
+          console.warn(`[${inv.aba}] nenhuma campanha casou com a marca de `
+            + `${nomeProduto}; usando a aba inteira`);
+          for (const linha of aba.slice(1)) {
+            const data = normalizarData(linha[cData]);
+            const val  = parseNum(linha[cValor]);
+            if (!data || !val) continue;
+            const nomeCamp = normNome([
               cols.campanha >= 0 ? linha[cols.campanha] : '',
               cols.grupo    >= 0 ? linha[cols.grupo]    : '',
-            ].join(' ');
-
-            if (marca) {
-              // Mexico e Chile: so entra quem tem a marca do pais
-              if (!marca.test(nomeCamp)) continue;
-            } else {
-              // Brasil: sai quem tem marca de qualquer um dos dois
-              if (MARCA_LATAM.test(nomeCamp)) continue;
-            }
+            ].join(' '));
+            if (CAMPANHAS_FORA.some(t => nomeCamp.includes(t))) continue;
+            candidatas.push({ linha, data, val });
           }
+        }
+
+        for (const { linha, data, val } of candidatas) {
 
           totalRede += val;
           investPorDia[data] = (investPorDia[data] || 0) + val;
