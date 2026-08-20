@@ -64,6 +64,23 @@ const PRODUTOS = {
   },
 };
 
+// ── Campanhas de LATAM dentro da conta do Google ─────────────────────────
+// A mesma exportacao do Google traz Brasil, Mexico e Chile misturados: o
+// pais so aparece no nome da campanha. Sem separar, o investimento do
+// Mexico e do Chile era somado no Brasil e os tres CPLs saiam errados.
+//
+// ATENCAO ao editar: MX = Mexico, CL = Chile, pelo codigo ISO do pais.
+// Se as campanhas no Google Ads estiverem nomeadas ao contrario, e' aqui
+// que se inverte — e so aqui.
+const MARCA_PAIS = {
+  'PFCC MÉXICO': /\[\s*MX\s*\]/i,
+  'PFCC CHILE':  /\[\s*CL\s*\]/i,
+};
+
+// Brasil e' o que sobra: entra tudo que NAO carrega marca de outro pais.
+// Mesma logica que o update_all.py ja usa pra classificar os leads.
+const MARCA_LATAM = /\[\s*(MX|CL)\s*\]/i;
+
 const ABA_BACKLOG  = 'BACKLOG MQL';
 const ABA_REUNIOES = 'BACKLOG REUNIÕES';
 const ABA_PERDIDOS = 'BACKLOG PERDIDOS';
@@ -124,10 +141,13 @@ const ROTULOS = {
   // colunas (Campaign Name e Campaign Group Name) e a busca frouxa por
   // "campaign" acharia a primeira que aparecesse
   campanha: ['campaign name', 'campanha', 'nome da campanha', 'campaign'],
-  conjunto: ['ad set name', 'campaign group name', 'conjunto',
-             'nome do conjunto de anuncios', 'ad set', 'grupo de anuncios',
-             'ad group name', 'ad group', 'campaign group'],
+  conjunto: ['ad set name', 'conjunto', 'nome do conjunto de anuncios',
+             'ad set', 'grupo de anuncios', 'ad group name', 'ad group'],
   anuncio:  ['ad name', 'anuncio', 'nome do anuncio', 'creative name', 'ad'],
+  // Campo proprio, nao um apelido de conjunto: no LinkedIn a hierarquia e'
+  // Campaign Group > Campaign > Ad, ou seja, o inverso do Meta. O grupo e'
+  // o nivel de cima — e e' ele que a utm_campaign do lead carrega.
+  grupo:    ['campaign group name', 'campaign group', 'grupo de campanhas'],
   // O Google grava o ID numerico na utm_campaign do lead, nao o nome.
   // Entao o cruzamento e' por ID e o nome serve so pra exibir. Precisa vir
   // como campo proprio: 'ad id' bate exato na passada 1 e fica reservado,
@@ -282,24 +302,56 @@ export default async function handler(req, res) {
         const cData  = cols.data  >= 0 ? cols.data  : inv.colData;
         const cValor = cols.valor >= 0 ? cols.valor : inv.colValor;
 
+        // Quem decide se a linha e' deste produto. So o Google precisa:
+        // Meta e LinkedIn ja tem uma aba por pais.
+        const marca = MARCA_PAIS[nomeProduto];
+        const filtraPais = inv.rede === 'Google'
+          && (marca || nomeProduto === 'PFCC BRASIL');
+
         for (const linha of aba.slice(1)) {
           const data = normalizarData(linha[cData]);
           const val  = parseNum(linha[cValor]);
           if (!data || !val) continue;
 
+          if (filtraPais) {
+            // O nome pode estar em Campaign Name ou no grupo, dependendo
+            // da exportacao — olhamos os dois
+            const nomeCamp = [
+              cols.campanha >= 0 ? linha[cols.campanha] : '',
+              cols.grupo    >= 0 ? linha[cols.grupo]    : '',
+            ].join(' ');
+
+            if (marca) {
+              // Mexico e Chile: so entra quem tem a marca do pais
+              if (!marca.test(nomeCamp)) continue;
+            } else {
+              // Brasil: sai quem tem marca de qualquer um dos dois
+              if (MARCA_LATAM.test(nomeCamp)) continue;
+            }
+          }
+
           totalRede += val;
           investPorDia[data] = (investPorDia[data] || 0) + val;
           investDiaRede[inv.rede][data] = (investDiaRede[inv.rede][data] || 0) + val;
 
+          const txt = i => i >= 0 ? String(linha[i] || '').trim() : '';
+
+          // Hierarquia invertida no LinkedIn: la e' Campaign Group >
+          // Campaign > Ad, o contrario do Meta. Quando a aba traz a coluna
+          // de grupo, ela E' a campanha, e o "Campaign Name" desce pra
+          // conjunto. Sem isso o cruzamento nao acha lead nenhum: a
+          // utm_campaign do lead carrega o nome do GRUPO.
+          const temGrupo = cols.grupo >= 0;
+
           investLinhas.push({
             data,
             rede:     inv.rede,
-            campanha: cols.campanha >= 0 ? String(linha[cols.campanha] || '').trim() : '',
-            conjunto: cols.conjunto >= 0 ? String(linha[cols.conjunto] || '').trim() : '',
-            anuncio:  cols.anuncio  >= 0 ? String(linha[cols.anuncio]  || '').trim() : '',
+            campanha: temGrupo ? txt(cols.grupo)    : txt(cols.campanha),
+            conjunto: temGrupo ? txt(cols.campanha) : txt(cols.conjunto),
+            anuncio:  txt(cols.anuncio),
             // So numeros: e' assim que a utm do Google chega no Pipedrive
             idCampanha: cols.idCampanha >= 0
-              ? String(linha[cols.idCampanha] || '').trim().replace(/\D/g, '') : '',
+              ? txt(cols.idCampanha).replace(/\D/g, '') : '',
             valor:    val,
           });
         }
