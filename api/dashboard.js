@@ -319,36 +319,48 @@ export default async function handler(req, res) {
         let totalRede = 0;
         investDiaRede[inv.rede] = {};
 
-        // Descobre as colunas pelo cabecalho; se nao achar, usa o plano B
-        const cols = acharColunas(aba[0] || []);
-        const cData  = cols.data  >= 0 ? cols.data  : inv.colData;
-        const cValor = cols.valor >= 0 ? cols.valor : inv.colValor;
+        // ── Duas leituras da MESMA aba, de proposito ──────────────────
+        //
+        // 1) TOTAIS (cards, CPL, CPMQL, ROAS): colunas fixas do config,
+        //    exatamente como era antes. Sao os numeros que o time ja
+        //    conhece e compara com a planilha na mao.
+        //
+        // 2) ABA CAMPANHAS: colunas achadas pelo cabecalho, com separacao
+        //    por pais e exclusao das campanhas fora de aquisicao.
+        //
+        // Os dois nao batem, e isso e' esperado: o (2) tira workshop e
+        // manda campanha de outro pais pro produto certo. A aba Campanhas
+        // mostra essa diferenca na tela pra ninguem achar que e' erro.
+        const cData  = inv.colData;
+        const cValor = inv.colValor;
 
-        // Vale pra TODA rede, inclusive o Meta.
-        //
-        // A suposicao de que as abas do Meta ja vinham separadas por pais
-        // estava errada: a aba do Mexico tinha uma campanha
-        // "[CE] [PFCC CHILE] ..." somando R$ 5.716 no card errado. Ter uma
-        // aba por pais nao garante que so entre campanha daquele pais —
-        // quem monta a aba pode arrastar linha de outro.
-        //
-        // A rede de seguranca logo abaixo cobre o risco do outro lado: se
-        // as campanhas de uma aba nao citarem o pais no nome, nada e'
-        // barrado e o investimento continua contando.
+        for (const linha of aba.slice(1)) {
+          const data = normalizarData(linha[cData]);
+          const val  = parseNum(linha[cValor]);
+          if (!data || !val) continue;
+
+          totalRede += val;
+          investPorDia[data] = (investPorDia[data] || 0) + val;
+          investDiaRede[inv.rede][data] = (investDiaRede[inv.rede][data] || 0) + val;
+        }
+        investPorRede[inv.rede] = totalRede;
+
+        // ── Leitura 2: detalhe por campanha ───────────────────────────
+        const cols = acharColunas(aba[0] || []);
+        const cDataDet  = cols.data  >= 0 ? cols.data  : inv.colData;
+        const cValorDet = cols.valor >= 0 ? cols.valor : inv.colValor;
+
         const marca = MARCA_PAIS[nomeProduto];
         const filtraPais = !!(marca || nomeProduto === 'PFCC BRASIL');
 
-        // Primeira passada: separa o que passa nas regras do que nao passa.
-        // Nao gravamos direto porque o filtro de pais precisa de uma rede
-        // de seguranca — ver o bloco logo abaixo.
         const candidatas = [];
         let barradasPorPais = 0;
         // Destas, quantas citavam algum pais — ver a rede de seguranca
         let barradasComPais = 0;
 
         for (const linha of aba.slice(1)) {
-          const data = normalizarData(linha[cData]);
-          const val  = parseNum(linha[cValor]);
+          const data = normalizarData(linha[cDataDet]);
+          const val  = parseNum(linha[cValorDet]);
           if (!data || !val) continue;
 
           // O nome pode estar em Campaign Name ou no grupo, dependendo da
@@ -363,7 +375,7 @@ export default async function handler(req, res) {
 
           if (filtraPais) {
             const doPais = marca
-              ? marca.test(nomeCamp)        // Mexico/Chile: precisa da marca
+              ? marca.test(nomeCamp)         // Mexico/Chile: precisa da marca
               : !MARCA_LATAM.test(nomeCamp); // Brasil: nao pode ter marca
             if (!doPais) {
               barradasPorPais++;
@@ -376,24 +388,24 @@ export default async function handler(req, res) {
         }
 
         // Rede de seguranca, so pro caso de as campanhas nao citarem pais
-        // nenhum no nome: ai nao da pra classificar e e' melhor contar
-        // tudo do que zerar o investimento sem explicacao.
+        // nenhum no nome: ai nao da pra classificar e e' melhor listar
+        // tudo do que deixar a aba Campanhas vazia sem explicacao.
         //
         // A condicao e' "nenhuma barrada tinha marca de pais". Se as
         // campanhas citam OUTRO pais — o caso da aba do Mexico que tinha
-        // so campanha do Chile — a classificacao funcionou e o zero e' a
+        // so campanha do Chile — a classificacao funcionou e o vazio e' a
         // resposta certa. Sem esse teste, a rede de seguranca devolvia
-        // justamente o investimento que o filtro tinha acabado de tirar.
+        // justamente o que o filtro tinha acabado de tirar.
         const usarTodas = filtraPais && marca
           && candidatas.length === 0
           && barradasPorPais > 0
           && !barradasComPais;
         if (usarTodas) {
-          console.warn(`[${inv.aba}] nenhuma campanha casou com a marca de `
-            + `${nomeProduto}; usando a aba inteira`);
+          console.warn(`[${inv.aba}] nenhuma campanha cita o pais no nome; `
+            + `listando a aba inteira em ${nomeProduto}`);
           for (const linha of aba.slice(1)) {
-            const data = normalizarData(linha[cData]);
-            const val  = parseNum(linha[cValor]);
+            const data = normalizarData(linha[cDataDet]);
+            const val  = parseNum(linha[cValorDet]);
             if (!data || !val) continue;
             const nomeCamp = normNome([
               cols.campanha >= 0 ? linha[cols.campanha] : '',
@@ -405,11 +417,6 @@ export default async function handler(req, res) {
         }
 
         for (const { linha, data, val } of candidatas) {
-
-          totalRede += val;
-          investPorDia[data] = (investPorDia[data] || 0) + val;
-          investDiaRede[inv.rede][data] = (investDiaRede[inv.rede][data] || 0) + val;
-
           const txt = i => i >= 0 ? String(linha[i] || '').trim() : '';
 
           // Hierarquia invertida no LinkedIn: la e' Campaign Group >
@@ -431,7 +438,6 @@ export default async function handler(req, res) {
             valor:    val,
           });
         }
-        investPorRede[inv.rede] = totalRede;
       }
 
       const totalInvestimento = Object.values(investPorRede).reduce((s, v) => s + v, 0);
