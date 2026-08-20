@@ -2617,6 +2617,13 @@ function renderCampanhas(v) {
     faturamento: s.faturamento + l.faturamento,
   }), { investimento: 0, leads: 0, mqls: 0, ganhos: 0, faturamento: 0 });
 
+  // O investimento dos CARDS vem das colunas fixas da planilha, sem filtro
+  // de pais nem exclusao de workshop. Esta tabela usa a leitura detalhada,
+  // que aplica os dois. A diferenca e' esperada — mas se ninguem mostrar,
+  // alguem vai comparar os dois numeros e achar que um esta quebrado.
+  const totalCards = v.kpis.investimento;
+  const diferenca  = totalCards - totais.investimento;
+
   const rotuloNivel = { campanha: 'Campanha', conjunto: 'Conjunto', anuncio: 'Anúncio' }[nivelCampanha];
 
   const seletor = ['campanha', 'conjunto', 'anuncio'].map(n => `
@@ -2703,16 +2710,25 @@ function renderCampanhas(v) {
       </div>
     </div>
 
-    ${(investSemNome || leadsSemCasar) ? `
+    ${(investSemNome || leadsSemCasar || Math.abs(diferenca) > 1) ? `
     <div class="card" style="margin-top:16px">
+      ${Math.abs(diferenca) > 1 ? `
+      <div class="calor-nota" style="color:var(--gray-light)">
+        Os cards do dashboard somam ${fmtBRL(totalCards)} neste período —
+        ${fmtBRL(Math.abs(diferenca))} ${diferenca > 0 ? 'a mais' : 'a menos'} que esta tabela.
+        Não é erro: os cards leem a coluna de valor da planilha inteira, enquanto
+        aqui saem as campanhas de outro país e as que não são de aquisição
+        (workshop, summit, pesquisa e afins).
+      </div>` : ''}
+      ${(investSemNome || leadsSemCasar) ? `
       <div class="calor-nota" style="color:var(--amber)">
         ⚠ ${investSemNome ? fmtBRL(investSemNome) + ' de investimento sem '
               + rotuloNivel.toLowerCase() + ' preenchido na planilha' : ''}${
           investSemNome && leadsSemCasar ? ' · ' : ''}${
           leadsSemCasar ? fmtNum(leadsSemCasar) + ' leads sem utm no nível '
               + rotuloNivel.toLowerCase() : ''}
-        — estes ficam fora da tabela, então as somas não fecham com os KPIs do dashboard.
-      </div>
+        — estes ficam fora da tabela.
+      </div>` : ''}
     </div>` : ''}
 
     ${aberta ? `
