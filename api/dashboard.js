@@ -77,6 +77,17 @@ function parseNum(v) {
   return isNaN(n) ? 0 : n;
 }
 
+// Score tem parser proprio: o parseNum acima e' de moeda brasileira e
+// descarta o ponto achando que e' separador de milhar — "6.45" viraria 645.
+// Aqui o ponto E' decimal, e a virgula tambem, por seguranca.
+function parseScore(v) {
+  if (v === undefined || v === null || String(v).trim() === '') return null;
+  const n = parseFloat(String(v).trim().replace(',', '.'));
+  if (isNaN(n)) return null;
+  // Score de verdade vai de 0 a 10; acima disso e' lixo no campo
+  return n >= 0 && n <= 100 ? n : null;
+}
+
 // Aceita 12/08/2026 ou 2026-08-12 e devolve sempre DD/MM
 function normalizarData(v) {
   const s = String(v || '').trim();
@@ -262,6 +273,9 @@ export default async function handler(req, res) {
         // So vem preenchido em lead perdido; vazio no resto
         motivoPerda: linha[19] || '',
         dataPerda:   linha[20] || '',
+        // Score: null quando o campo esta vazio, pra separar "sem score"
+        // de "score zero" — sao coisas diferentes na leitura
+        score:       parseScore(linha[21]),
       });
     }
 
