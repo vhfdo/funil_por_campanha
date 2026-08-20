@@ -235,7 +235,8 @@
   .taxa-val{font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--blue);}
   .taxa-detalhe{font-family:'DM Mono',monospace;font-size:8.5px;color:var(--gray);
     margin-top:4px;}
-  @media(max-width:700px){.taxas{grid-template-columns:repeat(2,1fr);}}
+  @media(max-width:1200px){.taxas{grid-template-columns:repeat(3,1fr) !important;}}
+  @media(max-width:700px){.taxas{grid-template-columns:repeat(2,1fr) !important;}}
 
 
 
@@ -423,6 +424,7 @@
       <button class="btn" id="btnBase" onclick="alternarBase()">Base</button>
       <button class="btn" id="btnGanhos" onclick="alternarGanhos()">Ganhos</button>
       <button class="btn" id="btnDescartes" onclick="alternarDescartes()">Descartes</button>
+      <button class="btn" id="btnCampanhas" onclick="alternarCampanhas()">Campanhas</button>
       <button class="btn" id="btnReport" onclick="alternarReport()">Report</button>
       <button class="btn" onclick="exportarPDF()">↓ PDF</button>
       <span class="user-info" id="userInfo"></span>
@@ -565,6 +567,7 @@ function rastrear(type, detalhe = '') {
       metrica,
       modo: modoGanhos ? 'ganhos'
           : modoDescartes ? 'descartes'
+          : modoCampanhas ? 'campanhas'
           : modoReport ? 'report' : 'dashboard',
       periodo: `${document.getElementById('dataInicio')?.value || ''} a ${
         document.getElementById('dataFim')?.value || ''}`,
@@ -760,6 +763,14 @@ let modoReport    = false;
 let modoGanhos    = false;
 let modoBase      = false;
 let modoDescartes = false;
+let modoCampanhas = false;
+
+// Nivel de detalhe da aba Campanhas: campanha > conjunto > anuncio
+let nivelCampanha = 'campanha';
+let buscaCampanha = '';
+// Coluna e sentido da ordenacao da tabela
+let ordemCampCol = 'investimento';
+let ordemCampDir = 'desc';
 
 // Cada negocio no Pipedrive tem uma URL propria; o ID abre direto la
 const URL_PIPEDRIVE = 'https://boardacademy.pipedrive.com/deal/';
@@ -882,7 +893,7 @@ function renderTabs() {
 function alternarReport() {
   rastrear('modo', modoReport ? 'sair_report' : 'abrir_report');
   modoReport = !modoReport;
-  if (modoReport) { modoGanhos = false; modoBase = false; modoDescartes = false; }   // um modo por vez
+  if (modoReport) { modoGanhos = false; modoBase = false; modoDescartes = false; modoCampanhas = false; }   // um modo por vez
   atualizarBotoesModo();
   render();
 }
@@ -890,7 +901,7 @@ function alternarReport() {
 function alternarGanhos() {
   rastrear('modo', modoGanhos ? 'sair_ganhos' : 'abrir_ganhos');
   modoGanhos = !modoGanhos;
-  if (modoGanhos) { modoReport = false; modoBase = false; modoDescartes = false; }
+  if (modoGanhos) { modoReport = false; modoBase = false; modoDescartes = false; modoCampanhas = false; }
   atualizarBotoesModo();
   render();
 }
@@ -898,7 +909,7 @@ function alternarGanhos() {
 function alternarBase() {
   rastrear('modo', modoBase ? 'sair_base' : 'abrir_base');
   modoBase = !modoBase;
-  if (modoBase) { modoReport = false; modoGanhos = false; modoDescartes = false; }
+  if (modoBase) { modoReport = false; modoGanhos = false; modoDescartes = false; modoCampanhas = false; }
   atualizarBotoesModo();
   render();
 }
@@ -906,7 +917,7 @@ function alternarBase() {
 function alternarDescartes() {
   rastrear('modo', modoDescartes ? 'sair_descartes' : 'abrir_descartes');
   modoDescartes = !modoDescartes;
-  if (modoDescartes) { modoReport = false; modoGanhos = false; modoBase = false; }
+  if (modoDescartes) { modoReport = false; modoGanhos = false; modoBase = false; modoCampanhas = false; }
   atualizarBotoesModo();
   render();
 }
@@ -917,6 +928,41 @@ function buscarGanhos(texto) {
   // O render refaz o HTML, entao o foco e o cursor voltam pro campo
   const el = document.getElementById('campoBusca');
   if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+}
+
+function alternarCampanhas() {
+  rastrear('modo', modoCampanhas ? 'sair_campanhas' : 'abrir_campanhas');
+  modoCampanhas = !modoCampanhas;
+  if (modoCampanhas) {
+    modoReport = false; modoGanhos = false;
+    modoBase = false; modoDescartes = false;
+  }
+  atualizarBotoesModo();
+  render();
+}
+
+function trocarNivelCampanha(nivel) {
+  rastrear('nivel_campanha', nivel);
+  nivelCampanha = nivel;
+  render();
+}
+
+function buscarCampanha(texto) {
+  buscaCampanha = texto;
+  render();
+  const el = document.getElementById('campoBuscaCamp');
+  if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+}
+
+function ordenarCampanha(col) {
+  rastrear('ordenar_campanha', col);
+  if (ordemCampCol === col) {
+    ordemCampDir = ordemCampDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    ordemCampCol = col;
+    ordemCampDir = 'desc';
+  }
+  render();
 }
 
 function buscarDescartes(texto) {
@@ -953,6 +999,11 @@ function atualizarBotoesModo() {
   if (d) {
     d.textContent = modoDescartes ? '← Dashboard' : 'Descartes';
     d.classList.toggle('ativo', modoDescartes);
+  }
+  const c = document.getElementById('btnCampanhas');
+  if (c) {
+    c.textContent = modoCampanhas ? '← Dashboard' : 'Campanhas';
+    c.classList.toggle('ativo', modoCampanhas);
   }
 }
 
@@ -1239,6 +1290,12 @@ function dadosVisiveis() {
     agendamento: mqls ? reunioes.length / mqls * 100 : null,
     // Que % das reunioes virou venda
     vendasCall: reunioes.length ? qtdGanhos / reunioes.length * 100 : null,
+    // Funil inteiro: do lead ate a venda, e do MQL ate a venda.
+    // Atencao ao numerador: o ganho pode ser de um lead que entrou meses
+    // atras, entao esta taxa nao e' de coorte — e' venda do periodo sobre
+    // lead do periodo. Serve pra acompanhar tendencia, nao pra prever.
+    leadVenda: leads ? qtdGanhos / leads * 100 : null,
+    mqlVenda:  mqls  ? qtdGanhos / mqls  * 100 : null,
   };
 
   return {
@@ -1352,6 +1409,7 @@ function render() {
   if (modoBase)      { renderBase(v); return; }
   if (modoGanhos)    { renderGanhos(v); return; }
   if (modoDescartes) { renderDescartes(v); return; }
+  if (modoCampanhas) { renderCampanhas(v); return; }
   if (modoReport)    { renderReport(v); return; }
 
   const k = v.kpis;
@@ -1510,6 +1568,23 @@ function render() {
       </div>
     </div>
 
+    <div class="grid-topo">
+      <div class="card">
+        <div class="card-title">
+          Cargo de quem comprou
+          <span class="card-tag">clique pra filtrar</span>
+        </div>
+        <div class="card-body" style="max-height:280px">${perfilDosGanhos(v, 'cargo')}</div>
+      </div>
+      <div class="card">
+        <div class="card-title">
+          Campanha de quem comprou
+          <span class="card-tag">valor no tooltip</span>
+        </div>
+        <div class="card-body" style="max-height:280px">${perfilDosGanhos(v, 'campanha')}</div>
+      </div>
+    </div>
+
     <div class="card" style="margin-bottom:16px">
       <div class="card-title">
         CPMQL por dia
@@ -1520,12 +1595,14 @@ function render() {
       <div class="chart-box" style="height:360px"><canvas id="chartCpmqlProdutos"></canvas></div>
     </div>
 
-    <div class="taxas">
+    <div class="taxas" style="grid-template-columns:repeat(6,1fr)">
       ${[
         ['Tx. Qualificação',   v.taxas.qualificacao, `${fmtNum(v.kpis.mqls)} de ${fmtNum(v.kpis.leads)} leads`],
         ['Tx. Conexão',        v.taxas.conexao,      'MQLs que chegaram a Contatado+'],
         ['Tx. Agendamento',    v.taxas.agendamento,  `${fmtNum(v.reunioes.length)} reuniões`],
         ['Tx. Vendas s/ Call', v.taxas.vendasCall,   `${fmtNum(v.kpis.ganhos)} vendas`],
+        ['Lead → Ganho',       v.taxas.leadVenda,    `${fmtNum(v.kpis.ganhos)} de ${fmtNum(v.kpis.leads)} leads`],
+        ['MQL → Ganho',        v.taxas.mqlVenda,     `${fmtNum(v.kpis.ganhos)} de ${fmtNum(v.kpis.mqls)} MQL`],
       ].map(([nome, valor, detalhe]) => `
         <div class="taxa">
           <div class="taxa-nome">${nome}</div>
@@ -2348,6 +2425,341 @@ function exportarDescartesCSV() {
   URL.revokeObjectURL(url);
 }
 
+// ── Campanhas: investimento x resultado, no nivel escolhido ─────────────────
+// O investimento vem das abas de midia (uma linha por dia/campanha/conjunto/
+// anuncio) e os leads vem do backlog pelas utms. O casamento e' por TEXTO:
+//   Campaign Name  <->  utm_campaign
+//   Ad Set Name    <->  utm_medium
+//   Ad Name        <->  utm_content
+//
+// Normalizamos os dois lados (minusculas, sem acento, espaco colapsado)
+// porque a utm quase nunca sai identica ao nome cadastrado na plataforma.
+// Ainda assim sobra divergencia — por isso a tela mostra quanto do
+// investimento e quantos leads NAO casaram, em vez de esconder.
+const chaveCamp = s => (s || '').toString().toLowerCase().trim()
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .replace(/\s+/g, ' ');
+
+// O Google e' o caso especial: a utm_campaign do lead vem como ID numerico
+// ("23874401647"), enquanto a planilha de investimento tem o ID numa coluna
+// e o nome legivel em outra. Entao a CHAVE do cruzamento e o ROTULO exibido
+// sao coisas diferentes — juntar os dois num campo so faria o investimento
+// (que casa por nome) nunca encontrar os leads (que casam por ID).
+const soDigitos = s => /^\d{6,}$/.test(String(s || '').trim());
+
+function dadosCampanhas(v) {
+  const nomes = produtoAtivo === CONSOLIDADO ? PRODUTOS_REAIS : [produtoAtivo];
+
+  // Qual utm corresponde ao nivel escolhido
+  const campoUtm = { campanha: 'campanha', conjunto: 'medium', anuncio: 'content' }[nivelCampanha];
+
+  const agg = {};
+  // rotulo so e' gravado na primeira vez; quem chega depois nao sobrescreve.
+  // Excecao: um nome de verdade substitui um rotulo que era so o ID, pra
+  // tabela mostrar "[TD][PJ][GA]..." em vez de "750051931311".
+  const pega = (k, rotulo, rede) => {
+    if (!agg[k]) {
+      agg[k] = {
+        rotulo, rede: rede || '', investimento: 0,
+        leads: 0, mqls: 0, ganhos: 0, faturamento: 0,
+      };
+    } else if (soDigitos(agg[k].rotulo) && rotulo && !soDigitos(rotulo)) {
+      agg[k].rotulo = rotulo;
+    }
+    return agg[k];
+  };
+
+  // ── Investimento ────────────────────────────────────────────────────
+  let investSemNome = 0;
+  for (const nome of nomes) {
+    const p = dados.produtos[nome];
+    if (!p || !p.investLinhas) continue;
+    for (const l of p.investLinhas) {
+      if (!dentroDoPeriodo(l.data)) continue;
+      if (filtros.rede && filtros.rede !== l.rede) continue;
+
+      const rotulo = (l[nivelCampanha] || '').trim();
+      // No nivel campanha, o ID manda na chave quando existe — e' ele que
+      // aparece na utm do lead. O nome fica so como rotulo.
+      const usaId = nivelCampanha === 'campanha' && l.idCampanha;
+      const k = usaId ? l.idCampanha : chaveCamp(rotulo);
+
+      if (!k) { investSemNome += l.valor; continue; }
+      pega(k, rotulo || l.idCampanha, l.rede).investimento += l.valor;
+    }
+  }
+
+  // ── Leads e MQL ─────────────────────────────────────────────────────
+  const alvos = nomes.map(semAcento);
+  let leadsSemCasar = 0;
+  let base = dados.backlog
+    .filter(b => alvos.includes(semAcento(b.produto)))
+    .filter(b => {
+      const dia = (b.aplicacao || '').trim().slice(0, 5);
+      return dia.includes('/') && dentroDoPeriodo(dia);
+    });
+  if (filtros.rede) base = base.filter(b => redeDoLead(b) === filtros.rede);
+
+  for (const b of base) {
+    const rotulo = (b[campoUtm] || '').trim();
+    if (!rotulo) { leadsSemCasar++; continue; }
+    // utm numerica = campanha do Google; casa com o ID da planilha
+    const k = (nivelCampanha === 'campanha' && soDigitos(rotulo))
+      ? rotulo.trim() : chaveCamp(rotulo);
+    // Linha sem investimento tambem entra: campanha organica ou utm que
+    // nao bate com o nome da plataforma precisa aparecer, nem que seja
+    // com investimento zero
+    const d = pega(k, rotulo, redeDoLead(b));
+    d.leads++;
+    if (b.mql) d.mqls++;
+  }
+
+  // ── Ganhos ──────────────────────────────────────────────────────────
+  const campoGanho = { campanha: 'campanha', conjunto: 'medium', anuncio: 'content' }[nivelCampanha];
+  for (const nome of nomes) {
+    const p = dados.produtos[nome];
+    if (!p) continue;
+    for (const g of p.ganhos) {
+      if (g.vale !== 'sim' || !dentroDoPeriodo(g.data)) continue;
+      if (filtros.rede && redeDoLead(g) !== filtros.rede) continue;
+      const rotulo = (g[campoGanho] || '').trim();
+      if (!rotulo) continue;
+      const k = (nivelCampanha === 'campanha' && soDigitos(rotulo))
+        ? rotulo.trim() : chaveCamp(rotulo);
+      const d = pega(k, rotulo, redeDoLead(g));
+      d.ganhos++;
+      d.faturamento += g.valor;
+    }
+  }
+
+  // ── Derivadas ───────────────────────────────────────────────────────
+  let linhas = Object.values(agg).map(d => ({
+    ...d,
+    // null onde nao da pra calcular: barra em vez de R$ 0, que enganaria
+    cpl:   d.investimento && d.leads ? d.investimento / d.leads : null,
+    cpmql: d.investimento && d.mqls  ? d.investimento / d.mqls  : null,
+    cac:   d.investimento && d.ganhos ? d.investimento / d.ganhos : null,
+    roas:  d.investimento ? d.faturamento / d.investimento : null,
+    txMql: d.leads ? d.mqls / d.leads * 100 : null,
+  }));
+
+  const termo = chaveCamp(buscaCampanha);
+  if (termo) linhas = linhas.filter(l => chaveCamp(l.rotulo).includes(termo));
+
+  const sinal = ordemCampDir === 'asc' ? 1 : -1;
+  linhas.sort((a, b) => {
+    const x = a[ordemCampCol], y = b[ordemCampCol];
+    // Sem valor sempre no fim, independente do sentido
+    if (x === null && y === null) return 0;
+    if (x === null) return 1;
+    if (y === null) return -1;
+    if (typeof x === 'string') return sinal * x.localeCompare(y);
+    return sinal * (x - y);
+  });
+
+  return { linhas, investSemNome, leadsSemCasar };
+}
+
+function renderCampanhas(v) {
+  const { linhas, investSemNome, leadsSemCasar } = dadosCampanhas(v);
+
+  const totais = linhas.reduce((s, l) => ({
+    investimento: s.investimento + l.investimento,
+    leads: s.leads + l.leads,
+    mqls: s.mqls + l.mqls,
+    ganhos: s.ganhos + l.ganhos,
+    faturamento: s.faturamento + l.faturamento,
+  }), { investimento: 0, leads: 0, mqls: 0, ganhos: 0, faturamento: 0 });
+
+  const rotuloNivel = { campanha: 'Campanha', conjunto: 'Conjunto', anuncio: 'Anúncio' }[nivelCampanha];
+
+  const seletor = ['campanha', 'conjunto', 'anuncio'].map(n => `
+    <button class="agrupa-btn ${n === nivelCampanha ? 'ativo' : ''}"
+            onclick="trocarNivelCampanha('${n}')">${
+      n === 'anuncio' ? 'anúncio' : n}</button>`).join('');
+
+  if (!linhas.length) {
+    document.getElementById('conteudo').innerHTML = `
+      <div class="card">
+        <div class="card-title">
+          Campanhas
+          <span class="agrupa-switch">${seletor}</span>
+        </div>
+        <div class="empty">
+          ${buscaCampanha
+            ? `Nada encontrado para "${buscaCampanha}".<br><br>
+               <button class="btn" onclick="buscarCampanha('')">Limpar busca</button>`
+            : `Sem dados de ${rotuloNivel.toLowerCase()} no período.<br><br>
+               <span style="font-size:11px">As abas de INVESTIMENTO precisam ter as colunas
+               Campaign Name, Ad Set Name e Ad Name — o dashboard as encontra pelo cabeçalho.</span>`}
+        </div>
+      </div>`;
+    return;
+  }
+
+  // Cabecalho ordenavel
+  const col = (campo, texto, classe) => {
+    const ativa = ordemCampCol === campo;
+    const seta = ordemCampDir === 'asc' ? ' ↑' : ' ↓';
+    return `<th class="${classe || ''} ordenavel ${ativa ? 'ativa' : ''}"
+              onclick="ordenarCampanha('${campo}')">${texto}${ativa ? seta : ''}</th>`;
+  };
+
+  const num = (val, fmt) => val === null
+    ? '<span style="color:var(--gray)">—</span>' : fmt(val);
+
+  document.getElementById('conteudo').innerHTML = `
+    <div class="kpi-strip" style="grid-template-columns:repeat(6,1fr)">
+      <div class="kpi-card">
+        <div class="kpi-label">${rotuloNivel}s</div>
+        <div class="kpi-val blue">${fmtNum(linhas.length)}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Investimento</div>
+        <div class="kpi-val">${fmtBRL(totais.investimento)}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Leads</div>
+        <div class="kpi-val blue">${fmtNum(totais.leads)}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">MQL</div>
+        <div class="kpi-val blue">${fmtNum(totais.mqls)}</div>
+        <div class="kpi-linha"><span>${
+          totais.leads ? (totais.mqls / totais.leads * 100).toFixed(0) : 0}% dos leads</span></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Vol. Ganhos</div>
+        <div class="kpi-val">${fmtNum(totais.ganhos)}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Faturamento</div>
+        <div class="kpi-val">${fmtBRL(totais.faturamento)}</div>
+        <div class="kpi-linha"><span>ROAS</span><span>${
+          totais.investimento
+            ? fmtRoas(totais.faturamento / totais.investimento) : '—'}</span></div>
+      </div>
+    </div>
+
+    ${(investSemNome || leadsSemCasar) ? `
+    <div class="card" style="margin-top:16px">
+      <div class="calor-nota" style="color:var(--amber)">
+        ⚠ ${investSemNome ? fmtBRL(investSemNome) + ' de investimento sem '
+              + rotuloNivel.toLowerCase() + ' preenchido na planilha' : ''}${
+          investSemNome && leadsSemCasar ? ' · ' : ''}${
+          leadsSemCasar ? fmtNum(leadsSemCasar) + ' leads sem utm no nível '
+              + rotuloNivel.toLowerCase() : ''}
+        — estes ficam fora da tabela, então as somas não fecham com os KPIs do dashboard.
+      </div>
+    </div>` : ''}
+
+    <div class="card" style="margin-top:16px">
+      <div class="card-title">
+        ${rotuloNivel}s
+        <span class="agrupa-switch">${seletor}</span>
+        <span class="busca-wrap">
+          <input type="text" id="campoBuscaCamp" class="campo-busca"
+                 placeholder="filtrar por nome..."
+                 value="${(buscaCampanha || '').replace(/"/g, '&quot;')}"
+                 oninput="buscarCampanha(this.value)">
+          ${buscaCampanha ? `<button class="busca-limpar"
+                 onclick="buscarCampanha('')" title="limpar">×</button>` : ''}
+        </span>
+        <span style="display:flex;align-items:center;gap:10px">
+          <span class="card-tag">${fmtNum(linhas.length)} linhas${
+            filtros.rede ? ' · ' + filtros.rede : ''}</span>
+          <button class="btn-mini" onclick="exportarCampanhasCSV()">↓ CSV</button>
+        </span>
+      </div>
+      <div class="table-scroll" style="max-height:620px">
+        <table class="tabela-utm">
+          <thead><tr>
+            ${col('rotulo', rotuloNivel)}
+            <th>Rede</th>
+            ${col('investimento', 'Investimento', 'num')}
+            ${col('leads', 'Leads', 'num')}
+            ${col('mqls', 'MQL', 'num')}
+            ${col('txMql', 'Tx MQL', 'num')}
+            ${col('cpl', 'CPL', 'num')}
+            ${col('cpmql', 'CPMQL', 'num')}
+            ${col('ganhos', 'Vol. Ganhos', 'num')}
+            ${col('faturamento', 'Ganhos', 'num')}
+            ${col('cac', 'CAC', 'num')}
+            ${col('roas', 'ROAS', 'num')}
+          </tr></thead>
+          <tbody>
+            ${linhas.map(l => `
+              <tr>
+                <td title="${l.rotulo}">${
+                  l.rotulo.length > 52 ? l.rotulo.slice(0, 52) + '…' : l.rotulo}</td>
+                <td style="color:var(--gray-light)">${l.rede || '—'}</td>
+                <td class="num">${fmtBRL(l.investimento)}</td>
+                <td class="num">${fmtNum(l.leads)}</td>
+                <td class="num" style="color:var(--blue)">${fmtNum(l.mqls)}</td>
+                <td class="num">${num(l.txMql, x => x.toFixed(0) + '%')}</td>
+                <td class="num">${num(l.cpl, fmtBRL)}</td>
+                <td class="num">${num(l.cpmql, fmtBRL)}</td>
+                <td class="num">${l.ganhos ? fmtNum(l.ganhos) : '—'}</td>
+                <td class="num" style="color:${
+                  l.faturamento ? 'var(--green)' : 'var(--gray)'}">${
+                  l.faturamento ? fmtBRL(l.faturamento) : '—'}</td>
+                <td class="num">${num(l.cac, fmtBRL)}</td>
+                <td class="num" style="color:${
+                  l.roas === null ? 'var(--gray)'
+                  : l.roas >= 1 ? 'var(--green)' : 'var(--red)'}">${
+                  num(l.roas, fmtRoas)}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+// ── Exportar a tabela de campanhas ──────────────────────────────────────────
+function exportarCampanhasCSV() {
+  const v = dadosVisiveis();
+  const { linhas } = dadosCampanhas(v);
+  if (!linhas.length) return;
+
+  rastrear('exportar_campanhas', `${nivelCampanha}: ${linhas.length} linhas`);
+
+  const rotuloNivel = { campanha: 'Campanha', conjunto: 'Conjunto', anuncio: 'Anúncio' }[nivelCampanha];
+  const cabecalho = [
+    rotuloNivel, 'Rede', 'Investimento', 'Leads', 'MQL', 'Taxa MQL',
+    'CPL', 'CPMQL', 'Vol. Ganhos', 'Faturamento', 'CAC', 'ROAS',
+  ];
+
+  const escapa = t => {
+    const s = String(t ?? '').replace(/"/g, '""');
+    return /[";\n]/.test(s) ? `"${s}"` : s;
+  };
+  // Virgula decimal pro Excel BR reconhecer como numero
+  const dec = n => n === null || n === undefined ? '' : String(n.toFixed(2)).replace('.', ',');
+
+  const corpo = linhas.map(l => [
+    l.rotulo, l.rede,
+    dec(l.investimento), l.leads, l.mqls,
+    l.txMql === null ? '' : dec(l.txMql),
+    dec(l.cpl), dec(l.cpmql),
+    l.ganhos, dec(l.faturamento), dec(l.cac), dec(l.roas),
+  ].map(escapa).join(';'));
+
+  const csv = '\uFEFF' + [cabecalho.join(';'), ...corpo].join('\n');
+
+  const hoje = new Date().toISOString().slice(0, 10);
+  const nome = `campanhas_${nivelCampanha}_${produtoAtivo}_${hoje}`
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\w-]/g, '_').toLowerCase() + '.csv';
+
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = nome;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 // ── Reaplicação ─────────────────────────────────────────────────────────────
 // Lead que ja tinha entrado antes e voltou. Vale acompanhar porque uma taxa
 // alta significa que boa parte do volume nao e' publico novo — a base esta
@@ -2631,6 +3043,91 @@ function tabelaFunis(v, limite) {
       </div>
       <div class="funil-pct">${fmtNum(resto[outra])}</div>
     </div>` : '') + '</div>';
+}
+
+// ── Perfil de quem comprou ──────────────────────────────────────────────────
+// A aba GANHOS nao tem cargo — so nome, valor e as utms. O cargo mora no
+// BACKLOG MQL, entao cruzamos os dois pelo ID do negocio.
+//
+// O cruzamento e' parcial de proposito: quem comprou agora mas entrou em
+// outro mes nao esta no backlog do periodo, e nao tem como saber o cargo.
+// Por isso o card mostra quantos casaram — sem isso, a distribuicao pareceria
+// completa quando na verdade e' de um pedaco.
+function perfilDosGanhos(v, campo) {
+  const ganhos = v.ganhos.filter(g => g.vale === 'sim');
+  if (!ganhos.length) {
+    return '<div class="empty">Nenhuma venda validada no período.</div>';
+  }
+
+  const agg = {};
+  let semDado = 0;
+
+  if (campo === 'cargo') {
+    // Indexa o backlog por ID pra achar o cargo de cada comprador
+    const porId = {};
+    for (const b of dados.backlog) porId[String(b.id)] = b;
+
+    for (const g of ganhos) {
+      const b = porId[String(g.id)];
+      if (!b || !(b.cargo || '').trim()) { semDado++; continue; }
+      const c = normalizarCargo(b.cargo);
+      if (!agg[c]) agg[c] = { qtd: 0, valor: 0 };
+      agg[c].qtd++;
+      agg[c].valor += g.valor;
+    }
+  } else {
+    for (const g of ganhos) {
+      const c = (g.campanha || '').trim();
+      if (!c) { semDado++; continue; }
+      if (!agg[c]) agg[c] = { qtd: 0, valor: 0 };
+      agg[c].qtd++;
+      agg[c].valor += g.valor;
+    }
+  }
+
+  const lista = Object.entries(agg).sort((a, b) => b[1].qtd - a[1].qtd);
+  if (!lista.length) {
+    return `<div class="empty">
+      Nenhuma venda com ${campo === 'cargo' ? 'cargo' : 'campanha'} identificado.
+      ${semDado ? `<br><br><span style="font-size:11px">${
+        fmtNum(semDado)} venda(s) sem esse dado</span>` : ''}
+    </div>`;
+  }
+
+  const maior = Math.max(...lista.map(([, d]) => d.qtd), 1);
+  const total = lista.reduce((s, [, d]) => s + d.qtd, 0);
+
+  // So o cargo tem filtro no dashboard; campanha nao e' dimensao de filtro
+  const clicavel = campo === 'cargo';
+
+  const linhas = lista.slice(0, 12).map(([nome, d]) => {
+    const sel = clicavel && filtros.cargo === nome;
+    const rotulo = nome.length > 40 ? nome.slice(0, 40) + '…' : nome;
+    return `<div class="funil-step ${sel ? 'selecionado' : ''}"
+              ${clicavel
+                ? `onclick="toggleFiltro('cargo', ${attr(nome)})"`
+                : 'style="cursor:default"'}>
+      <div class="funil-label" title="${nome} · ${fmtBRL(d.valor)}">${rotulo}</div>
+      <div class="funil-track">
+        <div class="funil-bar" style="width:${
+          Math.max(d.qtd / maior * 100, 3)}%;background:${sel ? 'var(--amber)' : '#2f6b46'}">
+          <span class="funil-val">${fmtNum(d.qtd)}</span>
+        </div>
+      </div>
+      <div class="funil-pct" title="${fmtBRL(d.valor)}">${
+        (d.qtd / total * 100).toFixed(0)}%</div>
+    </div>`;
+  }).join('');
+
+  const nota = semDado
+    ? `<div class="calor-nota">${fmtNum(total)} de ${fmtNum(ganhos.length)} vendas com ${
+        campo === 'cargo' ? 'cargo identificado' : 'campanha preenchida'}${
+        campo === 'cargo'
+          ? ' — o resto entrou em outro mês e não está no backlog do período'
+          : ''}</div>`
+    : '';
+
+  return `<div class="funil">${linhas}</div>${nota}`;
 }
 
 // ── Distribuicao de score (so Lean e CES) ───────────────────────────────────
