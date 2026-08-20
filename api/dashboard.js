@@ -324,17 +324,27 @@ export default async function handler(req, res) {
         const cData  = cols.data  >= 0 ? cols.data  : inv.colData;
         const cValor = cols.valor >= 0 ? cols.valor : inv.colValor;
 
-        // Google e LinkedIn misturam paises na mesma exportacao; o Meta
-        // ja vem com uma aba por pais.
+        // Vale pra TODA rede, inclusive o Meta.
+        //
+        // A suposicao de que as abas do Meta ja vinham separadas por pais
+        // estava errada: a aba do Mexico tinha uma campanha
+        // "[CE] [PFCC CHILE] ..." somando R$ 5.716 no card errado. Ter uma
+        // aba por pais nao garante que so entre campanha daquele pais —
+        // quem monta a aba pode arrastar linha de outro.
+        //
+        // A rede de seguranca logo abaixo cobre o risco do outro lado: se
+        // as campanhas de uma aba nao citarem o pais no nome, nada e'
+        // barrado e o investimento continua contando.
         const marca = MARCA_PAIS[nomeProduto];
-        const filtraPais = (inv.rede === 'Google' || inv.rede === 'LinkedIn')
-          && (marca || nomeProduto === 'PFCC BRASIL');
+        const filtraPais = !!(marca || nomeProduto === 'PFCC BRASIL');
 
         // Primeira passada: separa o que passa nas regras do que nao passa.
         // Nao gravamos direto porque o filtro de pais precisa de uma rede
         // de seguranca — ver o bloco logo abaixo.
         const candidatas = [];
         let barradasPorPais = 0;
+        // Destas, quantas citavam algum pais — ver a rede de seguranca
+        let barradasComPais = 0;
 
         for (const linha of aba.slice(1)) {
           const data = normalizarData(linha[cData]);
@@ -355,18 +365,29 @@ export default async function handler(req, res) {
             const doPais = marca
               ? marca.test(nomeCamp)        // Mexico/Chile: precisa da marca
               : !MARCA_LATAM.test(nomeCamp); // Brasil: nao pode ter marca
-            if (!doPais) { barradasPorPais++; continue; }
+            if (!doPais) {
+              barradasPorPais++;
+              if (MARCA_LATAM.test(nomeCamp)) barradasComPais++;
+              continue;
+            }
           }
 
           candidatas.push({ linha, data, val });
         }
 
-        // Rede de seguranca: se o filtro de pais barrou TUDO numa aba que
-        // ja e' daquele pais, o nome das campanhas nao segue o padrao
-        // esperado. Melhor contar tudo do que zerar o investimento e
-        // mostrar CPL vazio sem explicacao.
+        // Rede de seguranca, so pro caso de as campanhas nao citarem pais
+        // nenhum no nome: ai nao da pra classificar e e' melhor contar
+        // tudo do que zerar o investimento sem explicacao.
+        //
+        // A condicao e' "nenhuma barrada tinha marca de pais". Se as
+        // campanhas citam OUTRO pais — o caso da aba do Mexico que tinha
+        // so campanha do Chile — a classificacao funcionou e o zero e' a
+        // resposta certa. Sem esse teste, a rede de seguranca devolvia
+        // justamente o investimento que o filtro tinha acabado de tirar.
         const usarTodas = filtraPais && marca
-          && candidatas.length === 0 && barradasPorPais > 0;
+          && candidatas.length === 0
+          && barradasPorPais > 0
+          && !barradasComPais;
         if (usarTodas) {
           console.warn(`[${inv.aba}] nenhuma campanha casou com a marca de `
             + `${nomeProduto}; usando a aba inteira`);
