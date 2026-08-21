@@ -392,6 +392,18 @@
     .taxa-detalhe{font-size:7px;}
   }
 
+  /* Faixa de aviso pra tela que ainda nao e' fonte oficial de numero */
+  .aviso-validacao{background:#2a1f0a;border:1px solid var(--amber);
+    border-left:4px solid var(--amber);padding:12px 16px;margin-bottom:16px;
+    display:flex;align-items:flex-start;gap:12px;}
+  .aviso-validacao .icone{font-size:18px;line-height:1;flex-shrink:0;}
+  .aviso-validacao .texto{font-family:'DM Mono',monospace;font-size:11px;
+    line-height:1.7;color:var(--white);}
+  .aviso-validacao .titulo{color:var(--amber);font-weight:500;
+    text-transform:uppercase;letter-spacing:.08em;display:block;
+    margin-bottom:3px;}
+  @media print{ .aviso-validacao{break-inside:avoid;} }
+
   .empty{text-align:center;padding:40px 20px;color:var(--gray);
     font-family:'DM Mono',monospace;font-size:12px;}
   .loading{text-align:center;padding:80px 20px;color:var(--gray);
@@ -424,7 +436,9 @@
       <button class="btn" id="btnBase" onclick="alternarBase()">Base</button>
       <button class="btn" id="btnGanhos" onclick="alternarGanhos()">Ganhos</button>
       <button class="btn" id="btnDescartes" onclick="alternarDescartes()">Descartes</button>
-      <button class="btn" id="btnCampanhas" onclick="alternarCampanhas()">Campanhas</button>
+      <button class="btn" id="btnCampanhas" onclick="alternarCampanhas()"
+              title="Em validação — os números ainda estão sendo conferidos"
+              style="border-style:dashed">Campanhas ⚠</button>
       <button class="btn" id="btnReport" onclick="alternarReport()">Report</button>
       <button class="btn" onclick="exportarPDF()">↓ PDF</button>
       <span class="user-info" id="userInfo"></span>
@@ -1028,8 +1042,10 @@ function atualizarBotoesModo() {
   }
   const c = document.getElementById('btnCampanhas');
   if (c) {
-    c.textContent = modoCampanhas ? '← Dashboard' : 'Campanhas';
+    // O ⚠ fica junto do nome pra lembrar que a aba nao e' fonte oficial
+    c.textContent = modoCampanhas ? '← Dashboard' : 'Campanhas ⚠';
     c.classList.toggle('ativo', modoCampanhas);
+    c.style.borderStyle = modoCampanhas ? 'solid' : 'dashed';
   }
 }
 
@@ -2642,6 +2658,17 @@ function renderCampanhas(v) {
 
   if (!linhas.length) {
     document.getElementById('conteudo').innerHTML = `
+    <div class="aviso-validacao">
+      <span class="icone">⚠</span>
+      <span class="texto">
+        <span class="titulo">Em validação — não use para reportar</span>
+        Esta aba cruza o investimento das plataformas com as utms dos leads.
+        O casamento é por texto, então campanha com utm divergente aparece
+        sem lead — e o número fica menor que o real. Os cards do dashboard
+        seguem sendo a fonte oficial de investimento. Confira na planilha
+        antes de levar qualquer número daqui para apresentação.
+      </span>
+    </div>
       <div class="card">
         <div class="card-title">
           Campanhas
@@ -2678,6 +2705,18 @@ function renderCampanhas(v) {
     ? '<span style="color:var(--gray)">—</span>' : fmt(val);
 
   document.getElementById('conteudo').innerHTML = `
+    <div class="aviso-validacao">
+      <span class="icone">⚠</span>
+      <span class="texto">
+        <span class="titulo">Em validação — não use para reportar</span>
+        Esta aba cruza o investimento das plataformas com as utms dos leads.
+        O casamento é por texto, então campanha com utm divergente aparece
+        sem lead — e o número fica menor que o real. Os cards do dashboard
+        seguem sendo a fonte oficial de investimento. Confira na planilha
+        antes de levar qualquer número daqui para apresentação.
+      </span>
+    </div>
+
     <div class="kpi-strip" style="grid-template-columns:repeat(6,1fr)">
       <div class="kpi-card">
         <div class="kpi-label">${rotuloNivel}s</div>
@@ -2948,10 +2987,13 @@ function exportarCampanhasCSV() {
     l.ganhos, dec(l.faturamento), dec(l.cac), dec(l.roas),
   ].map(escapa).join(';'));
 
-  const csv = '\uFEFF' + [cabecalho.join(';'), ...corpo].join('\n');
+  // Primeira linha marca a planilha: o arquivo circula solto por e-mail e
+  // ninguem lembra de onde veio nem que os numeros eram provisorios
+  const marca = 'EM VALIDACAO - conferir antes de reportar;;;;;;;;;;;';
+  const csv = '\uFEFF' + [marca, cabecalho.join(';'), ...corpo].join('\n');
 
   const hoje = new Date().toISOString().slice(0, 10);
-  const nome = `campanhas_${nivelCampanha}_${produtoAtivo}_${hoje}`
+  const nome = `campanhas_EM-VALIDACAO_${nivelCampanha}_${produtoAtivo}_${hoje}`
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[^\w-]/g, '_').toLowerCase() + '.csv';
 
