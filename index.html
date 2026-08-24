@@ -801,6 +801,9 @@ let buscaGanhos = '';
 // Mesma ideia na aba Descartes: motivo, cargo e campanha sao texto livre,
 // entao procurar no olho numa lista de 200 linhas nao funciona.
 let buscaDescartes = '';
+
+// Busca da tabela de leads em aberto, no fim do dashboard
+let buscaAbertos = '';
 const rotuloMetrica = () => metrica === 'mqls' ? 'MQL' : 'Leads';
 let charts = {};
 
@@ -1003,6 +1006,14 @@ function ordenarCampanha(col) {
     ordemCampDir = 'desc';
   }
   render();
+}
+
+function buscarAbertos(texto) {
+  buscaAbertos = texto;
+  render();
+  // O render refaz o HTML, entao devolvemos o foco e o cursor pro campo
+  const el = document.getElementById('campoBuscaAbertos');
+  if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
 }
 
 function buscarDescartes(texto) {
@@ -1642,6 +1653,28 @@ function render() {
           filtros.rede ? ' · ' + filtros.rede : ''} · em R$</span>
       </div>
       <div class="chart-box" style="height:360px"><canvas id="chartCpmqlProdutos"></canvas></div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-title">
+        ${metrica === 'mqls' ? 'MQL' : 'Leads'} em aberto · rastreio completo
+        <span class="busca-wrap">
+          <input type="text" id="campoBuscaAbertos" class="campo-busca"
+                 placeholder="filtrar por campanha, criativo, cargo, nome..."
+                 value="${(buscaAbertos || '').replace(/"/g, '&quot;')}"
+                 oninput="buscarAbertos(this.value)">
+          ${buscaAbertos ? `<button class="busca-limpar"
+                 onclick="buscarAbertos('')" title="limpar">×</button>` : ''}
+        </span>
+        <span style="display:flex;align-items:center;gap:10px">
+          <span class="card-tag">${fmtNum(leadsAbertos(v).length)} em aberto${
+            labelFiltros()
+              ? ' · ' + labelFiltros().replace('Filtrando: ', '').replace(' — limpar ×', '')
+              : ''}</span>
+          <button class="btn-mini" onclick="exportarAbertosCSV()">↓ CSV</button>
+        </span>
+      </div>
+      ${tabelaAbertos(v)}
     </div>
 
     <div class="taxas" style="grid-template-columns:repeat(6,1fr)">
@@ -3295,6 +3328,133 @@ function tabelaFunis(v, limite) {
       </div>
       <div class="funil-pct">${fmtNum(resto[outra])}</div>
     </div>` : '') + '</div>';
+}
+
+// ── Leads em aberto: o que ainda esta vivo no funil ─────────────────────────
+// Sai do v.backlog, entao ja chega com produto, periodo e todos os filtros
+// da tela aplicados — clicar num funil ou numa etapa mexe aqui junto.
+//
+// So status "open": ganho e perdido tem tela propria (Ganhos e Descartes),
+// e misturar os tres aqui faria a contagem nao bater com o funil ao lado.
+function leadsAbertos(v) {
+  const soMql = metrica === 'mqls';
+  const termo = semAcento(buscaAbertos);
+
+  return v.backlog
+    .filter(b => b.status === 'open')
+    .filter(b => !soMql || b.mql)
+    .filter(b => !termo || [
+      b.nome, b.cargo, b.etapa, b.funil, b.proprietario,
+      b.campanha, b.source, b.medium, b.content, b.term,
+      b.nomeProduto, redeDoLead(b), String(b.id),
+    ].some(campo => semAcento(campo).includes(termo)))
+    // Mais recente primeiro: a aplicacao vem "DD/MM/AAAA hh:mm:ss", entao
+    // comparar como texto ordena certo dentro do mesmo mes
+    .sort((a, b) => (b.aplicacao || '').localeCompare(a.aplicacao || ''));
+}
+
+function tabelaAbertos(v) {
+  const leads = leadsAbertos(v);
+  const soMql = metrica === 'mqls';
+
+  if (!leads.length) {
+    return `<div class="empty">
+      ${buscaAbertos
+        ? `Nada encontrado para "${buscaAbertos}".<br><br>
+           <button class="btn" onclick="buscarAbertos('')">Limpar busca</button>`
+        : `Nenhum ${soMql ? 'MQL' : 'lead'} em aberto para os filtros atuais.`}
+    </div>`;
+  }
+
+  const corta = (t, n) => {
+    const s = (t || '').trim();
+    if (!s) return '<span style="color:var(--gray)">—</span>';
+    return s.length > n ? s.slice(0, n) + '…' : s;
+  };
+
+  return `
+    <div class="table-scroll" style="max-height:520px">
+      <table class="tabela-utm">
+        <thead><tr>
+          <th class="num">ID</th><th>Aplicação</th><th>Nome</th><th>Cargo</th>
+          <th>MQL</th><th>Funil</th><th>Etapa</th><th>Proprietário</th>
+          <th>Rede</th>
+          <th>utm_campaign</th><th>utm_source</th><th>utm_medium</th>
+          <th>utm_content</th><th>utm_term</th>
+        </tr></thead>
+        <tbody>
+          ${leads.map(b => `
+            <tr>
+              <td class="num">
+                <a class="link-pipe" href="${URL_PIPEDRIVE}${b.id}"
+                   target="_blank" rel="noopener"
+                   onclick="rastrear('abrir_pipedrive', '${b.id}')">${b.id}</a>
+              </td>
+              <td class="utm">${(b.aplicacao || '').slice(0, 10) || '—'}</td>
+              <td>${corta(b.nome, 24)}</td>
+              <td style="color:var(--gray-light)">${corta(b.cargo, 22)}</td>
+              <td style="text-align:center">${
+                b.mql ? '<span style="color:var(--blue)">✓</span>' : ''}</td>
+              <td>${corta(b.funil, 13)}</td>
+              <td>${corta(b.etapa, 18)}</td>
+              <td>${corta(b.proprietario, 18)}</td>
+              <td>${redeDoLead(b)}</td>
+              <td class="utm" title="${b.campanha || ''}">${corta(b.campanha, 30)}</td>
+              <td class="utm" title="${b.source || ''}">${corta(b.source, 12)}</td>
+              <td class="utm" title="${b.medium || ''}">${corta(b.medium, 14)}</td>
+              <td class="utm" title="${b.content || ''}">${corta(b.content, 22)}</td>
+              <td class="utm" title="${b.term || ''}">${corta(b.term, 18)}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+// ── Exportar os leads em aberto ─────────────────────────────────────────────
+function exportarAbertosCSV() {
+  const v = dadosVisiveis();
+  const leads = leadsAbertos(v);
+  if (!leads.length) return;
+
+  rastrear('exportar_abertos', `${leads.length} leads`);
+
+  const cabecalho = [
+    'ID', 'Produto', 'Aplicação', 'Nome', 'Email', 'Cargo', 'MQL', 'Score',
+    'Funil', 'Etapa', 'Proprietário', 'Rede', 'Reaplicação', 'Valor',
+    'utm_campaign', 'utm_source', 'utm_medium', 'utm_content', 'utm_term',
+  ];
+
+  const escapa = t => {
+    const s = String(t ?? '').replace(/"/g, '""');
+    return /[";\n]/.test(s) ? `"${s}"` : s;
+  };
+
+  const linhas = leads.map(b => [
+    b.id, b.produto, b.aplicacao, b.nome, b.email, b.cargo,
+    b.mql ? 'Sim' : 'Não',
+    // Virgula decimal pro Excel BR reconhecer como numero
+    b.score === null || b.score === undefined
+      ? '' : String(b.score).replace('.', ','),
+    b.funil, b.etapa, b.proprietario, redeDoLead(b),
+    b.reaplicacao ? 'Sim' : 'Não',
+    String(b.valor || 0).replace('.', ','),
+    b.campanha, b.source, b.medium, b.content, b.term,
+  ].map(escapa).join(';'));
+
+  const csv = '\uFEFF' + [cabecalho.join(';'), ...linhas].join('\n');
+
+  const hoje = new Date().toISOString().slice(0, 10);
+  const filtro = Object.values(filtros).filter(Boolean).join('-') || 'completa';
+  const nome = `abertos_${produtoAtivo}_${filtro}_${hoje}`
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\w-]/g, '_').toLowerCase() + '.csv';
+
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = nome;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // ── Perfil de quem comprou ──────────────────────────────────────────────────
