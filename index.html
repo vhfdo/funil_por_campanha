@@ -1464,7 +1464,8 @@ function render() {
   // acumulado, so a comparacao direta com o teto.
   function kpiCard(label, valor, opts = {}) {
     const { meta, fmt = fmtNum, azul = false, bruto = null,
-            menorMelhor = false, semRitmo = false } = opts;
+            menorMelhor = false, semRitmo = false,
+            gastoMenorMelhor = false } = opts;
 
     if (!meta) {
       return `<div class="kpi-card">
@@ -1488,7 +1489,12 @@ function render() {
 
     const alvoHoje = metaAteHoje(meta);
     const pct = Math.min(bruto / meta * 100, 100);
-    const noRitmo = alvoHoje === null || bruto >= alvoHoje;
+    // Volume: estar acima do ritmo e' bom. Gasto: e' o contrario — passar
+    // do previsto pra data significa que o orcamento vai estourar antes do
+    // fim do mes.
+    const noRitmo = alvoHoje === null
+      ? true
+      : (gastoMenorMelhor ? bruto <= alvoHoje : bruto >= alvoHoje);
     const cor = noRitmo ? 'var(--green)' : 'var(--red)';
     return `<div class="kpi-card">
       <div class="kpi-label">${label}</div>
@@ -1506,7 +1512,8 @@ function render() {
     kpiCard('MQL', fmtNum(k.mqls),
       { azul:true, meta: metas.mqls, bruto: k.mqls }),
     kpiCard('Investimento', fmtBRL(k.investimento),
-      { fmt: fmtBRL }),
+      { meta: metas.investimento, bruto: k.investimento,
+        fmt: fmtBRL, gastoMenorMelhor: true }),
     kpiCard('Vol. Ganhos', fmtNum(k.ganhos),
       { meta: metas.vendas, bruto: k.ganhos }),
     kpiCard('Faturamento', fmtBRL(k.faturamento),
