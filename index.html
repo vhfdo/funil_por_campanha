@@ -2151,8 +2151,19 @@ function renderGanhos(v) {
       <div class="kpi-card">
         <div class="kpi-label">Vendas ${buscaGanhos ? 'na busca' : 'validadas'}</div>
         <div class="kpi-val blue">${fmtNum(validos.length)}</div>
-        ${buscaGanhos ? `<div class="kpi-linha"><span>de ${
-          fmtNum(v.ganhos.filter(g => g.vale === 'sim').length)} no total</span></div>` : ''}
+        ${(() => {
+          // Quantos negocios da planilha viraram estas linhas. Sem mostrar,
+          // quem confere no Pipedrive acha que sumiu venda.
+          const neg = validos.reduce((s, g) => s + (g.negocios || 1), 0);
+          if (buscaGanhos) {
+            return `<div class="kpi-linha"><span>de ${
+              fmtNum(v.ganhos.filter(g => g.vale === 'sim').length)} no total</span></div>`;
+          }
+          return neg > validos.length
+            ? `<div class="kpi-linha"><span>${fmtNum(neg)} negócios</span>
+                 <span style="color:var(--amber)">−${fmtNum(neg - validos.length)}</span></div>`
+            : '';
+        })()}
       </div>
       <div class="kpi-card">
         <div class="kpi-label">Faturamento</div>
@@ -2238,7 +2249,7 @@ function renderGanhos(v) {
         <table class="tabela-utm">
           <thead><tr>
             <th>Data</th><th>Nome</th><th>Produto</th><th class="num">Valor</th>
-            <th>Rede</th>
+            <th class="num">Neg.</th><th>Rede</th>
             <th>utm_campaign</th><th>utm_source</th><th>utm_medium</th>
             <th>utm_content</th><th>utm_term</th>
           </tr></thead>
@@ -2264,6 +2275,11 @@ function renderGanhos(v) {
                   <td>${g.nome || '—'}</td>
                   <td style="color:var(--gray-light)">${corta(g.produto, 18)}</td>
                   <td class="num" style="color:var(--green)">${fmtBRL(g.valor)}</td>
+                  <td class="num" title="${g.negocios > 1
+                    ? 'Negócios somados: ' + (g.ids || []).join(', ')
+                    : 'Um negócio'}" style="color:${
+                    g.negocios > 1 ? 'var(--amber)' : 'var(--gray)'}">${
+                    g.negocios > 1 ? g.negocios : '1'}</td>
                   <td>${redeDoLead(g)}</td>
                   <td class="utm" title="${g.campanha || ''}">${corta(g.campanha, 34)}</td>
                   <td class="utm" title="${g.source || ''}">${corta(g.source, 14)}</td>
