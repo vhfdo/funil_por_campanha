@@ -1247,6 +1247,15 @@ function dadosVisiveis() {
   if (filtros.score)        backlog = backlog.filter(b =>
     b.score !== null && b.score !== undefined
     && String(Math.floor(b.score)) === filtros.score);
+  // O mapa de calor e' o SELETOR de dia e hora, entao ele nao pode se
+  // filtrar a si mesmo: clicar numa celula vazia zerava o backlog, o mapa
+  // sumia da tela e nao sobrava onde clicar pra desfazer.
+  //
+  // Ele recebe o backlog com todos os outros filtros aplicados, mas sem o
+  // de momento — as celulas fora do recorte sao apagadas no desenho, nao
+  // removidas do dado.
+  const backlogMapa = backlog;
+
   if (filtros.diaSemana || filtros.hora) {
     backlog = backlog.filter(b => {
       const m = momentoDoLead(b);
@@ -1411,7 +1420,8 @@ function dadosVisiveis() {
   };
 
   return {
-    leadsPorDia, ganhos, backlog, investPorRede, investPorDia, porRede, etapas,
+    leadsPorDia, ganhos, backlog, backlogMapa,
+    investPorRede, investPorDia, porRede, etapas,
     ehConsolidado, mqlTresFunisPorDia, mqlTresFunis, filtraFunil,
     reunioes, taxas, descartes,
     kpis: {
@@ -3223,7 +3233,8 @@ function mapaCalor(v) {
   let total = 0;
   let semHora = 0;
 
-  for (const b of v.backlog) {
+  // backlogMapa, nao backlog: ver o comentario em dadosVisiveis()
+  for (const b of (v.backlogMapa || v.backlog)) {
     if (metrica === 'mqls' && !b.mql) continue;
 
     // Mesma leitura que o filtro usa — ver momentoDoLead()
@@ -3308,7 +3319,21 @@ function mapaCalor(v) {
         <div class="calor-total" style="color:var(--blue)">${fmtNum(total)}</div>
       </div>
     </div>
-    ${semHora ? `<div class="calor-nota">${fmtNum(semHora)} sem hora registrada</div>` : ''}
+    ${(() => {
+      // Se o recorte clicado nao tem lead nenhum, avisa aqui: os outros
+      // cards ficam vazios e sem isso parece que o dashboard quebrou
+      const recorte = filtros.diaSemana || filtros.hora;
+      if (recorte && !v.backlog.length) {
+        return `<div class="calor-nota" style="color:var(--amber)">
+          Nenhum ${metrica === 'mqls' ? 'MQL' : 'lead'} neste horário —
+          por isso os outros cards estão vazios.
+          Clique na célula de novo (ou em "limpar") para voltar.
+        </div>`;
+      }
+      return semHora
+        ? `<div class="calor-nota">${fmtNum(semHora)} sem hora registrada</div>`
+        : '';
+    })()}
   `;
 }
 
@@ -3834,32 +3859,31 @@ function desenharGraficos(v) {
         { type:'bar', label:'Leads', data: v.leadsPorDia.map(d => d.leads),
           backgroundColor:'#2c5f8a', borderRadius:2, yAxisID:'y',
           datalabels: { display: ctx => ctx.dataset.data[ctx.dataIndex] > 0,
-            anchor:'end', align:'end', offset:-2, color:'#9dc4e8',
-            font:{ family:'DM Mono', size:8 }, formatter: v => fmtNum(v) } },
+            anchor:'end', align:'top', offset:1, color:'#9dc4e8',
+            font:{ family:'DM Mono', size:9 }, formatter: v => fmtNum(v) } },
         { type:'bar', label:'MQL', data: v.leadsPorDia.map(d => d.mqls),
           backgroundColor:'#4a9eed', borderRadius:2, yAxisID:'y',
           datalabels: { display: ctx => ctx.dataset.data[ctx.dataIndex] > 0,
-            anchor:'end', align:'end', offset:-2, color:'#cfe4f7',
-            font:{ family:'DM Mono', size:8 }, formatter: v => fmtNum(v) } },
+            anchor:'end', align:'top', offset:1, color:'#cfe4f7',
+            font:{ family:'DM Mono', size:9 }, formatter: v => fmtNum(v) } },
         { type:'bar', label:'MQL · Sniper/Elite/Olympus',
           data: labels.map(l => v.mqlTresFunisPorDia[l] || 0),
           backgroundColor:'#7ee0a8', borderRadius:2, yAxisID:'y',
           datalabels: { display: ctx => ctx.dataset.data[ctx.dataIndex] > 0,
-            anchor:'end', align:'end', offset:-2, color:'#7ee0a8',
-            font:{ family:'DM Mono', size:8 }, formatter: v => fmtNum(v) } },
+            anchor:'end', align:'top', offset:1, color:'#7ee0a8',
+            font:{ family:'DM Mono', size:9 }, formatter: v => fmtNum(v) } },
         { type:'line', label:'Investimento', data: invDias,
-          borderColor:'#d9a441', borderWidth:2.5, pointRadius:3, tension:.3,
+          borderColor:'#d9a441', borderWidth:2, pointRadius:2.5, tension:.3,
           pointBackgroundColor:'#d9a441', yAxisID:'y1',
           datalabels: {
             display: ctx => ctx.dataset.data[ctx.dataIndex] > 0,
-            anchor:'end', align:'top', offset:6, color:'#ffffff',
-            font:{ family:'DM Mono', size:10, weight:500 },
-            // Caixa escura atras: a linha passa por cima das barras, e o
-            // rotulo solto sumia no azul delas
-            backgroundColor:'rgba(10,10,10,.82)',
-            borderRadius:3, padding:{ top:2, bottom:2, left:5, right:5 },
-            // Sem "R$" e sem casa decimal: com um rotulo por dia, o eixo
-            // da direita ja diz a unidade e o espaco e' curto
+            // align 'top' com a caixa escura tapava as barras. Solto e em
+            // ambar, o rotulo se le pela cor — a mesma solucao do CPL no
+            // grafico por rede.
+            anchor:'end', align:'top', offset:4, color:'#d9a441',
+            font:{ family:'DM Mono', size:9 },
+            // Sem "R$": com um rotulo por dia o espaco e' curto, e o eixo
+            // da direita ja diz a unidade
             formatter: v => (v / 1000).toFixed(1) + 'k' } },
       ],
     },
@@ -3869,6 +3893,7 @@ function desenharGraficos(v) {
         labels:{ color:'#e8e8e8', font:{ family:'DM Mono', size:10 }, boxWidth:10 } } },
       scales: {
         ...opcoesBase().scales,
+        y: { ...opcoesBase().scales.y, grace:'12%' },
         y1: { position:'right', beginAtZero:true, grid:{ display:false },
               // Folga no topo pro rotulo do pico nao ser cortado pela borda
               grace:'18%',
