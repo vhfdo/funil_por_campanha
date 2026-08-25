@@ -207,6 +207,75 @@ function acharColunas(cabecalho) {
   return cols;
 }
 
+// ── Um cliente, uma venda ────────────────────────────────────────────────
+// O mesmo comprador aparece em varios negocios no Pipedrive (o combo
+// CES + HBC vira tres linhas). Somamos o valor e deixamos uma linha so,
+// senao o Vol. Ganhos conta a mesma pessoa tres vezes e o CAC sai menor
+// do que e'.
+//
+// Agrupamos por email E MES, nao so por email. A consolidacao roda aqui,
+// antes de o front filtrar por periodo — juntar uma venda de maio com uma
+// de agosto daria uma linha com uma data so, e o faturamento de um dos
+// meses mudaria de lugar. Dentro do mes, o total de cada periodo fica
+// identico e so a contagem muda.
+//
+// A planilha continua intacta: isto e' leitura, nao escrita.
+function consolidarPorEmail(ganhos) {
+  const grupos = new Map();
+  const soltos = [];
+
+  for (const g of ganhos) {
+    const email = String(g.email || '').trim().toLowerCase();
+    // Sem email nao da pra saber se e' a mesma pessoa — fica como esta
+    if (!email) { soltos.push({ ...g, negocios: 1, ids: [g.id] }); continue; }
+
+    // A data ja vem normalizada como DD/MM
+    const mes = String(g.data || '').slice(3, 5);
+    const chave = email + '|' + mes;
+
+    const atual = grupos.get(chave);
+    if (!atual) {
+      grupos.set(chave, { ...g, negocios: 1, ids: [g.id], maiorValor: g.valor });
+      continue;
+    }
+
+    atual.valor += g.valor;
+    atual.negocios += 1;
+    atual.ids.push(g.id);
+
+    // "Vale?" e' marcacao manual por negocio. Se qualquer um do grupo foi
+    // validado, a venda consolidada vale — por isso o campo NAO entra na
+    // chave de agrupamento: senao o mesmo comprador viraria duas linhas,
+    // uma com os negocios marcados e outra com os nao marcados.
+    if (g.vale === 'sim') atual.vale = 'sim';
+
+    // Utms e produto vem do negocio de maior valor: e' o que melhor
+    // representa a compra na atribuicao por campanha
+    if (g.valor > atual.maiorValor) {
+      atual.maiorValor = g.valor;
+      atual.id       = g.id;
+      atual.produto  = g.produto;
+      atual.campanha = g.campanha;
+      atual.source   = g.source;
+      atual.medium   = g.medium;
+      atual.content  = g.content;
+      atual.term     = g.term;
+    }
+
+    // Data: a mais recente do grupo. Como todos sao do mesmo mes, comparar
+    // DD/MM como texto ja ordena certo.
+    if ((g.data || '') > (atual.data || '')) atual.data = g.data;
+  }
+
+  return [...grupos.values(), ...soltos];
+}
+
+// "DD/MM" vira MMDD, pra comparar data sem montar objeto Date
+function paraOrdem(ddmm) {
+  const [d, m] = String(ddmm || '').split('/');
+  return (Number(m) || 0) * 100 + (Number(d) || 0);
+}
+
 // Le uma aba e nunca derruba a resposta inteira se ela nao existir
 async function lerAba(range) {
   try {
@@ -283,11 +352,11 @@ export default async function handler(req, res) {
       }
 
       // Ganhos: uma linha por venda, com "Vale?" na ultima coluna
-      const ganhos = [];
+      const ganhosBrutos = [];
       for (const linha of (resultados[ref.ganhos] || []).slice(1)) {
         const data = normalizarData(linha[0]);
         if (!data) continue;
-        ganhos.push({
+        ganhosBrutos.push({
           data,
           id:       linha[1] || '',
           nome:     linha[2] || '',
@@ -302,6 +371,9 @@ export default async function handler(req, res) {
           vale:     String(linha[11] || '').trim().toLowerCase(),
         });
       }
+
+      // Mesmo comprador com varios negocios vira uma linha so
+      const ganhos = consolidarPorEmail(ganhosBrutos);
 
       // ── Investimento ────────────────────────────────────────────────
       // Quatro saidas da mesma leitura:
@@ -453,6 +525,11 @@ export default async function handler(req, res) {
         leadsPorDia,
         etapas,
         ganhos,
+        // Quantos NEGOCIOS existiam antes da consolidacao. A aba Ganhos
+        // mostra os dois numeros, senao a contagem nao bate com a planilha
+        // e parece erro. E' a contagem, nao o array — mandar o array
+        // inteiro dobraria o tamanho da resposta a toa.
+        qtdNegocios: ganhosBrutos.length,
         investPorRede,
         investPorDia,
         investDiaRede,
