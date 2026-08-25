@@ -145,8 +145,15 @@
   .calor-cel{border-radius:2px;height:26px;
     display:flex;align-items:center;justify-content:center;
     font-family:'DM Mono',monospace;font-size:9px;font-weight:500;
-    transition:outline .1s;cursor:default;}
+    transition:outline .1s;cursor:pointer;}
   .calor-cel:hover{outline:1px solid var(--blue);}
+  /* Selecionado ganha contorno ambar, o mesmo sinal dos outros filtros */
+  .calor-cel.sel{outline:2px solid var(--amber);}
+  /* Fora do recorte escolhido: apaga sem sumir, pra manter a leitura do mapa */
+  .calor-cel.apagada{opacity:.25;}
+  .calor-dia,.calor-hora{cursor:pointer;}
+  .calor-dia:hover,.calor-hora:hover{color:var(--blue);}
+  .calor-dia.sel,.calor-hora.sel{color:var(--amber);font-weight:500;}
   .calor-total{font-family:'DM Mono',monospace;font-size:8.5px;color:var(--gray-light);
     display:flex;align-items:center;justify-content:center;}
   .calor-nota{font-family:'DM Mono',monospace;font-size:9px;color:var(--gray);
@@ -761,7 +768,8 @@ function ordenarEtapas(etapas) {
 let dados = null;            // resposta crua da API
 let produtoAtivo = CONSOLIDADO;
 let filtros = { rede: null, etapa: null, proprietario: null, funil: null,
-                cargo: null, motivo: null, score: null };
+                cargo: null, motivo: null, score: null,
+                diaSemana: null, hora: null };
 
 // 'leads' ou 'mqls' — define o que as barras dos cards medem
 let metrica = 'leads';
@@ -1100,10 +1108,34 @@ function toggleFiltro(tipo, valor) {
   render();
 }
 
+// Clique no mapa de calor. Celula liga dia E hora; o rotulo da lateral
+// liga so o dia; o do topo, so a hora. Clicar no que ja esta ativo desliga.
+function filtrarMomento(dia, hora) {
+  const d = dia  === null ? null : String(dia);
+  const h = hora === null ? null : String(hora);
+
+  const jaAtivo = (d === null || filtros.diaSemana === d)
+               && (h === null || filtros.hora === h)
+               && (d !== null || h !== null);
+
+  if (jaAtivo) {
+    if (d !== null) filtros.diaSemana = null;
+    if (h !== null) filtros.hora = null;
+    rastrear('limpar_filtro', 'momento');
+  } else {
+    if (d !== null) filtros.diaSemana = d;
+    if (h !== null) filtros.hora = h;
+    rastrear('filtrar', `momento: ${d !== null ? DIAS_SEMANA[Number(d)] : 'todos'}`
+      + ` ${h !== null ? h + 'h' : ''}`);
+  }
+  render();
+}
+
 function limparFiltros(silencioso) {
   if (!silencioso && Object.values(filtros).some(Boolean)) rastrear('limpar_filtros');
   filtros = { rede: null, etapa: null, proprietario: null, funil: null,
-              cargo: null, motivo: null, score: null };
+              cargo: null, motivo: null, score: null,
+              diaSemana: null, hora: null };
   if (!silencioso) render();
 }
 
@@ -1115,7 +1147,15 @@ function labelFiltroFunil() {
 function labelFiltros() {
   const ativos = Object.entries(filtros).filter(([, v]) => v);
   if (!ativos.length) return '';
-  return `Filtrando: ${ativos.map(([, v]) => v).join(' · ')} — limpar ×`;
+  // Dia e hora sao numeros guardados como texto; sem traduzir, a barra
+  // mostraria "1 · 21" em vez de "Segunda · 21h"
+  const legivel = ([tipo, v]) => {
+    if (tipo === 'diaSemana') return DIAS_SEMANA[Number(v)] || v;
+    if (tipo === 'hora')      return String(v).padStart(2, '0') + 'h';
+    if (tipo === 'score')     return 'score ' + v + '.0–' + v + '.9';
+    return v;
+  };
+  return `Filtrando: ${ativos.map(legivel).join(' · ')} — limpar ×`;
 }
 
 // ── Dados derivados do produto ativo, já com filtros aplicados ──────────────
@@ -1207,6 +1247,15 @@ function dadosVisiveis() {
   if (filtros.score)        backlog = backlog.filter(b =>
     b.score !== null && b.score !== undefined
     && String(Math.floor(b.score)) === filtros.score);
+  if (filtros.diaSemana || filtros.hora) {
+    backlog = backlog.filter(b => {
+      const m = momentoDoLead(b);
+      if (!m) return false;   // sem hora nao da pra dizer se cai no recorte
+      if (filtros.diaSemana && String(m.dia)  !== filtros.diaSemana) return false;
+      if (filtros.hora      && String(m.hora) !== filtros.hora)      return false;
+      return true;
+    });
+  }
 
   // ── Etapas do funil ──────────────────────────────────────────────────
   // Sai sempre do backlog, nao da aba ETAPA. A aba traz todos os deals
@@ -1225,6 +1274,15 @@ function dadosVisiveis() {
     if (filtros.funil)        base = base.filter(b => b.funil === filtros.funil);
     if (filtros.cargo)        base = base.filter(b => normalizarCargo(b.cargo) === filtros.cargo);
     if (filtros.rede)         base = base.filter(b => redeDoLead(b) === filtros.rede);
+    if (filtros.diaSemana || filtros.hora) {
+      base = base.filter(b => {
+        const m = momentoDoLead(b);
+        if (!m) return false;
+        if (filtros.diaSemana && String(m.dia)  !== filtros.diaSemana) return false;
+        if (filtros.hora      && String(m.hora) !== filtros.hora)      return false;
+        return true;
+      });
+    }
 
     const contagem = {};
     for (const b of base) {
@@ -1272,7 +1330,8 @@ function dadosVisiveis() {
   // Filtros vindos do backlog reescrevem a contagem de leads e MQL:
   // com filtro ativo, contar da aba LEADS daria o total do produto inteiro.
   const filtrandoBacklog = !!(filtros.etapa || filtros.proprietario
-    || filtros.funil || filtros.cargo || filtros.rede || filtros.score);
+    || filtros.funil || filtros.cargo || filtros.rede || filtros.score
+    || filtros.diaSemana || filtros.hora);
 
   // Com filtro ativo o grafico tambem passa a sair do backlog. A aba LEADS
   // so tem o total do dia, sem quebra por rede/dono/etapa — se ela continuasse
@@ -1551,7 +1610,7 @@ function render() {
           <span class="card-tag" style="background:#7ee0a8;color:#0a0a0a">
             ${fmtNum(v.mqlTresFunis)} nos 3 funis</span>
         </div>
-        <div class="chart-box"><canvas id="chartLeads"></canvas></div>
+        <div class="chart-box" style="height:260px"><canvas id="chartLeads"></canvas></div>
       </div>
       <div class="card">
         <div class="card-title">
@@ -1603,7 +1662,10 @@ function render() {
     <div class="card" style="margin-bottom:16px">
       <div class="card-title">
         Quando os leads chegam
-        <span class="card-tag">${rotuloMetrica().toLowerCase()} por dia e hora</span>
+        <span class="card-tag">${
+          filtros.diaSemana || filtros.hora
+            ? 'clique de novo pra limpar'
+            : 'clique pra filtrar'}</span>
       </div>
       ${mapaCalor(v)}
     </div>
@@ -3141,6 +3203,20 @@ function funilHtml(v) {
 // programar veiculacao de midia.
 const DIAS_SEMANA = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 
+// Le "01/08/2026 20:48:46" e devolve { dia: 5, hora: 20 }, ou null quando
+// falta a hora. Usado tanto pra desenhar o mapa quanto pra filtrar por ele
+// — uma funcao so evita os dois lados divergirem.
+function momentoDoLead(b) {
+  const m = (b.aplicacao || '').trim()
+    .match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}):/);
+  if (!m) return null;
+  const [, dia, mes, ano, hora] = m;
+  const d = new Date(Number(ano), Number(mes) - 1, Number(dia));
+  const h = Number(hora);
+  if (isNaN(d) || h < 0 || h > 23) return null;
+  return { dia: d.getDay(), hora: h };
+}
+
 function mapaCalor(v) {
   // grade[dia][hora]
   const grade = Array.from({ length: 7 }, () => new Array(24).fill(0));
@@ -3150,19 +3226,11 @@ function mapaCalor(v) {
   for (const b of v.backlog) {
     if (metrica === 'mqls' && !b.mql) continue;
 
-    const bruto = (b.aplicacao || '').trim();
-    // Esperado: dd/mm/aaaa hh:mm:ss
-    const m = bruto.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}):/);
+    // Mesma leitura que o filtro usa — ver momentoDoLead()
+    const m = momentoDoLead(b);
     if (!m) { semHora++; continue; }
 
-    const [, dia, mes, ano, hora] = m;
-    const d = new Date(Number(ano), Number(mes) - 1, Number(dia));
-    if (isNaN(d)) { semHora++; continue; }
-
-    const h = Number(hora);
-    if (h < 0 || h > 23) { semHora++; continue; }
-
-    grade[d.getDay()][h]++;
+    grade[m.dia][m.hora]++;
     total++;
   }
 
@@ -3197,11 +3265,17 @@ function mapaCalor(v) {
     <div class="calor-wrap">
       <div class="calor" style="grid-template-columns:64px repeat(24,1fr) 42px">
         <div class="calor-canto"></div>
-        ${horas.map(h => `<div class="calor-hora">${String(h).padStart(2, '0')}</div>`).join('')}
+        ${horas.map(h => `<div class="calor-hora ${
+          filtros.hora === String(h) ? 'sel' : ''}"
+          onclick="filtrarMomento(null, ${h})"
+          title="Filtrar só ${String(h).padStart(2, '0')}h">${
+          String(h).padStart(2, '0')}</div>`).join('')}
         <div class="calor-hora" style="color:var(--gray-light)">Σ</div>
 
         ${DIAS_SEMANA.map((nome, d) => `
-          <div class="calor-dia">${nome}</div>
+          <div class="calor-dia ${filtros.diaSemana === String(d) ? 'sel' : ''}"
+               onclick="filtrarMomento(${d}, null)"
+               title="Filtrar só ${nome}">${nome}</div>
           ${horas.map(h => {
             const qtd = grade[d][h];
             // Todo valor e' rotulado. Em celula clara o texto escurece,
@@ -3210,10 +3284,20 @@ function mapaCalor(v) {
             const corTexto = !qtd ? '#3a3a3a'
                            : claro ? '#0a1420'
                            : 'rgba(255,255,255,.82)';
-            return `<div class="calor-cel"
+            // Com filtro ativo, o que esta fora do recorte apaga em vez de
+            // sumir: o mapa continua legivel e da pra ver de onde saiu
+            const noDia  = !filtros.diaSemana || filtros.diaSemana === String(d);
+            const naHora = !filtros.hora      || filtros.hora      === String(h);
+            const dentro = noDia && naHora;
+            const exata  = filtros.diaSemana === String(d)
+                        && filtros.hora === String(h);
+            return `<div class="calor-cel ${exata ? 'sel' : ''} ${
+                        dentro ? '' : 'apagada'}"
                       style="${cor(qtd)};color:${corTexto}"
+                      onclick="filtrarMomento(${d}, ${h})"
                       title="${nome}, ${String(h).padStart(2,'0')}h — ${qtd} ${
-                        metrica === 'mqls' ? 'MQL' : 'leads'}">${qtd || '·'}</div>`;
+                        metrica === 'mqls' ? 'MQL' : 'leads'} · clique pra filtrar">${
+                        qtd || '·'}</div>`;
           }).join('')}
           <div class="calor-total">${fmtNum(porDia[d])}</div>
         `).join('')}
@@ -3764,15 +3848,19 @@ function desenharGraficos(v) {
             anchor:'end', align:'end', offset:-2, color:'#7ee0a8',
             font:{ family:'DM Mono', size:8 }, formatter: v => fmtNum(v) } },
         { type:'line', label:'Investimento', data: invDias,
-          borderColor:'#d9a441', borderWidth:2, pointRadius:0, tension:.3, yAxisID:'y1',
-          datalabels: { display: ctx => {
-              // So o pico e o ultimo ponto, senao a linha vira uma parede de numeros
-              const d = ctx.dataset.data, i = ctx.dataIndex;
-              return d[i] > 0 && (i === d.length - 1 || d[i] === Math.max(...d));
-            },
-            anchor:'end', align:'top', color:'#d9a441',
-            font:{ family:'DM Mono', size:8 },
-            formatter: v => 'R$ ' + (v/1000).toFixed(1) + 'k' } },
+          borderColor:'#d9a441', borderWidth:2.5, pointRadius:3, tension:.3,
+          pointBackgroundColor:'#d9a441', yAxisID:'y1',
+          datalabels: {
+            display: ctx => ctx.dataset.data[ctx.dataIndex] > 0,
+            anchor:'end', align:'top', offset:6, color:'#ffffff',
+            font:{ family:'DM Mono', size:10, weight:500 },
+            // Caixa escura atras: a linha passa por cima das barras, e o
+            // rotulo solto sumia no azul delas
+            backgroundColor:'rgba(10,10,10,.82)',
+            borderRadius:3, padding:{ top:2, bottom:2, left:5, right:5 },
+            // Sem "R$" e sem casa decimal: com um rotulo por dia, o eixo
+            // da direita ja diz a unidade e o espaco e' curto
+            formatter: v => (v / 1000).toFixed(1) + 'k' } },
       ],
     },
     options: {
@@ -3782,6 +3870,8 @@ function desenharGraficos(v) {
       scales: {
         ...opcoesBase().scales,
         y1: { position:'right', beginAtZero:true, grid:{ display:false },
+              // Folga no topo pro rotulo do pico nao ser cortado pela borda
+              grace:'18%',
               ticks:{ color:'#d9a441', font:{ family:'DM Mono', size:9 },
                       callback: val => 'R$ ' + (val/1000).toFixed(0) + 'k' } },
       },
