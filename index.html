@@ -1703,11 +1703,21 @@ function render() {
     <div class="grid-topo">
       <div class="card">
         <div class="card-title">
+          Vendas: novo x reaplicação
+          <span class="card-tag">volume e faturamento</span>
+        </div>
+        <div class="card-body" style="max-height:280px">${vendasPorOrigem(v)}</div>
+      </div>
+      <div class="card">
+        <div class="card-title">
           Cargo de quem comprou
           <span class="card-tag">clique pra filtrar</span>
         </div>
         <div class="card-body" style="max-height:280px">${perfilDosGanhos(v, 'cargo')}</div>
       </div>
+    </div>
+
+    <div class="grid-topo">
       <div class="card">
         <div class="card-title">
           Campanha de quem comprou
@@ -3580,6 +3590,76 @@ function exportarAbertosCSV() {
   a.download = nome;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+// ── Venda nova x venda de reaplicacao ───────────────────────────────────────
+// A aba GANHOS nao sabe se o comprador era reaplicacao — essa marca esta no
+// BACKLOG MQL. Cruzamos pelo ID do negocio, como no card de cargo.
+//
+// O cruzamento e' parcial e isso importa aqui mais do que em qualquer outro
+// lugar: quem comprou este mes mas entrou em outro NAO esta no backlog do
+// periodo, e reaplicacao e' justamente o caso de quem ja tinha entrado
+// antes. So que a marca do Pipedrive olha se a APLICACAO e' posterior a
+// criacao — entao um lead antigo que reaplicou este mes aparece no backlog
+// deste mes, com a marca ligada. Quem nao casa e' quem nao reaplicou.
+function vendasPorOrigem(v) {
+  const ganhos = v.ganhos.filter(g => g.vale === 'sim');
+  if (!ganhos.length) {
+    return '<div class="empty">Nenhuma venda validada no período.</div>';
+  }
+
+  // Indexa o backlog por ID pra achar a marca de cada comprador
+  const porId = {};
+  for (const b of dados.backlog) porId[String(b.id)] = b;
+
+  const grupos = {
+    'Reaplicação':  { qtd: 0, valor: 0, cor: '#d9a441' },
+    'Lead novo':    { qtd: 0, valor: 0, cor: '#2f6b46' },
+    'Não conferido':{ qtd: 0, valor: 0, cor: '#4a4a52' },
+  };
+
+  for (const g of ganhos) {
+    const b = porId[String(g.id)];
+    const k = !b ? 'Não conferido'
+            : b.reaplicacao ? 'Reaplicação' : 'Lead novo';
+    grupos[k].qtd++;
+    grupos[k].valor += g.valor;
+  }
+
+  const totalQtd   = ganhos.length;
+  const totalValor = ganhos.reduce((s, g) => s + g.valor, 0);
+  const lista = Object.entries(grupos).filter(([, d]) => d.qtd);
+  const maior = Math.max(...lista.map(([, d]) => d.valor), 1);
+
+  const linhas = lista.map(([nome, d]) => `
+    <div class="funil-step" style="cursor:default">
+      <div class="funil-label" title="${fmtNum(d.qtd)} venda(s)">${nome}</div>
+      <div class="funil-track">
+        <div class="funil-bar" style="width:${
+          Math.max(d.valor / maior * 100, 3)}%;background:${d.cor}">
+          <span class="funil-val">${fmtBRL(d.valor)}</span>
+        </div>
+      </div>
+      <div class="funil-pct" title="${
+        (d.valor / totalValor * 100).toFixed(0)}% do faturamento">${
+        fmtNum(d.qtd)}</div>
+    </div>`).join('');
+
+  const r = grupos['Reaplicação'];
+  const naoConf = grupos['Não conferido'].qtd;
+
+  return `<div class="funil">${linhas}</div>
+    <div class="calor-nota">
+      Barra = faturamento · número à direita = volume de vendas${
+        r.qtd ? ` · reaplicação vale ${fmtBRL(r.valor)} em ${
+          fmtNum(r.qtd)} venda(s), ${
+          (r.valor / totalValor * 100).toFixed(0)}% do faturamento` : ''}
+    </div>
+    ${naoConf ? `<div class="calor-nota" style="color:var(--amber)">
+      ${fmtNum(naoConf)} venda(s) sem conferir: o comprador entrou em outro
+      mês e não está no backlog do período, então não dá pra saber se era
+      reaplicação.
+    </div>` : ''}`;
 }
 
 // ── Perfil de quem comprou ──────────────────────────────────────────────────
