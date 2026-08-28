@@ -1613,23 +1613,13 @@ function render() {
 
     <div class="redes-grid">${cardsRedes(v)}</div>
 
-    <div class="grid-topo">
-      <div class="card">
-        <div class="card-title">
-          Investimento · Leads · MQL
-          <span class="card-tag" style="background:#7ee0a8;color:#0a0a0a">
-            ${fmtNum(v.mqlTresFunis)} nos 3 funis</span>
-        </div>
-        <div class="chart-box" style="height:260px"><canvas id="chartLeads"></canvas></div>
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-title">
+        Investimento · Leads · MQL
+        <span class="card-tag" style="background:#7ee0a8;color:#0a0a0a">
+          ${fmtNum(v.mqlTresFunis)} nos 3 funis</span>
       </div>
-      <div class="card">
-        <div class="card-title">
-          ${v.filtraFunil ? 'Funil · ' + labelFiltroFunil() : 'Funil · em aberto'}
-          <span class="card-tag" ${v.filtraFunil ? 'style="background:var(--amber);color:#0a0a0a"' : ''}>
-            ${v.filtraFunil ? rotuloMetrica().toLowerCase() + ' filtrados' : '% do total'}</span>
-        </div>
-        <div class="card-body">${funilHtml(v)}</div>
-      </div>
+      <div class="chart-box" style="height:300px"><canvas id="chartLeads"></canvas></div>
     </div>
 
     <div class="grid-meio">
@@ -1724,6 +1714,14 @@ function render() {
           <span class="card-tag">valor no tooltip</span>
         </div>
         <div class="card-body" style="max-height:280px">${perfilDosGanhos(v, 'campanha')}</div>
+      </div>
+      <div class="card">
+        <div class="card-title">
+          ${v.filtraFunil ? 'Funil · ' + labelFiltroFunil() : 'Funil · em aberto'}
+          <span class="card-tag" ${v.filtraFunil ? 'style="background:var(--amber);color:#0a0a0a"' : ''}>
+            ${v.filtraFunil ? rotuloMetrica().toLowerCase() + ' filtrados' : '% do total'}</span>
+        </div>
+        <div class="card-body" style="max-height:280px">${funilHtml(v)}</div>
       </div>
     </div>
 
