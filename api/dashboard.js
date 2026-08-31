@@ -51,6 +51,8 @@ const PRODUTOS = {
     investimento: [
       { rede: 'Meta',     aba: 'INVESTIMENTO META LEAN',     colData: 6, colValor: 7 },
       { rede: 'LinkedIn', aba: 'INVESTIMENTO LINKEDIN LEAN', colData: 6, colValor: 7 },
+      // Google no Lean: F = dia (indice 5), G = valor (indice 6)
+      { rede: 'Google',   aba: 'INVESTIMENTO GOOGLE LEAN',   colData: 5, colValor: 6 },
     ],
   },
   'CES': {
@@ -249,6 +251,10 @@ function consolidarPorEmail(ganhos) {
     // uma com os negocios marcados e outra com os nao marcados.
     if (g.vale === 'sim') atual.vale = 'sim';
 
+    // Basta um negocio do grupo ter voltado pro cliente contar como
+    // reaplicacao — ele ja tinha entrado antes de qualquer forma
+    if (g.reaplicacao) atual.reaplicacao = true;
+
     // Utms e produto vem do negocio de maior valor: e' o que melhor
     // representa a compra na atribuicao por campanha
     if (g.valor > atual.maiorValor) {
@@ -262,9 +268,24 @@ function consolidarPorEmail(ganhos) {
       atual.term     = g.term;
     }
 
-    // Data: a mais recente do grupo. Como todos sao do mesmo mes, comparar
-    // DD/MM como texto ja ordena certo.
+    // Data da venda: a mais recente do grupo. Como todos sao do mesmo mes,
+    // comparar DD/MM como texto ja ordena certo.
     if ((g.data || '') > (atual.data || '')) atual.data = g.data;
+
+    // Aplicacao: a MAIS ANTIGA. O que interessa e' quando o cliente entrou,
+    // e o negocio de maior valor nao e' necessariamente o primeiro contato.
+    // Ordenamos por AAAA-MM-DD porque DD/MM/AAAA como texto compara o dia
+    // antes do ano — "01/03/2026" viria antes de "28/07/2025".
+    const chaveData = s => {
+      const p = String(s || '').split('/');
+      return p.length === 3 ? `${p[2]}-${p[1]}-${p[0]}` : '';
+    };
+    if (g.aplicacao && (!atual.aplicacao
+        || chaveData(g.aplicacao) < chaveData(atual.aplicacao))) {
+      atual.aplicacao = g.aplicacao;
+      atual.criacao   = g.criacao;
+      atual.dias      = g.dias;
+    }
   }
 
   return [...grupos.values(), ...soltos];
@@ -369,6 +390,18 @@ export default async function handler(req, res) {
           content:  linha[9] || '',
           term:     linha[10] || '',
           vale:     String(linha[11] || '').trim().toLowerCase(),
+          // Quando o lead entrou: e' o que separa venda da safra do mes de
+          // venda de lead antigo. So o backlog do periodo nao resolve —
+          // lead de marco nao esta la.
+          criacao:   linha[12] || '',
+          aplicacao: linha[13] || '',
+          dias:      parseNum(linha[14]),
+          // Calculado no update_all.py com a MESMA regra do backlog, entao
+          // responde por toda venda — inclusive a de lead antigo, que nao
+          // esta no backlog do mes e o front nao conseguia classificar
+          reaplicacao: String(linha[15] || '').trim() !== '',
+          // Permite filtrar faturamento por funil no dashboard
+          funil:       linha[16] || '',
         });
       }
 
@@ -581,6 +614,11 @@ export default async function handler(req, res) {
         // Score: null quando o campo esta vazio, pra separar "sem score"
         // de "score zero" — sao coisas diferentes na leitura
         score:       parseScore(linha[21]),
+        // Horas úteis da criação até a primeira chamada. null = ainda não
+        // atendido OU chamada não registrada — o dado não distingue os dois
+        tme:         linha[22] === '' || linha[22] === undefined
+                       ? null : parseScore(linha[22]),
+        atendidoEm:  linha[23] || '',
       });
     }
 
