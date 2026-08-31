@@ -411,6 +411,18 @@
     margin-bottom:3px;}
   @media print{ .aviso-validacao{break-inside:avoid;} }
 
+  /* Ponto que pulsa enquanto o dado esta fresco. A animacao para quando
+     o dado envelhece — indicador animado sobre numero velho engana. */
+  .pulso{display:inline-block;width:7px;height:7px;border-radius:50%;
+    background:var(--green);margin-right:6px;vertical-align:middle;
+    animation:bate 1.6s ease-in-out infinite;}
+  .pulso.parado{background:var(--amber);animation:none;}
+  @keyframes bate{
+    0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(74,222,128,.55);}
+    70%{opacity:.75;box-shadow:0 0 0 7px rgba(74,222,128,0);}
+  }
+  @media print{ .pulso{animation:none;} }
+
   .empty{text-align:center;padding:40px 20px;color:var(--gray);
     font-family:'DM Mono',monospace;font-size:12px;}
   .loading{text-align:center;padding:80px 20px;color:var(--gray);
@@ -1606,10 +1618,11 @@ function render() {
     kpiCard('CAC', fmtBRL(k.cac),
       { meta: metas.cac, bruto: k.cac, fmt: fmtBRL, menorMelhor: true }),
     cardReaplicacao(v),
+    cardTME(v),
   ].join('');
 
   document.getElementById('conteudo').innerHTML = `
-    <div class="kpi-strip">${kpisHtml}</div>
+    <div class="kpi-strip" style="grid-template-columns:repeat(11,1fr)">${kpisHtml}</div>
 
     <div class="redes-grid">${cardsRedes(v)}</div>
 
@@ -3141,6 +3154,80 @@ function exportarCampanhasCSV() {
   URL.revokeObjectURL(url);
 }
 
+// ── TME: quanto o lead esperou pelo primeiro contato ────────────────────────
+// Sai do backlog, entao ja chega com produto, periodo e todos os filtros da
+// tela — clicar num funil ou num proprietario mexe aqui junto.
+//
+// Mediana, nao media: um lead esquecido por 200 horas puxa a media e some
+// na mediana, que descreve o atendimento tipico.
+function calcTME(lista) {
+  const v = (lista || [])
+    .filter(b => b.tme !== null && b.tme !== undefined)
+    .map(b => b.tme);
+  if (!v.length) return { med: null, media: null, n: 0, cobertura: 0 };
+  const s = [...v].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return {
+    med: s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2,
+    media: s.reduce((a, b) => a + b, 0) / s.length,
+    n: s.length,
+    cobertura: lista.length ? s.length / lista.length * 100 : 0,
+  };
+}
+
+// Quantas horas desde a ultima gravacao da planilha. Decide se o pulso
+// anima ou nao — ver o CSS de .pulso.
+function idadeDoDado() {
+  const m = String(dados && dados.dadosDe || '')
+    .match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})/);
+  if (!m) return null;
+  const [, d, mes, a, h, min] = m;
+  return (Date.now() - new Date(+a, +mes - 1, +d, +h, +min).getTime()) / 36e5;
+}
+
+const fmtHoras = x => x < 1
+  ? Math.round(x * 60) + 'min'
+  : x.toFixed(1).replace('.', ',') + 'h';
+
+function cardTME(v) {
+  const t = calcTME(v.backlog);
+  // Separado porque MQL e lead comum costumam ter fila diferente, e a
+  // mediana dos dois junto esconde isso
+  const tm = calcTME(v.backlog.filter(b => b.mql));
+  const tl = calcTME(v.backlog.filter(b => !b.mql));
+
+  const horas = idadeDoDado();
+  // 3h e' meia rodada: abaixo disso o numero e' recente o bastante pra
+  // ser tratado como "agora"
+  const fresco = horas !== null && horas < 3;
+
+  if (!t.n) {
+    return `<div class="kpi-card">
+      <div class="kpi-label">TME</div>
+      <div class="kpi-val" style="color:var(--gray)">—</div>
+      <div class="kpi-linha"><span>sem contato registrado</span></div>
+    </div>`;
+  }
+
+  return `<div class="kpi-card">
+    <div class="kpi-label"><span class="pulso ${fresco ? '' : 'parado'}"
+      title="${horas === null ? 'sem carimbo de atualização'
+        : fresco ? 'dado das últimas 3 horas'
+        : `planilha atualizada há ${Math.floor(horas)}h`}"></span>TME</div>
+    <div class="kpi-val blue">${fmtHoras(t.med)}</div>
+    <div class="kpi-linha"><span>MQL</span>
+      <span style="color:var(--blue)" title="${fmtNum(tm.n)} contatados">${
+        tm.n ? fmtHoras(tm.med) : '—'}</span></div>
+    <div class="kpi-linha"><span>Lead</span>
+      <span title="${fmtNum(tl.n)} contatados">${
+        tl.n ? fmtHoras(tl.med) : '—'}</span></div>
+    <div class="kpi-linha"><span>${fmtNum(t.n)} contatados</span>
+      <span style="color:${t.cobertura < 50 ? 'var(--amber)' : 'var(--gray-light)'}"
+        title="% dos leads com ligação ou mensagem registrada">${
+        t.cobertura.toFixed(0)}%</span></div>
+  </div>`;
+}
+
 // ── Reaplicação ─────────────────────────────────────────────────────────────
 // Lead que ja tinha entrado antes e voltou. Vale acompanhar porque uma taxa
 // alta significa que boa parte do volume nao e' publico novo — a base esta
@@ -3606,32 +3693,80 @@ function vendasPorOrigem(v) {
     return '<div class="empty">Nenhuma venda validada no período.</div>';
   }
 
-  // Indexa o backlog por ID pra achar a marca de cada comprador
+  // A marca de reaplicacao vem do proprio ganho agora, calculada no
+  // update_all.py com a mesma regra do backlog. O join com o backlog fica
+  // so de reserva, pra planilha que ainda nao tenha a coluna nova.
   const porId = {};
   for (const b of dados.backlog) porId[String(b.id)] = b;
 
-  const grupos = {
-    'Reaplicação':  { qtd: 0, valor: 0, cor: '#d9a441' },
-    'Lead novo':    { qtd: 0, valor: 0, cor: '#2f6b46' },
-    'Não conferido':{ qtd: 0, valor: 0, cor: '#4a4a52' },
+  // Comparar DD/MM/AAAA como texto ordena o dia antes do ano; inverter
+  // resolve. Isso importa aqui: "01/03/2026" tem que vir DEPOIS de
+  // "28/07/2025", e como texto cru viria antes.
+  const chaveData = s => {
+    const p = String(s || '').trim().slice(0, 10).split('/');
+    return p.length === 3 ? `${p[2]}-${p[1]}-${p[0]}` : '';
   };
+  const iniPer = document.getElementById('dataInicio').value;   // AAAA-MM-DD
+
+  const grupos = {
+    'Reaplicação':   { qtd: 0, valor: 0, cor: '#d9a441', dias: [] },
+    'Lead do período':{ qtd: 0, valor: 0, cor: '#2f6b46', dias: [] },
+    'Lead anterior': { qtd: 0, valor: 0, cor: '#5b6f9e', dias: [] },
+    'Sem data':      { qtd: 0, valor: 0, cor: '#4a4a52', dias: [] },
+  };
+  const antigos = {};   // mes de entrada -> {qtd, valor}
 
   for (const g of ganhos) {
     const b = porId[String(g.id)];
-    const k = !b ? 'Não conferido'
-            : b.reaplicacao ? 'Reaplicação' : 'Lead novo';
+    const ka = chaveData(g.aplicacao);
+
+    // Prefere a marca do proprio ganho; cai no backlog so se a coluna
+    // ainda nao existir na planilha
+    const ehReapl = g.reaplicacao !== undefined
+      ? g.reaplicacao
+      : !!(b && b.reaplicacao);
+
+    let k;
+    if (ehReapl) {
+      // Ja tinha entrado antes e voltou — isso manda, venha de que mes vier
+      k = 'Reaplicação';
+    } else if (!ka) {
+      k = 'Sem data';
+    } else if (iniPer && ka < iniPer) {
+      // Entrou antes do periodo selecionado
+      k = 'Lead anterior';
+      const mes = ka.slice(0, 7);
+      if (!antigos[mes]) antigos[mes] = { qtd: 0, valor: 0 };
+      antigos[mes].qtd++;
+      antigos[mes].valor += g.valor;
+    } else {
+      k = 'Lead do período';
+    }
+
     grupos[k].qtd++;
     grupos[k].valor += g.valor;
+    if (g.dias > 0) grupos[k].dias.push(g.dias);
   }
 
-  const totalQtd   = ganhos.length;
   const totalValor = ganhos.reduce((s, g) => s + g.valor, 0);
   const lista = Object.entries(grupos).filter(([, d]) => d.qtd);
   const maior = Math.max(...lista.map(([, d]) => d.valor), 1);
 
-  const linhas = lista.map(([nome, d]) => `
+  // Mediana, nao media: um negocio de 400 dias puxaria a media e daria a
+  // impressao de um ciclo que nao e' o tipico
+  const mediana = arr => {
+    if (!arr.length) return null;
+    const s = [...arr].sort((a, b) => a - b);
+    const m = Math.floor(s.length / 2);
+    return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
+  };
+
+  const linhas = lista.map(([nome, d]) => {
+    const med = mediana(d.dias);
+    return `
     <div class="funil-step" style="cursor:default">
-      <div class="funil-label" title="${fmtNum(d.qtd)} venda(s)">${nome}</div>
+      <div class="funil-label" title="${fmtNum(d.qtd)} venda(s)${
+        med !== null ? ` · ciclo típico de ${med} dias` : ''}">${nome}</div>
       <div class="funil-track">
         <div class="funil-bar" style="width:${
           Math.max(d.valor / maior * 100, 3)}%;background:${d.cor}">
@@ -3641,22 +3776,32 @@ function vendasPorOrigem(v) {
       <div class="funil-pct" title="${
         (d.valor / totalValor * 100).toFixed(0)}% do faturamento">${
         fmtNum(d.qtd)}</div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 
-  const r = grupos['Reaplicação'];
-  const naoConf = grupos['Não conferido'].qtd;
+  // Ciclo de venda geral
+  const todosDias = ganhos.filter(g => g.dias > 0).map(g => g.dias);
+  const medGeral = mediana(todosDias);
+
+  // De que meses vieram os leads antigos
+  const MES_CURTO = ['jan','fev','mar','abr','mai','jun',
+                     'jul','ago','set','out','nov','dez'];
+  const detalhe = Object.entries(antigos)
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([mes, d]) => {
+      const [ano, m] = mes.split('-');
+      return `${MES_CURTO[Number(m) - 1]}/${ano.slice(2)}: ${
+        fmtNum(d.qtd)} (${fmtBRL(d.valor)})`;
+    }).join(' · ');
 
   return `<div class="funil">${linhas}</div>
     <div class="calor-nota">
-      Barra = faturamento · número à direita = volume de vendas${
-        r.qtd ? ` · reaplicação vale ${fmtBRL(r.valor)} em ${
-          fmtNum(r.qtd)} venda(s), ${
-          (r.valor / totalValor * 100).toFixed(0)}% do faturamento` : ''}
+      Barra = faturamento · número à direita = volume${
+        medGeral !== null
+          ? ` · da aplicação até a venda, ${medGeral} dias no típico` : ''}
     </div>
-    ${naoConf ? `<div class="calor-nota" style="color:var(--amber)">
-      ${fmtNum(naoConf)} venda(s) sem conferir: o comprador entrou em outro
-      mês e não está no backlog do período, então não dá pra saber se era
-      reaplicação.
+    ${detalhe ? `<div class="calor-nota" style="color:var(--gray-light)">
+      <b style="color:#5b6f9e">Leads anteriores entraram em:</b> ${detalhe}
     </div>` : ''}`;
 }
 
@@ -3842,9 +3987,10 @@ function tabelaProprietarios(v) {
   const agg = {};
   for (const b of v.backlog) {
     const dono = b.proprietario || '—';
-    if (!agg[dono]) agg[dono] = { leads: 0, mqls: 0 };
+    if (!agg[dono]) agg[dono] = { leads: 0, mqls: 0, itens: [] };
     agg[dono].leads++;
     if (b.mql) agg[dono].mqls++;
+    agg[dono].itens.push(b);
   }
 
   // Sem corte — a lista rola dentro do card. Cortar escondia proprietarios
@@ -3855,11 +4001,21 @@ function tabelaProprietarios(v) {
     .map(([dono, d]) => {
       const sel = filtros.proprietario === dono;
       const cor = c => ordemPropCol === c ? 'color:var(--blue);font-weight:600' : '';
+      const t = calcTME(d.itens);
+      // Cobertura baixa: o TME mede quem registra chamada, nao quem
+      // atende rapido. Fica cinza pra nao virar comparacao injusta.
+      const conf = t.n && t.cobertura >= 50;
       return `<tr class="clicavel ${sel ? 'selecionado' : ''}"
                 onclick="toggleFiltro('proprietario', ${attr(dono)})">
         <td>${dono}</td>
         <td class="num" style="${cor('leads')}">${fmtNum(d.leads)}</td>
         <td class="num" style="${cor('mqls')}">${fmtNum(d.mqls)}</td>
+        <td class="num" title="${t.n
+            ? fmtNum(t.n) + ' atendidos · ' + t.cobertura.toFixed(0) + '% dos leads'
+            : 'nenhuma chamada registrada'}"
+          style="color:${!t.n ? 'var(--gray)'
+            : conf ? 'var(--white)' : 'var(--gray-light)'}">${
+          t.n ? fmtHoras(t.med) : '—'}</td>
       </tr>`;
     }).join('');
 
@@ -3874,7 +4030,9 @@ function tabelaProprietarios(v) {
   };
 
   return `<table>
-    <thead><tr><th>Proprietário</th>${col('leads')}${col('mqls')}</tr></thead>
+    <thead><tr><th>Proprietário</th>${col('leads')}${col('mqls')}
+      <th class="num" title="Mediana das horas úteis entre a criação do lead e a primeira chamada">TME</th>
+    </tr></thead>
     <tbody>${linhas}</tbody>
   </table>`;
 }
