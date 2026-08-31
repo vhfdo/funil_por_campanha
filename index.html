@@ -34,6 +34,39 @@
   .user-info{font-family:'DM Mono',monospace;font-size:11px;color:var(--white);
     text-transform:uppercase;letter-spacing:.06em;}
 
+  /* Idade do dado: discreto, mas com o ponto colorido que denuncia atraso */
+  .atualizacao{display:inline-flex;align-items:center;gap:7px;
+    font-family:'DM Mono',monospace;font-size:10px;color:var(--gray);
+    padding:6px 12px;border:1px solid var(--border);background:var(--panel);
+    white-space:nowrap;cursor:default;}
+  .atualizacao .ponto{width:6px;height:6px;border-radius:50%;
+    background:var(--green);flex-shrink:0;}
+  .atualizacao.velho{border-color:var(--amber);color:var(--amber);}
+  .atualizacao.velho .ponto{background:var(--amber);}
+  .atualizacao .idade{color:var(--gray-light);}
+  .atualizacao.velho .idade{color:var(--amber);}
+  @media(max-width:900px){ .atualizacao{display:none;} }
+  @media print{ .atualizacao{display:none;} }
+
+  /* TME no cabecalho: bloco proprio, alinhado com os controles */
+  .tme-box{display:flex;align-items:center;gap:14px;padding:7px 16px;
+    background:var(--panel);border:1px solid var(--border);
+    border-left:3px solid var(--blue);}
+  .tme-principal{display:flex;flex-direction:column;line-height:1.15;}
+  .tme-rot{font-family:'DM Mono',monospace;font-size:9px;color:var(--white);
+    text-transform:uppercase;letter-spacing:.12em;display:flex;
+    align-items:center;}
+  .tme-val{font-family:'Bebas Neue',sans-serif;font-size:26px;
+    color:var(--blue);letter-spacing:.02em;}
+  .tme-quebra{display:flex;flex-direction:column;gap:3px;
+    padding-left:14px;border-left:1px solid var(--border);}
+  .tme-linha{display:flex;justify-content:space-between;gap:12px;
+    font-family:'DM Mono',monospace;font-size:10px;color:var(--gray-light);}
+  .tme-linha b{color:var(--white);font-weight:500;}
+  .tme-linha.mql b{color:var(--blue);}
+  @media(max-width:1100px){ .tme-box{display:none;} }
+  @media print{ .tme-box{display:none;} }
+
   .metrica-switch{display:flex;gap:1px;background:var(--border);border:1px solid var(--border);}
   .metrica-btn{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.08em;
     text-transform:uppercase;padding:9px 16px;background:var(--panel);color:var(--white);
@@ -438,6 +471,7 @@
       <h1>PERFORMANCE</h1>
     </div>
     <div class="header-right">
+      <span id="tmeHeader"></span>
       <div class="metrica-switch">
         <button class="metrica-btn active" data-metrica="leads"
                 onclick="trocarMetrica('leads')">Leads</button>
@@ -461,6 +495,7 @@
       <button class="btn" id="btnReport" onclick="alternarReport()">Report</button>
       <button class="btn" onclick="exportarPDF()">↓ PDF</button>
       <span class="user-info" id="userInfo"></span>
+      <span id="statusAtualizacao"></span>
       <button class="btn" onclick="logout()">Sair</button>
     </div>
   </div>
@@ -471,7 +506,6 @@
 
   <div class="status-bar">
     <span id="statusTexto">Carregando dados…</span>
-    <span id="statusAtualizacao" title="Quando a planilha foi atualizada pela última vez"></span>
     <span class="filtro-ativo" id="filtroAtivo" onclick="limparFiltros()"></span>
   </div>
 
@@ -886,31 +920,39 @@ function mostrarAtualizacao(carimbo) {
   if (!el) return;
 
   if (!carimbo) {
-    el.textContent = '';
+    el.innerHTML = '';
     return;
   }
 
   // Vem como "20/08/2026 14:32"
   const m = String(carimbo).match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})/);
-  if (!m) { el.textContent = `atualizado em ${carimbo}`; return; }
+  if (!m) {
+    el.innerHTML = `<span class="atualizacao">${carimbo}</span>`;
+    return;
+  }
 
   const [, d, mes, a, h, min] = m;
   const quando = new Date(+a, +mes - 1, +d, +h, +min);
   const horas  = (Date.now() - quando.getTime()) / 36e5;
 
   let idade;
-  if (horas < 1)       idade = 'agora há pouco';
+  if (horas < 1)       idade = 'agora';
   else if (horas < 24) idade = `há ${Math.floor(horas)}h`;
   else                 idade = `há ${Math.floor(horas / 24)}d`;
 
   // 12h e' uma rodada e meia: abaixo disso o atraso e' normal
-  const cor = horas >= 12 ? 'var(--amber)' : 'var(--gray-light)';
-  el.style.color = cor;
-  el.textContent = `dados de ${carimbo} · ${idade}`
-    + (horas >= 12 ? '  ⚠' : '');
-  el.title = horas >= 12
-    ? 'A planilha não é atualizada há mais de 12h — confira o GitHub Actions'
-    : 'Quando o update_all.py gravou a planilha pela última vez';
+  const velho = horas >= 12;
+
+  // A data completa fica no title. No cabecalho so a hora e a idade —
+  // "31/08/2026 16:45" ao lado dos botoes vira ruido, e o que a pessoa
+  // quer saber e' se o numero esta velho.
+  el.innerHTML = `<span class="atualizacao ${velho ? 'velho' : ''}"
+    title="${velho
+      ? 'A planilha não é atualizada há mais de 12h — confira o GitHub Actions'
+      : 'Última gravação da planilha pelo update_all.py'}: ${carimbo}">
+    <span class="ponto"></span>${h}:${min}
+    <span class="idade">${idade}</span>${velho ? ' ⚠' : ''}
+  </span>`;
 }
 
 // ── Abas de produto ─────────────────────────────────────────────────────────
@@ -1540,6 +1582,11 @@ function render() {
 
   document.getElementById('filtroAtivo').textContent = labelFiltros();
 
+  // O TME fica no cabecalho, fora do #conteudo — entao e' preenchido aqui,
+  // em toda renderizacao, pra acompanhar os filtros como o resto da tela
+  const boxTME = document.getElementById('tmeHeader');
+  if (boxTME) boxTME.innerHTML = cardTME(v);
+
   if (modoBase)      { renderBase(v); return; }
   if (modoGanhos)    { renderGanhos(v); return; }
   if (modoDescartes) { renderDescartes(v); return; }
@@ -1618,11 +1665,10 @@ function render() {
     kpiCard('CAC', fmtBRL(k.cac),
       { meta: metas.cac, bruto: k.cac, fmt: fmtBRL, menorMelhor: true }),
     cardReaplicacao(v),
-    cardTME(v),
   ].join('');
 
   document.getElementById('conteudo').innerHTML = `
-    <div class="kpi-strip" style="grid-template-columns:repeat(11,1fr)">${kpisHtml}</div>
+    <div class="kpi-strip">${kpisHtml}</div>
 
     <div class="redes-grid">${cardsRedes(v)}</div>
 
@@ -3201,30 +3247,30 @@ function cardTME(v) {
   // ser tratado como "agora"
   const fresco = horas !== null && horas < 3;
 
-  if (!t.n) {
-    return `<div class="kpi-card">
-      <div class="kpi-label">TME</div>
-      <div class="kpi-val" style="color:var(--gray)">—</div>
-      <div class="kpi-linha"><span>sem contato registrado</span></div>
-    </div>`;
-  }
+  if (!t.n) return '';   // sem contato registrado, o bloco nao aparece
 
-  return `<div class="kpi-card">
-    <div class="kpi-label"><span class="pulso ${fresco ? '' : 'parado'}"
-      title="${horas === null ? 'sem carimbo de atualização'
-        : fresco ? 'dado das últimas 3 horas'
-        : `planilha atualizada há ${Math.floor(horas)}h`}"></span>TME</div>
-    <div class="kpi-val blue">${fmtHoras(t.med)}</div>
-    <div class="kpi-linha"><span>MQL</span>
-      <span style="color:var(--blue)" title="${fmtNum(tm.n)} contatados">${
-        tm.n ? fmtHoras(tm.med) : '—'}</span></div>
-    <div class="kpi-linha"><span>Lead</span>
-      <span title="${fmtNum(tl.n)} contatados">${
-        tl.n ? fmtHoras(tl.med) : '—'}</span></div>
-    <div class="kpi-linha"><span>${fmtNum(t.n)} contatados</span>
-      <span style="color:${t.cobertura < 50 ? 'var(--amber)' : 'var(--gray-light)'}"
-        title="% dos leads com ligação ou mensagem registrada">${
-        t.cobertura.toFixed(0)}%</span></div>
+  const alerta = t.cobertura < 50;
+  return `<div class="tme-box" title="Tempo médio de espera: da entrada do lead até a primeira ligação ou mensagem. Conta horas úteis, 8h-20h de segunda a sábado.">
+    <div class="tme-principal">
+      <span class="tme-rot"><span class="pulso ${fresco ? '' : 'parado'}"
+        title="${horas === null ? 'sem carimbo de atualização'
+          : fresco ? 'dado das últimas 3 horas'
+          : `planilha atualizada há ${Math.floor(horas)}h`}"></span>TME</span>
+      <span class="tme-val">${fmtHoras(t.med)}</span>
+    </div>
+    <div class="tme-quebra">
+      <span class="tme-linha mql"><span>MQL</span>
+        <b title="${fmtNum(tm.n)} contatados">${
+          tm.n ? fmtHoras(tm.med) : '—'}</b></span>
+      <span class="tme-linha"><span>Lead</span>
+        <b title="${fmtNum(tl.n)} contatados">${
+          tl.n ? fmtHoras(tl.med) : '—'}</b></span>
+      <span class="tme-linha"><span>cobertura</span>
+        <b style="color:${alerta ? 'var(--amber)' : 'var(--gray-light)'}"
+          title="${fmtNum(t.n)} de ${fmtNum(v.backlog.length)} leads com contato registrado${
+            alerta ? ' — abaixo disso o TME mede quem registra, não quem atende' : ''}">${
+          t.cobertura.toFixed(0)}%</b></span>
+    </div>
   </div>`;
 }
 
