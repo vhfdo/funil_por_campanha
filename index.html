@@ -704,19 +704,19 @@ const ORDEM_PRODUTOS = [CONSOLIDADO, ...PRODUTOS_REAIS];
 // Metas do mes. Deixe null no que ainda nao tem meta — o card simplesmente
 // nao mostra a linha, e o grafico nao desenha a linha de ritmo.
 // Investimento do Brasil = 427.722 total menos os outros quatro produtos.
+// Metas em revisão: o planejamento novo vem por aba da planilha, com
+// valor por dia e por produto. Enquanto isso os cards mostram só o
+// realizado — número de meta desatualizado na tela é pior que nenhum,
+// porque ninguém sabe que está velho.
+//
+// A estrutura fica: quando o previsto chegar, é só preencher de volta.
 const METAS = {
-  [CONSOLIDADO]:  { leads: 5165, mqls: null, faturamento: null, investimento: 427722,
-                    vendas: null, cac: null, roas: null, cpmql: null },
-  'PFCC BRASIL':  { leads: null, mqls: 3303, faturamento: 1310000, investimento: 327722,
-                    vendas: 73,  cac: 4479, roas: 3,   cpmql: 99 },
-  'PFCC MÉXICO':  { leads: null, mqls: null, faturamento: null, investimento: 40000,
-                    vendas: null, cac: null, roas: null, cpmql: null },
-  'PFCC CHILE':   { leads: null, mqls: null, faturamento: null, investimento: 30000,
-                    vendas: null, cac: null, roas: null, cpmql: null },
-  'LEAN':         { leads: null, mqls: null, faturamento: null, investimento: 15000,
-                    vendas: null, cac: null, roas: null, cpmql: null },
-  'CES':          { leads: null, mqls: null, faturamento: null, investimento: 15000,
-                    vendas: null, cac: null, roas: null, cpmql: null },
+  [CONSOLIDADO]:  {},
+  'PFCC BRASIL':  {},
+  'PFCC MÉXICO':  {},
+  'PFCC CHILE':   {},
+  'LEAN':         {},
+  'CES':          {},
 };
 const CORES_REDE = { Meta: '#4a6dd4', Google: '#2980b9', LinkedIn: '#0e76a8' };
 
