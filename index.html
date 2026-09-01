@@ -58,9 +58,6 @@
     align-items:center;}
   .tme-val{font-family:'Bebas Neue',sans-serif;font-size:26px;
     color:var(--blue);letter-spacing:.02em;}
-  /* Qual recorte o numero cobre — sem isso alguem compara com o total */
-  .tme-sub{font-family:'DM Mono',monospace;font-size:8px;color:var(--gray);
-    letter-spacing:.08em;margin-top:-2px;}
   .tme-quebra{display:flex;flex-direction:column;gap:3px;
     padding-left:14px;border-left:1px solid var(--border);}
   .tme-linha{display:flex;justify-content:space-between;gap:12px;
@@ -700,30 +697,6 @@ const CORES_PRODUTO = {
   'CES':         '#e07d7d',
 };
 
-// Quem entra no TME. E' lista de PESSOAS, nao de funil: o mesmo SDR pode
-// atender lead de funis diferentes, e um funil pode ter gente que nao faz
-// prospecao. Fora dessa lista, o "primeiro contato" nao tem o mesmo
-// significado e diluiria o numero.
-//
-// Ao alterar: a comparacao e' pelo nome do proprietario no Pipedrive,
-// sem acento e sem caixa. Nome escrito diferente simplesmente nao casa e
-// a pessoa some do TME sem aviso.
-const SDRS_TME = {
-  'Gabriela Turetta':  'Orion',
-  'Leonardo Dutra':    'Orion',
-  'Ollavo Costa':      'Orion',
-  'Alisson Santos':    'Olympus',
-  'Bruna Goes':        'Olympus',
-  'Marlon Silva':      'Olympus',
-  'Raphaela Moutinho': 'Olympus',
-  'Vitor Soares':      'Olympus',
-};
-
-// Indexado sem acento pra sobreviver a variacao de escrita
-const SDRS_CHAVE = new Set(Object.keys(SDRS_TME).map(semAcento));
-
-const ehSDR = b => SDRS_CHAVE.has(semAcento(b.proprietario));
-
 const PRODUTOS_COM_SCORE = ['LEAN', 'CES'];
 const SCORE_MINIMO = 6;
 const ORDEM_PRODUTOS = [CONSOLIDADO, ...PRODUTOS_REAIS];
@@ -731,19 +704,19 @@ const ORDEM_PRODUTOS = [CONSOLIDADO, ...PRODUTOS_REAIS];
 // Metas do mes. Deixe null no que ainda nao tem meta — o card simplesmente
 // nao mostra a linha, e o grafico nao desenha a linha de ritmo.
 // Investimento do Brasil = 427.722 total menos os outros quatro produtos.
-// Metas em revisão: o planejamento novo vem por aba da planilha, com
-// valor por dia e por produto. Enquanto isso os cards mostram só o
-// realizado — número de meta desatualizado na tela é pior que nenhum,
-// porque ninguém sabe que está velho.
-//
-// A estrutura fica: quando o previsto chegar, é só preencher de volta.
 const METAS = {
-  [CONSOLIDADO]:  {},
-  'PFCC BRASIL':  {},
-  'PFCC MÉXICO':  {},
-  'PFCC CHILE':   {},
-  'LEAN':         {},
-  'CES':          {},
+  [CONSOLIDADO]:  { leads: 5165, mqls: null, faturamento: null, investimento: 427722,
+                    vendas: null, cac: null, roas: null, cpmql: null },
+  'PFCC BRASIL':  { leads: null, mqls: 3303, faturamento: 1310000, investimento: 327722,
+                    vendas: 73,  cac: 4479, roas: 3,   cpmql: 99 },
+  'PFCC MÉXICO':  { leads: null, mqls: null, faturamento: null, investimento: 40000,
+                    vendas: null, cac: null, roas: null, cpmql: null },
+  'PFCC CHILE':   { leads: null, mqls: null, faturamento: null, investimento: 30000,
+                    vendas: null, cac: null, roas: null, cpmql: null },
+  'LEAN':         { leads: null, mqls: null, faturamento: null, investimento: 15000,
+                    vendas: null, cac: null, roas: null, cpmql: null },
+  'CES':          { leads: null, mqls: null, faturamento: null, investimento: 15000,
+                    vendas: null, cac: null, roas: null, cpmql: null },
 };
 const CORES_REDE = { Meta: '#4a6dd4', Google: '#2980b9', LinkedIn: '#0e76a8' };
 
@@ -3234,9 +3207,7 @@ function exportarCampanhasCSV() {
 // Mediana, nao media: um lead esquecido por 200 horas puxa a media e some
 // na mediana, que descreve o atendimento tipico.
 function calcTME(lista) {
-  // So os SDRs da lista — ver SDRS_TME
-  const base = (lista || []).filter(ehSDR);
-  const v = base
+  const v = (lista || [])
     .filter(b => b.tme !== null && b.tme !== undefined)
     .map(b => b.tme);
   if (!v.length) return { med: null, media: null, n: 0, cobertura: 0 };
@@ -3246,9 +3217,7 @@ function calcTME(lista) {
     med: s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2,
     media: s.reduce((a, b) => a + b, 0) / s.length,
     n: s.length,
-    // Sobre os leads dos SDRs, nao sobre a lista inteira: senao a
-    // cobertura pareceria baixa so por existir lead de outra gente
-    cobertura: base.length ? s.length / base.length * 100 : 0,
+    cobertura: lista.length ? s.length / lista.length * 100 : 0,
   };
 }
 
@@ -3273,15 +3242,6 @@ function cardTME(v) {
   const tm = calcTME(v.backlog.filter(b => b.mql));
   const tl = calcTME(v.backlog.filter(b => !b.mql));
 
-  // TME de hoje: so os leads que ENTRARAM hoje. E' um retrato parcial por
-  // natureza — quem entrou as 18h ainda nao teve tempo de ser atendido, e
-  // so aparece aqui quem ja foi. De manha o numero e' pouco confiavel.
-  const hoje = new Date();
-  const chaveHoje = String(hoje.getDate()).padStart(2, '0') + '/'
-                  + String(hoje.getMonth() + 1).padStart(2, '0');
-  const td = calcTME(v.backlog.filter(
-    b => (b.aplicacao || '').trim().slice(0, 5) === chaveHoje));
-
   const horas = idadeDoDado();
   // 3h e' meia rodada: abaixo disso o numero e' recente o bastante pra
   // ser tratado como "agora"
@@ -3290,22 +3250,15 @@ function cardTME(v) {
   if (!t.n) return '';   // sem contato registrado, o bloco nao aparece
 
   const alerta = t.cobertura < 50;
-  const nomes = Object.keys(SDRS_TME).join(', ');
-  return `<div class="tme-box" title="Tempo médio de espera: da entrada do lead até a primeira ligação ou mensagem. Conta horas úteis, 8h-20h de segunda a sábado.&#10;&#10;SDRs: ${nomes}">
+  return `<div class="tme-box" title="Tempo médio de espera: da entrada do lead até a primeira ligação ou mensagem. Conta horas úteis, 8h-20h de segunda a sábado.">
     <div class="tme-principal">
       <span class="tme-rot"><span class="pulso ${fresco ? '' : 'parado'}"
         title="${horas === null ? 'sem carimbo de atualização'
           : fresco ? 'dado das últimas 3 horas'
           : `planilha atualizada há ${Math.floor(horas)}h`}"></span>TME</span>
       <span class="tme-val">${fmtHoras(t.med)}</span>
-      <span class="tme-sub">${Object.keys(SDRS_TME).length} SDRs</span>
     </div>
     <div class="tme-quebra">
-      <span class="tme-linha"><span>hoje</span>
-        <b style="color:${td.n ? 'var(--green)' : 'var(--gray)'}"
-          title="${td.n ? fmtNum(td.n) + ' leads que entraram hoje e já foram contatados'
-            : 'nenhum lead de hoje foi contatado ainda'}">${
-          td.n ? fmtHoras(td.med) : '—'}</b></span>
       <span class="tme-linha mql"><span>MQL</span>
         <b title="${fmtNum(tm.n)} contatados">${
           tm.n ? fmtHoras(tm.med) : '—'}</b></span>
@@ -3314,8 +3267,8 @@ function cardTME(v) {
           tl.n ? fmtHoras(tl.med) : '—'}</b></span>
       <span class="tme-linha"><span>cobertura</span>
         <b style="color:${alerta ? 'var(--amber)' : 'var(--gray-light)'}"
-          title="${fmtNum(t.n)} contatados${
-            alerta ? ' — abaixo de 50% o TME mede quem registra, não quem atende' : ''}">${
+          title="${fmtNum(t.n)} de ${fmtNum(v.backlog.length)} leads com contato registrado${
+            alerta ? ' — abaixo disso o TME mede quem registra, não quem atende' : ''}">${
           t.cobertura.toFixed(0)}%</b></span>
     </div>
   </div>`;
@@ -4095,12 +4048,8 @@ function tabelaProprietarios(v) {
       const sel = filtros.proprietario === dono;
       const cor = c => ordemPropCol === c ? 'color:var(--blue);font-weight:600' : '';
       const t = calcTME(d.itens);
-      // O calcTME ja filtra pela lista de SDRs. Quem nao esta nela
-      // aparece com traco — nao e' erro, e' que o TME nao se aplica a
-      // esse proprietario.
-      //
-      // Cobertura baixa deixa o numero cinza: ali o TME mede quem registra
-      // atividade, nao quem atende rapido.
+      // Cobertura baixa: o TME mede quem registra chamada, nao quem
+      // atende rapido. Fica cinza pra nao virar comparacao injusta.
       const conf = t.n && t.cobertura >= 50;
       return `<tr class="clicavel ${sel ? 'selecionado' : ''}"
                 onclick="toggleFiltro('proprietario', ${attr(dono)})">
@@ -4108,10 +4057,8 @@ function tabelaProprietarios(v) {
         <td class="num" style="${cor('leads')}">${fmtNum(d.leads)}</td>
         <td class="num" style="${cor('mqls')}">${fmtNum(d.mqls)}</td>
         <td class="num" title="${t.n
-            ? fmtNum(t.n) + ' contatados · ' + t.cobertura.toFixed(0) + '% dos leads'
-            : (SDRS_CHAVE.has(semAcento(dono))
-                ? 'sem contato registrado'
-                : 'não é SDR — fora do TME')}"
+            ? fmtNum(t.n) + ' atendidos · ' + t.cobertura.toFixed(0) + '% dos leads'
+            : 'nenhuma chamada registrada'}"
           style="color:${!t.n ? 'var(--gray)'
             : conf ? 'var(--white)' : 'var(--gray-light)'}">${
           t.n ? fmtHoras(t.med) : '—'}</td>
@@ -4130,7 +4077,7 @@ function tabelaProprietarios(v) {
 
   return `<table>
     <thead><tr><th>Proprietário</th>${col('leads')}${col('mqls')}
-      <th class="num" title="Mediana das horas úteis entre a entrada do lead e o primeiro contato. Só os SDRs.">TME</th>
+      <th class="num" title="Mediana das horas úteis entre a criação do lead e a primeira chamada">TME</th>
     </tr></thead>
     <tbody>${linhas}</tbody>
   </table>`;
