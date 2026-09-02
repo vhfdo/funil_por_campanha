@@ -721,6 +721,7 @@ const SDRS_TME = {
   'Marlon Silva':      'Olympus',
   'Raphaela Moutinho': 'Olympus',
   'Vitor Soares':      'Olympus',
+  'Priscila Ribeiro':  'Vanguard',
 };
 
 // Indexado sem acento pra sobreviver a variacao de escrita.
@@ -3373,10 +3374,20 @@ function cardTME(v) {
   const td = calcTME(v.backlog.filter(
     b => (b.aplicacao || '').trim().slice(0, 5) === chaveHoje));
 
-  // Por time: e' a comparacao que interessa na reuniao. A mediana dos dois
-  // junto esconde diferenca de operacao entre eles.
-  const tOrion   = calcTME(v.backlog.filter(b => timeDoSDR(b) === 'Orion'));
-  const tOlympus = calcTME(v.backlog.filter(b => timeDoSDR(b) === 'Olympus'));
+  // Por time: e' a comparacao que interessa na reuniao. A mediana de
+  // todos juntos esconde diferenca de operacao entre eles.
+  //
+  // Os times saem da propria lista de SDRs, nao ficam fixos aqui: incluir
+  // alguem de um time novo ja passa a mostrar a linha dele.
+  const times = [...new Set(Object.values(SDRS_TME))];
+  const porTime = times.map(nome => ({
+    nome,
+    t: calcTME(v.backlog.filter(b => timeDoSDR(b) === nome)),
+    // Quem esta nele, pro tooltip
+    quem: Object.entries(SDRS_TME)
+      .filter(([, tm]) => tm === nome)
+      .map(([p]) => p.split(' ')[0]).join(', '),
+  }));
 
   const horas = idadeDoDado();
   // 3h e' meia rodada: abaixo disso o numero e' recente o bastante pra
@@ -3417,12 +3428,10 @@ function cardTME(v) {
           tl.n ? fmtHoras(tl.med) : '—'}</b></span>
     </div>
     <div class="tme-quebra">
-      <span class="tme-linha"><span>Orion</span>
-        <b title="${fmtNum(tOrion.n)} contatados · Gabriela, Leonardo, Ollavo">${
-          tOrion.n ? fmtHoras(tOrion.med) : '—'}</b></span>
-      <span class="tme-linha"><span>Olympus</span>
-        <b title="${fmtNum(tOlympus.n)} contatados · Alisson, Bruna, Marlon, Raphaela, Vitor">${
-          tOlympus.n ? fmtHoras(tOlympus.med) : '—'}</b></span>
+      ${porTime.map(x => `
+      <span class="tme-linha"><span>${x.nome}</span>
+        <b title="${fmtNum(x.t.n)} contatados · ${x.quem}">${
+          x.t.n ? fmtHoras(x.t.med) : '—'}</b></span>`).join('')}
       <span class="tme-linha"><span>≤ 5min</span>
         <b style="color:${pctPrazo >= 50 ? 'var(--green)'
             : pctPrazo >= 20 ? 'var(--amber)' : 'var(--red)'}"
