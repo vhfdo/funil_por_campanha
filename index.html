@@ -708,6 +708,10 @@ const CORES_PRODUTO = {
 // Ao alterar: a comparacao e' pelo nome do proprietario no Pipedrive,
 // sem acento e sem caixa. Nome escrito diferente simplesmente nao casa e
 // a pessoa some do TME sem aviso.
+// Meta de atendimento: 5 minutos entre a entrada do lead e o primeiro
+// contato. Em horas, porque é a unidade em que o TME é calculado.
+const TME_META = 5 / 60;
+
 const SDRS_TME = {
   'Gabriela Turetta':  'Orion',
   'Leonardo Dutra':    'Orion',
@@ -3343,9 +3347,15 @@ function idadeDoDado() {
   return (Date.now() - new Date(+a, +mes - 1, +d, +h, +min).getTime()) / 36e5;
 }
 
-const fmtHoras = x => x < 1
-  ? Math.round(x * 60) + 'min'
-  : x.toFixed(1).replace('.', ',') + 'h';
+// Com meta de 5 minutos, o minuto é a unidade que importa: abaixo de uma
+// hora mostramos minuto cheio, e só acima disso passamos para horas.
+// Acima de 48h o número em horas fica ilegível e viramos para dias.
+const fmtHoras = x => {
+  if (x === null || x === undefined) return '—';
+  if (x < 1)  return Math.round(x * 60) + 'min';
+  if (x < 48) return x.toFixed(1).replace('.', ',') + 'h';
+  return Math.round(x / 24) + 'd';
+};
 
 function cardTME(v) {
   const t = calcTME(v.backlog);
@@ -3376,6 +3386,13 @@ function cardTME(v) {
   if (!t.n) return '';   // sem contato registrado, o bloco nao aparece
 
   const alerta = t.cobertura < 50;
+
+  // Quantos foram atendidos dentro da meta. É o número que o time
+  // persegue — a mediana sozinha não diz se a régua está sendo cumprida.
+  const noPrazo = v.backlog.filter(
+    b => ehSDR(b) && b.tme !== null && b.tme !== undefined
+         && b.tme <= TME_META).length;
+  const pctPrazo = t.n ? noPrazo / t.n * 100 : 0;
   const nomes = Object.keys(SDRS_TME).join(', ');
   return `<div class="tme-box" title="Tempo médio de espera: da entrada do lead até a primeira ligação ou mensagem. Conta horas úteis, 8h-20h de segunda a sábado.&#10;&#10;SDRs: ${nomes}">
     <div class="tme-principal">
@@ -3406,6 +3423,11 @@ function cardTME(v) {
       <span class="tme-linha"><span>Olympus</span>
         <b title="${fmtNum(tOlympus.n)} contatados · Alisson, Bruna, Marlon, Raphaela, Vitor">${
           tOlympus.n ? fmtHoras(tOlympus.med) : '—'}</b></span>
+      <span class="tme-linha"><span>≤ 5min</span>
+        <b style="color:${pctPrazo >= 50 ? 'var(--green)'
+            : pctPrazo >= 20 ? 'var(--amber)' : 'var(--red)'}"
+          title="${fmtNum(noPrazo)} de ${fmtNum(t.n)} leads atendidos dentro da meta de 5 minutos">${
+          pctPrazo.toFixed(0)}%</b></span>
       <span class="tme-linha"><span>cobertura</span>
         <b style="color:${alerta ? 'var(--amber)' : 'var(--gray-light)'}"
           title="${fmtNum(t.n)} contatados${
@@ -3825,6 +3847,7 @@ function tabelaAbertos(v) {
         <thead><tr>
           <th class="num">ID</th><th>Aplicação</th><th>Nome</th><th>Cargo</th>
           <th>MQL</th><th>Funil</th><th>Etapa</th><th>Proprietário</th>
+          <th class="num" title="Horas úteis entre a entrada do lead e o primeiro contato (ligação ou mensagem). Só para os SDRs.">TME</th>
           <th>Rede</th>
           <th>utm_campaign</th><th>utm_source</th><th>utm_medium</th>
           <th>utm_content</th><th>utm_term</th>
@@ -3845,6 +3868,19 @@ function tabelaAbertos(v) {
               <td>${corta(b.funil, 13)}</td>
               <td>${corta(b.etapa, 18)}</td>
               <td>${corta(b.proprietario, 18)}</td>
+              <td class="num" title="${
+                b.tme === null || b.tme === undefined
+                  ? (nomeEhSDR(b.proprietario)
+                      ? 'Sem contato registrado ainda'
+                      : 'Fora da lista de SDRs — o TME não se aplica')
+                  : 'Primeiro contato em ' + (b.atendidoEm || '—')}"
+                style="color:${
+                  b.tme === null || b.tme === undefined ? 'var(--gray)'
+                  : b.tme <= TME_META ? 'var(--green)'
+                  : b.tme <= TME_META * 6 ? 'var(--amber)'
+                  : 'var(--red)'}">${
+                b.tme === null || b.tme === undefined ? '—'
+                  : fmtHoras(b.tme)}</td>
               <td>${redeDoLead(b)}</td>
               <td class="utm" title="${b.campanha || ''}">${corta(b.campanha, 30)}</td>
               <td class="utm" title="${b.source || ''}">${corta(b.source, 12)}</td>
@@ -3867,7 +3903,8 @@ function exportarAbertosCSV() {
 
   const cabecalho = [
     'ID', 'Produto', 'Aplicação', 'Nome', 'Email', 'Cargo', 'MQL', 'Score',
-    'Funil', 'Etapa', 'Proprietário', 'Rede', 'Reaplicação', 'Valor',
+    'Funil', 'Etapa', 'Proprietário', 'TME (h úteis)', 'Atendido em',
+    'Rede', 'Reaplicação', 'Valor',
     'utm_campaign', 'utm_source', 'utm_medium', 'utm_content', 'utm_term',
   ];
 
@@ -3882,7 +3919,12 @@ function exportarAbertosCSV() {
     // Virgula decimal pro Excel BR reconhecer como numero
     b.score === null || b.score === undefined
       ? '' : String(b.score).replace('.', ','),
-    b.funil, b.etapa, b.proprietario, redeDoLead(b),
+    b.funil, b.etapa, b.proprietario,
+    // Vírgula decimal pro Excel BR reconhecer como número
+    b.tme === null || b.tme === undefined
+      ? '' : String(b.tme).replace('.', ','),
+    b.atendidoEm || '',
+    redeDoLead(b),
     b.reaplicacao ? 'Sim' : 'Não',
     String(b.valor || 0).replace('.', ','),
     b.campanha, b.source, b.medium, b.content, b.term,
