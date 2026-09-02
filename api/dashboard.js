@@ -109,6 +109,7 @@ const ABA_BACKLOG  = 'BACKLOG MQL';
 const ABA_REUNIOES = 'BACKLOG REUNIÕES';
 const ABA_PERDIDOS = 'BACKLOG PERDIDOS';
 const ABA_META     = 'ATUALIZAÇÃO';
+const ABA_PREVISTO = 'PREVISTO';
 
 function checkAuth(req) {
   const secret = process.env.SESSION_SECRET;
@@ -343,6 +344,9 @@ export default async function handler(req, res) {
 
     const idxMeta = tarefas.length;
     tarefas.push(lerAba(ABA_META));
+
+    const idxPrevisto = tarefas.length;
+    tarefas.push(lerAba(ABA_PREVISTO));
 
     const resultados = await Promise.all(tarefas);
 
@@ -681,9 +685,46 @@ export default async function handler(req, res) {
     const linhaMeta = (resultados[idxMeta] || [])[0] || [];
     const dadosDe = String(linhaMeta[1] || '').trim() || null;
 
+    // ── Investimento previsto, por dia e por produto ─────────────────
+    // Uma linha por dia; as colunas de produto são achadas pelo cabeçalho,
+    // não pela posição, pra a aba poder ser reorganizada sem quebrar nada.
+    //
+    // A recarga é um total do dia, sem quebra por produto: ela é comparada
+    // com o investimento geral, não com o de cada um.
+    const previsto = {};
+    const abaPrev = resultados[idxPrevisto] || [];
+    if (abaPrev.length > 1) {
+      const cab = (abaPrev[0] || []).map(chave);
+      const cData = cab.findIndex(c => c && ['data', 'dia', 'date'].includes(c));
+      const cRecarga = cab.findIndex(c => c && c.includes('recarga'));
+
+      // Cada produto pela sua coluna. O nome na aba pode vir com ou sem
+      // acento e com hífen ou espaço — comparamos normalizado.
+      const colProduto = {};
+      for (const nome of Object.keys(PRODUTOS)) {
+        const alvo = chave(nome).replace(/[^a-z]/g, '');
+        const i = cab.findIndex(c => c && c.replace(/[^a-z]/g, '') === alvo);
+        if (i >= 0) colProduto[nome] = i;
+      }
+
+      for (const linha of abaPrev.slice(1)) {
+        const dia = normalizarData(linha[cData >= 0 ? cData : 0]);
+        if (!dia) continue;
+        const reg = { produtos: {}, recarga: 0, total: 0 };
+        for (const [nome, i] of Object.entries(colProduto)) {
+          const v = parseNum(linha[i]);
+          reg.produtos[nome] = v;
+          reg.total += v;
+        }
+        if (cRecarga >= 0) reg.recarga = parseNum(linha[cRecarga]);
+        previsto[dia] = reg;
+      }
+    }
+
     return res.status(200).json({
       atualizadoEm: new Date().toISOString(),
       dadosDe,
+      previsto,
       produtos,
       backlog,
       reunioes,
