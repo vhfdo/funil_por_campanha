@@ -722,6 +722,13 @@ const SDRS_TME = {
   'Raphaela Moutinho': 'Olympus',
   'Vitor Soares':      'Olympus',
   'Priscila Ribeiro':  'Vanguard',
+  // LATAM cobre México e Chile juntos: os cinco atendem os dois países,
+  // entao nao da pra separar por pais so pelo proprietario
+  'Sarah Leite':        'LATAM',
+  'Thiago Santos':      'LATAM',
+  'Gabriela Morais':    'LATAM',
+  'Luanna Martins':     'LATAM',
+  'Wellington Andrade': 'LATAM',
 };
 
 // Indexado sem acento pra sobreviver a variacao de escrita.
@@ -3383,10 +3390,11 @@ function cardTME(v) {
   const porTime = times.map(nome => ({
     nome,
     t: calcTME(v.backlog.filter(b => timeDoSDR(b) === nome)),
-    // Quem esta nele, pro tooltip
+    // Quem esta nele, pro tooltip. Nome completo: ha duas Gabrielas em
+    // times diferentes, e so o primeiro nome as confundiria.
     quem: Object.entries(SDRS_TME)
       .filter(([, tm]) => tm === nome)
-      .map(([p]) => p.split(' ')[0]).join(', '),
+      .map(([p]) => p).join(' · '),
   }));
 
   const horas = idadeDoDado();
