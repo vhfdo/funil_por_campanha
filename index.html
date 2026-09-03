@@ -120,6 +120,12 @@
   .kpi-linha span:last-child{color:var(--white);}
   .kpi-barra{height:3px;background:var(--border);border-radius:2px;overflow:hidden;margin-top:7px;}
   .kpi-barra div{height:100%;border-radius:2px;}
+
+  /* Variação contra o período de comparação */
+  .kpi-delta{display:inline-block;font-family:'DM Mono',monospace;font-size:10px;
+    font-weight:600;margin-top:4px;letter-spacing:.02em;}
+  .kpi-delta.neutro{color:var(--gray-light);font-weight:400;}
+  td .kpi-delta{display:block;font-size:9px;margin-top:1px;}
   /* Barra dividida: o preenchido sao os leads novos, o fundo a reaplicacao */
   .reapl-barra{height:4px;background:var(--amber);border-radius:2px;
     overflow:hidden;margin-top:7px;}
@@ -268,6 +274,9 @@
     justify-content:flex-end;padding-right:6px;min-width:22px;transition:filter .12s;}
   .funil-val{font-family:'DM Mono',monospace;font-size:10px;color:#fff;font-weight:500;}
   .funil-pct{font-family:'DM Mono',monospace;font-size:9px;color:var(--white);text-align:right;}
+  /* Variacao nas barras: menor que o selo dos KPIs, pra caber na linha */
+  .mini-delta{font-family:'DM Mono',monospace;font-size:8.5px;
+    margin-left:5px;white-space:nowrap;}
 
   /* ── Taxas ── */
   .taxas{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;
@@ -487,6 +496,14 @@
         <span class="date-sep">→</span>
         <span class="date-label">Até</span>
         <input type="date" class="date-input" id="dataFim">
+      </div>
+      <button class="btn" id="btnComparar" onclick="alternarComparar()"
+              title="Comparar com outro período: mostra a variação % em cada número">⇄ Comparar</button>
+      <div class="date-range" id="compareRange" style="display:none">
+        <span class="date-label" style="color:var(--amber)">vs</span>
+        <input type="date" class="date-input" id="compInicio">
+        <span class="date-sep">→</span>
+        <input type="date" class="date-input" id="compFim">
       </div>
       <button class="btn" id="btnAtualizar" onclick="carregar()">⟳ Atualizar</button>
       <button class="btn" id="btnBase" onclick="alternarBase()">Base</button>
@@ -896,6 +913,97 @@ function ordenarEtapas(etapas) {
 
 let dados = null;            // resposta crua da API
 let produtoAtivo = CONSOLIDADO;
+// Modo de comparacao: quando ligado, os cards e tabelas mostram a
+// variacao % contra o periodo em compInicio/compFim.
+let comparando = false;
+
+function alternarComparar() {
+  comparando = !comparando;
+  document.getElementById('compareRange').style.display = comparando ? '' : 'none';
+  document.getElementById('btnComparar').classList.toggle('ativo', comparando);
+
+  // Primeira vez: sugere o periodo imediatamente anterior, do mesmo
+  // tamanho do periodo atual. O usuario pode trocar livremente depois.
+  if (comparando && !document.getElementById('compInicio').value) {
+    const iniAtual = new Date(document.getElementById('dataInicio').value + 'T00:00:00');
+    const fimAtual = new Date(document.getElementById('dataFim').value + 'T00:00:00');
+    const dias = Math.round((fimAtual - iniAtual) / 86400000) + 1;
+    const fimComp = new Date(iniAtual);
+    fimComp.setDate(fimComp.getDate() - 1);
+    const iniComp = new Date(fimComp);
+    iniComp.setDate(iniComp.getDate() - dias + 1);
+    const isoData = d => d.toISOString().slice(0, 10);
+    document.getElementById('compInicio').value = isoData(iniComp);
+    document.getElementById('compFim').value    = isoData(fimComp);
+  }
+  rastrear('comparar_periodo', comparando ? 'ligado' : 'desligado');
+  render();
+}
+
+// Executa fn() com as datas do periodo PRINCIPAL trocadas temporariamente
+// pelas informadas, e devolve o resultado. Reaproveita toda a logica de
+// dadosVisiveis() — que le o periodo do DOM — pra calcular qualquer outra
+// janela, como a de comparacao, sem duplicar cada funcao.
+function comPeriodo(ini, fim, fn) {
+  const elIni = document.getElementById('dataInicio');
+  const elFim = document.getElementById('dataFim');
+  const origIni = elIni.value, origFim = elFim.value;
+  elIni.value = ini; elFim.value = fim;
+  try { return fn(); } finally { elIni.value = origIni; elFim.value = origFim; }
+}
+
+// Variacao % entre o valor atual e o do periodo de comparacao. null quando
+// nao da pra calcular — base zero nao informa nada, so gera Infinity.
+function deltaPct(atual, anterior) {
+  if (anterior === null || anterior === undefined || anterior === 0) return null;
+  if (atual === null || atual === undefined) return null;
+  return (atual - anterior) / anterior * 100;
+}
+
+// HTML pronto do selo de variacao. menorMelhor inverte a cor (CPL, CAC,
+// CPMQL: cair e' bom). So aparece com o modo de comparacao ligado.
+// Conta por chave, pra comparar a mesma categoria em dois periodos.
+// Usado nas barras de funil, cargo e proprietario: cada uma agrupa por um
+// campo diferente, mas a comparacao e' sempre "quantos aqui, quantos la".
+function contarPor(lista, fn) {
+  const agg = {};
+  for (const x of (lista || [])) {
+    const k = fn(x);
+    agg[k] = (agg[k] || 0) + 1;
+  }
+  return agg;
+}
+
+// Selo compacto pras barras. O badgeDelta normal ocupa espaco demais numa
+// linha de funil, entao aqui vai so a seta e o numero.
+function miniDelta(atual, anterior) {
+  if (!comparando || anterior === undefined || anterior === null) return '';
+  if (!anterior) {
+    return `<span class="mini-delta" style="color:var(--green)"
+      title="Não existia no período de comparação">novo</span>`;
+  }
+  const d = (atual - anterior) / anterior * 100;
+  const cor = Math.abs(d) < 5 ? 'var(--gray)'
+            : d > 0 ? 'var(--green)' : 'var(--red)';
+  return `<span class="mini-delta" style="color:${cor}"
+    title="Período de comparação: ${fmtNum(anterior)}">${
+    d > 0 ? '+' : ''}${d.toFixed(0)}%</span>`;
+}
+
+function badgeDelta(atual, anterior, opts = {}) {
+  if (!comparando) return '';
+  const { menorMelhor = false, fmt = fmtNum } = opts;
+  const d = deltaPct(atual, anterior);
+  if (d === null) {
+    return `<span class="kpi-delta neutro" title="Sem base de comparação">—</span>`;
+  }
+  const bom  = menorMelhor ? d < 0 : d > 0;
+  const cor  = Math.abs(d) < 1 ? 'var(--gray-light)' : (bom ? 'var(--green)' : 'var(--red)');
+  const seta = d > 0.5 ? '▲' : (d < -0.5 ? '▼' : '·');
+  return `<span class="kpi-delta" style="color:${cor}"
+    title="Período de comparação: ${fmt(anterior)}">${seta} ${Math.abs(d).toFixed(0)}%</span>`;
+}
+
 let filtros = { rede: null, etapa: null, proprietario: null, funil: null,
                 cargo: null, motivo: null, score: null,
                 diaSemana: null, hora: null };
@@ -956,12 +1064,80 @@ function paraData(ddmm) {
   return new Date(new Date().getFullYear(), Number(m) - 1, Number(d));
 }
 
-function dentroDoPeriodo(ddmm) {
-  const ini = document.getElementById('dataInicio').value;
-  const fim = document.getElementById('dataFim').value;
+// Le uma data DD/MM e diz se cai entre ini/fim (AAAA-MM-DD) explicitos —
+// nao pega o periodo da tela. E' o que permite calcular um produto num
+// intervalo qualquer, como o periodo de comparacao.
+function noIntervalo(ddmm, ini, fim) {
   if (!ini || !fim) return true;
   const d = paraData(ddmm);
   return d >= new Date(ini + 'T00:00:00') && d <= new Date(fim + 'T00:00:00');
+}
+
+function dentroDoPeriodo(ddmm) {
+  return noIntervalo(ddmm,
+    document.getElementById('dataInicio').value,
+    document.getElementById('dataFim').value);
+}
+
+// Resumo de UM produto num intervalo de datas explicito. Usado pelas abas
+// de produto, pela tabela comparativa e pelo periodo de comparacao — em
+// vez de ler dados.produtos[x].kpis (fechado do mes inteiro), soma o
+// backlog e o investimento diario dentro da janela pedida.
+//
+// So respeita o filtro de rede, nao os outros (etapa, proprietario, cargo,
+// score): esses fazem sentido olhando um produto de cada vez, e esta
+// funcao serve justamente pra comparar varios produtos lado a lado.
+function resumoProduto(nome, ini, fim) {
+  const vazio = { leads:0, mqls:0, reaplicacoes:0, investimento:0,
+                   ganhos:0, faturamento:0, cpl:0, cpmql:0, cac:0, roas:0 };
+  const p = dados.produtos[nome];
+  if (!p) return vazio;
+
+  const alvo = semAcento(nome);
+  let leadsBacklog = dados.backlog
+    .filter(b => semAcento(b.produto) === alvo)
+    .filter(b => {
+      const dia = (b.aplicacao || '').trim().slice(0, 5);
+      return dia.includes('/') && noIntervalo(dia, ini, fim);
+    });
+  if (filtros.rede) leadsBacklog = leadsBacklog.filter(b => redeDoLead(b) === filtros.rede);
+
+  const leads = leadsBacklog.length;
+  const mqls  = leadsBacklog.filter(b => b.mql).length;
+  const reaplicacoes = leadsBacklog.filter(b => b.reaplicacao).length;
+
+  // Investimento dia a dia, igual dadosVisiveis() faz pro card principal
+  let investimento = 0;
+  const diaPorRede = p.investDiaRede || {};
+  if (Object.keys(diaPorRede).length) {
+    for (const [rede, dias] of Object.entries(diaPorRede)) {
+      if (filtros.rede && filtros.rede !== rede) continue;
+      for (const [dia, val] of Object.entries(dias)) {
+        if (noIntervalo(dia, ini, fim)) investimento += val;
+      }
+    }
+  } else {
+    // API antiga, sem quebra diaria: total do mes inteiro e' melhor que zero
+    for (const [rede, total] of Object.entries(p.investPorRede || {})) {
+      if (filtros.rede && filtros.rede !== rede) continue;
+      investimento += total;
+    }
+  }
+
+  let ganhos = (p.ganhos || []).filter(g => noIntervalo(g.data, ini, fim));
+  if (filtros.rede) ganhos = ganhos.filter(g => redeDoLead(g) === filtros.rede);
+  const validos = ganhos.filter(g => g.vale === 'sim');
+  const qtdGanhos = validos.length;
+  const faturamento = validos.reduce((s, g) => s + g.valor, 0);
+
+  return {
+    leads, mqls, reaplicacoes, investimento,
+    ganhos: qtdGanhos, faturamento,
+    cpl:   leads ? investimento / leads : 0,
+    cpmql: mqls   ? investimento / mqls   : 0,
+    cac:   qtdGanhos ? investimento / qtdGanhos : 0,
+    roas:  investimento ? faturamento / investimento : 0,
+  };
 }
 
 // ── Carga ───────────────────────────────────────────────────────────────────
@@ -1039,13 +1215,24 @@ function mostrarAtualizacao(carimbo) {
 }
 
 // ── Abas de produto ─────────────────────────────────────────────────────────
+// Le o periodo da tela e soma cada produto dentro dele — antes usava
+// dados.produtos[x].kpis.leads, que e' o total FECHADO do mes inteiro e
+// nunca mudava com o seletor de data.
 function renderTabs() {
-  const totalGeral = PRODUTOS_REAIS
-    .reduce((s, n) => s + (dados.produtos[n]?.kpis.leads || 0), 0);
+  const ini = document.getElementById('dataInicio').value;
+  const fim = document.getElementById('dataFim').value;
+
+  const porProduto = {};
+  let totalGeral = 0;
+  for (const n of PRODUTOS_REAIS) {
+    const leads = resumoProduto(n, ini, fim).leads;
+    porProduto[n] = leads;
+    totalGeral += leads;
+  }
 
   document.getElementById('produtoTabs').innerHTML = ORDEM_PRODUTOS.map(p => {
     const ehConsol = p === CONSOLIDADO;
-    const leads = ehConsol ? totalGeral : (dados.produtos[p]?.kpis.leads ?? 0);
+    const leads = ehConsol ? totalGeral : (porProduto[p] ?? 0);
     return `<div class="produto-tab ${p === produtoAtivo ? 'active' : ''} ${ehConsol ? 'consolidado' : ''}"
               onclick="trocarProduto('${p}')">
       <div class="nome">${ehConsol ? '★ ' + p : p}</div>
@@ -1679,6 +1866,23 @@ function render() {
   const k = v.kpis;
   const metas = METAS[produtoAtivo] || {};
 
+  // Periodo de comparacao: reaproveita dadosVisiveis() inteiro trocando
+  // as datas na hora da chamada (ver comPeriodo). Assim herda automatico
+  // todos os filtros ja ativos — rede, etapa, funil etc — e nao precisa
+  // duplicar a logica so pra calcular outra janela.
+  const vComp = comparando
+    ? comPeriodo(
+        document.getElementById('compInicio').value,
+        document.getElementById('compFim').value,
+        () => dadosVisiveis())
+    : null;
+  const kComp = vComp ? vComp.kpis : null;
+
+  // Atalho: selo de variacao pro campo `campo` de k, contra o mesmo campo
+  // em kComp. Sem periodo de comparacao ligado, badgeDelta ja devolve ''.
+  const dv = (campo, menorMelhor = false, fmt = fmtNum) =>
+    kComp ? badgeDelta(k[campo], kComp[campo], { menorMelhor, fmt }) : '';
+
   // Um KPI pode ter meta. Quando tem, mostramos o alvo do mes, quanto
   // deveria estar hoje e uma barra de progresso.
   //
@@ -1687,12 +1891,16 @@ function render() {
   function kpiCard(label, valor, opts = {}) {
     const { meta, fmt = fmtNum, azul = false, bruto = null,
             menorMelhor = false, semRitmo = false,
-            gastoMenorMelhor = false } = opts;
+            gastoMenorMelhor = false, delta = '' } = opts;
+
+    // O valor e o selo de variacao ficam juntos, pra nao repetir esse
+    // bloco em cada um dos tres formatos de card abaixo.
+    const linhaValor = `<div class="kpi-val ${azul ? 'blue' : ''}">${valor}</div>${delta}`;
 
     if (!meta) {
       return `<div class="kpi-card">
         <div class="kpi-label">${label}</div>
-        <div class="kpi-val ${azul ? 'blue' : ''}">${valor}</div>
+        ${linhaValor}
       </div>`;
     }
 
@@ -1702,7 +1910,7 @@ function render() {
       const pct = meta ? Math.min(bruto / meta * 100, 100) : 0;
       return `<div class="kpi-card">
         <div class="kpi-label">${label}</div>
-        <div class="kpi-val ${azul ? 'blue' : ''}">${valor}</div>
+        ${linhaValor}
         <div class="kpi-linha"><span>${menorMelhor ? 'Teto' : 'Meta'}</span>
           <span style="color:${cor}">${fmt(meta)}</span></div>
         <div class="kpi-barra"><div style="width:${pct}%;background:${cor}"></div></div>
@@ -1720,7 +1928,7 @@ function render() {
     const cor = noRitmo ? 'var(--green)' : 'var(--red)';
     return `<div class="kpi-card">
       <div class="kpi-label">${label}</div>
-      <div class="kpi-val ${azul ? 'blue' : ''}">${valor}</div>
+      ${linhaValor}
       <div class="kpi-linha"><span>Projeção</span>
         <span style="color:${cor}">${fmt(alvoHoje)}</span></div>
       <div class="kpi-linha"><span>Meta</span><span>${fmt(meta)}</span></div>
@@ -1730,24 +1938,32 @@ function render() {
 
   const kpisHtml = [
     kpiCard('Leads', fmtNum(k.leads),
-      { azul:true, meta: metas.leads, bruto: k.leads }),
+      { azul:true, meta: metas.leads, bruto: k.leads, delta: dv('leads') }),
     kpiCard('MQL', fmtNum(k.mqls),
-      { azul:true, meta: metas.mqls, bruto: k.mqls }),
+      { azul:true, meta: metas.mqls, bruto: k.mqls, delta: dv('mqls') }),
     kpiCard('Investimento', fmtBRL(k.investimento),
       { meta: metas.investimento, bruto: k.investimento,
-        fmt: fmtBRL, gastoMenorMelhor: true }),
+        fmt: fmtBRL, gastoMenorMelhor: true,
+        // Investimento maior nao e' "ruim" por si — quem decide isso e'
+        // o card de Previsto. Aqui o selo so' informa, sem menorMelhor.
+        delta: dv('investimento') }),
     kpiCard('Vol. Ganhos', fmtNum(k.ganhos),
-      { meta: metas.vendas, bruto: k.ganhos }),
+      { meta: metas.vendas, bruto: k.ganhos, delta: dv('ganhos') }),
     kpiCard('Faturamento', fmtBRL(k.faturamento),
-      { meta: metas.faturamento, bruto: k.faturamento, fmt: fmtBRL }),
+      { meta: metas.faturamento, bruto: k.faturamento, fmt: fmtBRL,
+        delta: dv('faturamento') }),
     kpiCard('ROAS', fmtRoas(k.roas),
-      { meta: metas.roas, bruto: k.roas, fmt: fmtRoas, semRitmo: true }),
+      { meta: metas.roas, bruto: k.roas, fmt: fmtRoas, semRitmo: true,
+        delta: dv('roas', false, fmtRoas) }),
     kpiCard('CPL', fmtBRL(k.cpl),
-      { meta: metas.cpl, bruto: k.cpl, fmt: fmtBRL, menorMelhor: true }),
+      { meta: metas.cpl, bruto: k.cpl, fmt: fmtBRL, menorMelhor: true,
+        delta: dv('cpl', true, fmtBRL) }),
     kpiCard('CPMQL', fmtBRL(k.cpmql),
-      { meta: metas.cpmql, bruto: k.cpmql, fmt: fmtBRL, menorMelhor: true }),
+      { meta: metas.cpmql, bruto: k.cpmql, fmt: fmtBRL, menorMelhor: true,
+        delta: dv('cpmql', true, fmtBRL) }),
     kpiCard('CAC', fmtBRL(k.cac),
-      { meta: metas.cac, bruto: k.cac, fmt: fmtBRL, menorMelhor: true }),
+      { meta: metas.cac, bruto: k.cac, fmt: fmtBRL, menorMelhor: true,
+        delta: dv('cac', true, fmtBRL) }),
     cardReaplicacao(v),
     cardPrevisto(v),
   ].join('');
@@ -1755,7 +1971,7 @@ function render() {
   document.getElementById('conteudo').innerHTML = `
     <div class="kpi-strip" style="grid-template-columns:repeat(11,1fr)">${kpisHtml}</div>
 
-    <div class="redes-grid">${cardsRedes(v)}</div>
+    <div class="redes-grid">${cardsRedes(v, vComp)}</div>
 
     <div class="card" style="margin-bottom:16px">
       <div class="card-title">
@@ -1779,7 +1995,7 @@ function render() {
           Funis
           <span class="card-tag">leads → mql</span>
         </div>
-        <div class="card-body" style="max-height:230px">${tabelaFunis(v)}</div>
+        <div class="card-body" style="max-height:230px">${tabelaFunis(v, null, vComp)}</div>
       </div>
       <div class="card">
         <div class="card-title">
@@ -1792,14 +2008,14 @@ function render() {
         <div class="card-body" style="max-height:230px">${
           PRODUTOS_COM_SCORE.includes(produtoAtivo)
             ? tabelaScore(v)
-            : tabelaCargos(v)}</div>
+            : tabelaCargos(v, vComp)}</div>
       </div>
       <div class="card">
         <div class="card-title">
           Proprietários
           <span class="card-tag">${qtdProprietarios(v)} · ${fmtNum(v.backlog.length)} leads</span>
         </div>
-        <div class="table-scroll" style="max-height:230px">${tabelaProprietarios(v)}</div>
+        <div class="table-scroll" style="max-height:230px">${tabelaProprietarios(v, vComp)}</div>
       </div>
     </div>
 
@@ -1827,8 +2043,10 @@ function render() {
       <div class="card">
         <div class="card-title">
           Comparativo entre produtos
-          <span class="card-tag" style="background:var(--amber);color:#0a0a0a"
-                title="Esta tabela vem fechada da API e não acompanha o seletor de data">mês inteiro</span>
+          ${comparando
+            ? `<span class="card-tag" style="background:var(--amber);color:#0a0a0a"
+                     title="Comparando com o período em 'vs' no cabeçalho">vs período anterior</span>`
+            : `<span class="card-tag">no período selecionado</span>`}
         </div>
         <div class="table-scroll">${tabelaProdutos()}</div>
       </div>
@@ -1903,24 +2121,42 @@ function render() {
 
     <div class="taxas" style="grid-template-columns:repeat(6,1fr)">
       ${[
-        ['Tx. Qualificação',   v.taxas.qualificacao, `${fmtNum(v.kpis.mqls)} de ${fmtNum(v.kpis.leads)} leads`],
-        ['Tx. Conexão',        v.taxas.conexao,      'MQLs que chegaram a Contatado+'],
-        ['Tx. Agendamento',    v.taxas.agendamento,  `${fmtNum(v.reunioes.length)} reuniões`],
-        ['Tx. Vendas s/ Call', v.taxas.vendasCall,   `${fmtNum(v.kpis.ganhos)} vendas`],
-        ['Lead → Ganho',       v.taxas.leadVenda,    `${fmtNum(v.kpis.ganhos)} de ${fmtNum(v.kpis.leads)} leads`],
-        ['MQL → Ganho',        v.taxas.mqlVenda,     `${fmtNum(v.kpis.ganhos)} de ${fmtNum(v.kpis.mqls)} MQL`],
-      ].map(([nome, valor, detalhe]) => `
+        ['Tx. Qualificação',   'qualificacao', `${fmtNum(v.kpis.mqls)} de ${fmtNum(v.kpis.leads)} leads`],
+        ['Tx. Conexão',        'conexao',      'MQLs que chegaram a Contatado+'],
+        ['Tx. Agendamento',    'agendamento',  `${fmtNum(v.reunioes.length)} reuniões`],
+        ['Tx. Vendas s/ Call', 'vendasCall',   `${fmtNum(v.kpis.ganhos)} vendas`],
+        ['Lead → Ganho',       'leadVenda',    `${fmtNum(v.kpis.ganhos)} de ${fmtNum(v.kpis.leads)} leads`],
+        ['MQL → Ganho',        'mqlVenda',     `${fmtNum(v.kpis.ganhos)} de ${fmtNum(v.kpis.mqls)} MQL`],
+      ].map(([nome, chave, detalhe]) => {
+        const valor = v.taxas[chave];
+        // Taxa e' percentual: o selo mostra a variacao em pontos
+        // percentuais, nao a variacao relativa — subir de 2% pra 3% e'
+        // +1 p.p., dizer "+50%" confundiria.
+        const ant = vComp ? vComp.taxas[chave] : null;
+        const delta = (comparando && valor !== null && ant !== null)
+          ? (() => {
+              const d = valor - ant;
+              const cor = Math.abs(d) < 0.2 ? 'var(--gray-light)'
+                        : d > 0 ? 'var(--green)' : 'var(--red)';
+              return `<span class="kpi-delta" style="color:${cor}"
+                title="Período de comparação: ${ant.toFixed(1)}%">${
+                d > 0 ? '▲' : d < 0 ? '▼' : '·'} ${
+                Math.abs(d).toFixed(1)} p.p.</span>`;
+            })()
+          : '';
+        return `
         <div class="taxa">
           <div class="taxa-nome">${nome}</div>
           <div class="taxa-val" style="color:${valor === null ? 'var(--gray)' : 'var(--blue)'}">${
             valor === null ? '—' : valor.toFixed(1) + '%'}</div>
-          <div class="taxa-detalhe">${detalhe}</div>
-        </div>`).join('')}
+          <div class="taxa-detalhe">${detalhe}${delta}</div>
+        </div>`;
+      }).join('')}
     </div>
 
   `;
 
-  desenharGraficos(v);
+  desenharGraficos(v, vComp);
 }
 
 // ── Report: uma pagina, so o essencial ──────────────────────────────────────
@@ -3360,8 +3596,12 @@ function idadeDoDado() {
 // Acima de 48h o número em horas fica ilegível e viramos para dias.
 const fmtHoras = x => {
   if (x === null || x === undefined) return '—';
-  if (x < 1)  return Math.round(x * 60) + 'min';
-  if (x < 48) return x.toFixed(1).replace('.', ',') + 'h';
+  const min = x * 60;
+  // Abaixo de um minuto vai em segundos: com meta de 5 minutos, "0min"
+  // seria lido como erro, e atendimento instantâneo existe.
+  if (min < 1)  return Math.round(min * 60) + 's';
+  if (x < 1)    return Math.round(min) + 'min';
+  if (x < 48)   return x.toFixed(1).replace('.', ',') + 'h';
   return Math.round(x / 24) + 'd';
 };
 
@@ -3518,31 +3758,54 @@ function cardReaplicacao(v) {
 }
 
 // ── Tabela comparativa ──────────────────────────────────────────────────────
+// Le o periodo da tela e soma cada produto dentro dele, via resumoProduto —
+// antes usava p.kpis (fechado do mes inteiro) e o backlog sem filtro de
+// data nenhum, entao a tabela inteira ficava parada com o seletor de data.
+//
+// Com o modo de comparacao ligado, cada numero ganha o selo de variacao
+// contra o mesmo produto no periodo de comparacao.
 function tabelaProdutos() {
-  const linhas = ORDEM_PRODUTOS.map(nome => {
-    const p = dados.produtos[nome];
-    if (!p) return '';
-    const k = p.kpis;
-    const backlogProduto = dados.backlog.filter(b =>
-      semAcento(b.produto) === semAcento(nome));
-    const reaplicacoes   = backlogProduto.filter(b => b.reaplicacao).length;
-    const pctReapl       = backlogProduto.length
-      ? (reaplicacoes / backlogProduto.length * 100) : 0;
+  const ini = document.getElementById('dataInicio').value;
+  const fim = document.getElementById('dataFim').value;
+  const compIni = comparando ? document.getElementById('compInicio').value : null;
+  const compFim = comparando ? document.getElementById('compFim').value : null;
+
+  const linhas = PRODUTOS_REAIS.map(nome => {
+    const k = resumoProduto(nome, ini, fim);
+    const kC = comparando ? resumoProduto(nome, compIni, compFim) : null;
+
+    const pctReapl = k.leads ? (k.reaplicacoes / k.leads * 100) : 0;
     const pctLeads = k.leads ? (k.ganhos / k.leads * 100) : 0;
     const pctMqls  = k.mqls  ? (k.ganhos / k.mqls  * 100) : 0;
 
+    // Selo de variacao por celula. So aparece com comparando=true — a
+    // funcao ja devolve '' sozinha quando desligado.
+    const dLeads = kC ? badgeDelta(k.leads, kC.leads) : '';
+    // Investimento subindo nao e' bom nem ruim por si so, mas gastar mais
+    // sem trazer mais lead e'. Marcamos como "menor melhor" pra a leitura
+    // ficar consistente com o card de investimento do topo.
+    const dInv   = kC ? badgeDelta(k.investimento, kC.investimento,
+                                   { fmt: fmtBRL, menorMelhor: true }) : '';
+    const dGan   = kC ? badgeDelta(k.ganhos, kC.ganhos) : '';
+    const dRoas  = kC ? badgeDelta(k.roas, kC.roas, { fmt: fmtRoas }) : '';
+    const dReapl = kC ? badgeDelta(k.reaplicacoes, kC.reaplicacoes) : '';
+    const dCpl   = kC ? badgeDelta(k.cpl, kC.cpl,
+                                   { fmt: fmtBRL, menorMelhor: true }) : '';
+    const dCpmql = kC ? badgeDelta(k.cpmql, kC.cpmql,
+                                   { fmt: fmtBRL, menorMelhor: true }) : '';
+
     return `<tr class="clicavel ${nome === produtoAtivo ? 'selecionado' : ''}" onclick="trocarProduto('${nome}')">
       <td style="font-weight:600">${nome}</td>
-      <td class="num">${fmtBRL(k.investimento)}</td>
-      <td class="num">${fmtNum(k.leads)}</td>
-      <td class="num">${fmtNum(reaplicacoes)}<span style="color:var(--gray);font-size:9px"> ${
-        pctReapl.toFixed(0)}%</span></td>
-      <td class="num">${fmtNum(k.ganhos)}</td>
+      <td class="num">${fmtBRL(k.investimento)}${dInv}</td>
+      <td class="num">${fmtNum(k.leads)}${dLeads}</td>
+      <td class="num">${fmtNum(k.reaplicacoes)}<span style="color:var(--gray);font-size:9px"> ${
+        pctReapl.toFixed(0)}%</span>${dReapl}</td>
+      <td class="num">${fmtNum(k.ganhos)}${dGan}</td>
       <td class="num">${pctLeads.toFixed(1)}%</td>
       <td class="num">${pctMqls.toFixed(1)}%</td>
-      <td class="num">${fmtBRL(k.cpl)}</td>
-      <td class="num">${fmtBRL(k.cpmql)}</td>
-      <td class="num" style="color:var(--blue)">${fmtRoas(k.roas)}</td>
+      <td class="num">${fmtBRL(k.cpl)}${dCpl}</td>
+      <td class="num">${fmtBRL(k.cpmql)}${dCpmql}</td>
+      <td class="num" style="color:var(--blue)">${fmtRoas(k.roas)}${dRoas}</td>
     </tr>`;
   }).join('');
 
@@ -3715,7 +3978,7 @@ function mapaCalor(v) {
 }
 
 // ── Cards de rede ───────────────────────────────────────────────────────────
-function cardsRedes(v) {
+function cardsRedes(v, vComp) {
   const CORES = {
     Meta: '#4a6dd4', LinkedIn: '#0e76a8', Google: '#2980b9', 'Orgânico': '#4ade80',
   };
@@ -3735,21 +3998,34 @@ function cardsRedes(v) {
     const taxa = d.leads ? (d.mqls / d.leads * 100) : 0;
     const cpmql = d.mqls ? d.investimento / d.mqls : null;
 
+    // Mesma rede no periodo de comparacao. Se ela nao existia la, o selo
+    // sai como "—" em vez de fingir uma variacao de 100%.
+    const c = vComp && vComp.porRede ? vComp.porRede[rede] : null;
+    const dl = c ? badgeDelta(d.leads, c.leads) : '';
+    const dm = c ? badgeDelta(d.mqls, c.mqls) : '';
+    const di = c ? badgeDelta(d.investimento, c.investimento,
+                              { fmt: fmtBRL, menorMelhor: true }) : '';
+    const dc = c && c.cpl !== null && d.cpl !== null
+      ? badgeDelta(d.cpl, c.cpl, { fmt: fmtBRL, menorMelhor: true }) : '';
+    const dq = c && cpmql !== null && c.mqls
+      ? badgeDelta(cpmql, c.investimento / c.mqls,
+                   { fmt: fmtBRL, menorMelhor: true }) : '';
+
     return `<div class="rede-card ${sel ? 'ativo' : ''}"
               style="${sel ? `border-color:${cor}` : ''}"
               onclick="toggleFiltro('rede', ${attr(rede)})">
       <div class="rede-topo">
         <span class="rede-nome" style="color:${cor}">${rede}</span>
-        <span class="rede-inv">${fmtBRL(d.investimento)}</span>
+        <span class="rede-inv">${fmtBRL(d.investimento)}${di}</span>
       </div>
       <div class="rede-nums">
-        <div><span>Leads</span><strong>${fmtNum(d.leads)}</strong></div>
-        <div><span>MQL</span><strong style="color:${cor}">${fmtNum(d.mqls)}</strong></div>
+        <div><span>Leads</span><strong>${fmtNum(d.leads)}${dl}</strong></div>
+        <div><span>MQL</span><strong style="color:${cor}">${fmtNum(d.mqls)}${dm}</strong></div>
         <div><span>Taxa MQL</span><strong>${taxa.toFixed(0)}%</strong></div>
       </div>
       <div class="rede-nums">
-        <div><span>CPL</span><strong>${d.cpl === null ? '—' : fmtBRL(d.cpl)}</strong></div>
-        <div><span>CPMQL</span><strong>${cpmql === null ? '—' : fmtBRL(cpmql)}</strong></div>
+        <div><span>CPL</span><strong>${d.cpl === null ? '—' : fmtBRL(d.cpl)}${dc}</strong></div>
+        <div><span>CPMQL</span><strong>${cpmql === null ? '—' : fmtBRL(cpmql)}${dq}</strong></div>
         <div><span>Share</span><strong>${
           v.kpis.investimento ? (d.investimento / v.kpis.investimento * 100).toFixed(0) : 0
         }%</strong></div>
@@ -3762,7 +4038,7 @@ function cardsRedes(v) {
 }
 
 // ── Funis (pipelines onde os leads estão) ───────────────────────────────────
-function tabelaFunis(v, limite) {
+function tabelaFunis(v, limite, vComp) {
   const agg = {};
   for (const b of v.backlog) {
     const f = b.funil || '—';
@@ -3770,6 +4046,12 @@ function tabelaFunis(v, limite) {
     agg[f].leads++;
     if (b.mql) agg[f].mqls++;
   }
+
+  // Mesmo agrupamento no periodo de comparacao
+  const ant = vComp
+    ? contarPor(vComp.backlog.filter(b => metrica !== 'mqls' || b.mql),
+                b => b.funil || '—')
+    : null;
 
   let lista = Object.entries(agg).sort((a, b) => b[1][metrica] - a[1][metrica]);
   if (!lista.length) return '<div class="empty">Sem funis para os filtros atuais.</div>';
@@ -3801,7 +4083,8 @@ function tabelaFunis(v, limite) {
           <span class="funil-val">${fmtNum(d[metrica])}</span>
         </div>
       </div>
-      <div class="funil-pct">${fmtNum(d[outra])}</div>
+      <div class="funil-pct">${fmtNum(d[outra])}${
+        ant ? miniDelta(d[metrica], ant[nome]) : ''}</div>
     </div>`;
   }).join('') + (resto ? `
     <div class="funil-step" style="opacity:.55;cursor:default">
@@ -4233,7 +4516,11 @@ function tabelaScore(v) {
 }
 
 // ── Cargos ──────────────────────────────────────────────────────────────────
-function tabelaCargos(v) {
+function tabelaCargos(v, vComp) {
+  const ant = vComp
+    ? contarPor(vComp.backlog.filter(b => metrica !== 'mqls' || b.mql),
+                b => normalizarCargo(b.cargo))
+    : null;
   const agg = {};
   for (const b of v.backlog) {
     const c = normalizarCargo(b.cargo);
@@ -4260,7 +4547,8 @@ function tabelaCargos(v) {
           <span class="funil-val">${fmtNum(d[metrica])}</span>
         </div>
       </div>
-      <div class="funil-pct" title="${fmtNum(d[metrica === 'mqls' ? 'leads' : 'mqls'])} ${metrica === 'mqls' ? 'leads' : 'MQL'}">${pct}%</div>
+      <div class="funil-pct" title="${fmtNum(d[metrica === 'mqls' ? 'leads' : 'mqls'])} ${metrica === 'mqls' ? 'leads' : 'MQL'}">${pct}%${
+        ant ? miniDelta(d[metrica], ant[nome]) : ''}</div>
     </div>`;
   }).join('') + '</div>';
 }
@@ -4269,7 +4557,13 @@ function tabelaCargos(v) {
 const qtdProprietarios = v =>
   new Set(v.backlog.map(b => b.proprietario || '—')).size;
 
-function tabelaProprietarios(v) {
+function tabelaProprietarios(v, vComp) {
+  const ant = vComp
+    ? contarPor(vComp.backlog, b => b.proprietario || '—')
+    : null;
+  const antMql = vComp
+    ? contarPor(vComp.backlog.filter(b => b.mql), b => b.proprietario || '—')
+    : null;
   const agg = {};
   for (const b of v.backlog) {
     const dono = b.proprietario || '—';
@@ -4298,8 +4592,10 @@ function tabelaProprietarios(v) {
       return `<tr class="clicavel ${sel ? 'selecionado' : ''}"
                 onclick="toggleFiltro('proprietario', ${attr(dono)})">
         <td>${dono}</td>
-        <td class="num" style="${cor('leads')}">${fmtNum(d.leads)}</td>
-        <td class="num" style="${cor('mqls')}">${fmtNum(d.mqls)}</td>
+        <td class="num" style="${cor('leads')}">${fmtNum(d.leads)}${
+          ant ? miniDelta(d.leads, ant[dono]) : ''}</td>
+        <td class="num" style="${cor('mqls')}">${fmtNum(d.mqls)}${
+          antMql ? miniDelta(d.mqls, antMql[dono]) : ''}</td>
         <td class="num" title="${t.n
             ? fmtNum(t.n) + ' contatados · ' + t.cobertura.toFixed(0) + '% dos leads'
             : (nomeEhSDR(dono)
@@ -4366,7 +4662,7 @@ function comCanvas(id, fn) {
   catch (err) { console.error(`Falha no gráfico ${id}:`, err); return null; }
 }
 
-function desenharGraficos(v) {
+function desenharGraficos(v, vComp) {
   // Ao trocar de modo, os canvas antigos ja sairam do DOM. Se destroy()
   // lancar, a funcao abortaria antes de desenhar o grafico novo — foi o
   // que deixava o report em branco.
@@ -4765,10 +5061,20 @@ window.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('dataInicio').addEventListener('change', e => {
     rastrear('mudar_periodo', `início: ${e.target.value}`);
+    renderTabs();   // os cards do topo tem contagem propria, por produto
     render();
   });
   document.getElementById('dataFim').addEventListener('change', e => {
     rastrear('mudar_periodo', `fim: ${e.target.value}`);
+    renderTabs();
+    render();
+  });
+  document.getElementById('compInicio').addEventListener('change', e => {
+    rastrear('mudar_periodo_comparacao', `início: ${e.target.value}`);
+    render();
+  });
+  document.getElementById('compFim').addEventListener('change', e => {
+    rastrear('mudar_periodo_comparacao', `fim: ${e.target.value}`);
     render();
   });
 
