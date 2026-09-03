@@ -105,6 +105,12 @@
   .status-bar{font-family:'DM Mono',monospace;font-size:11px;color:var(--white);
     margin-bottom:24px;min-height:16px;display:flex;justify-content:space-between;align-items:center;gap:12px;}
   .filtro-ativo{color:var(--amber);cursor:pointer;}
+  /* Comparacao de tamanhos diferentes: o numero sai sem significado, e o
+     usuario nao tem como perceber so olhando os selos */
+  .aviso-comp{color:var(--red);font-family:'DM Mono',monospace;
+    font-size:10.5px;margin-left:12px;white-space:nowrap;}
+  .rotulo-comp{color:var(--gray-light);font-family:'DM Mono',monospace;
+    font-size:10.5px;margin-left:12px;white-space:nowrap;}
   .filtro-ativo:hover{text-decoration:underline;}
 
   /* ── KPIs ── */
@@ -917,24 +923,101 @@ let produtoAtivo = CONSOLIDADO;
 // variacao % contra o periodo em compInicio/compFim.
 let comparando = false;
 
+// Contador de leads mostrado na barra de status. Guardado aqui porque o
+// render() reescreve o elemento pra encaixar os avisos de comparacao.
+let textoStatus = 'Carregando dados…';
+
+// Marca se o usuario editou as datas de comparacao a mao. Enquanto nao
+// editar, elas seguem o filtro principal automaticamente.
+let compManual = false;
+
+// Periodo imediatamente anterior, do mesmo tamanho.
+//
+// Precisa ser recalculado toda vez que o filtro principal muda: sem isso a
+// janela de comparacao fica presa no que foi sugerido da primeira vez, e o
+// usuario acaba comparando um mes inteiro contra tres dias — foi assim que
+// apareceu um "+927%" que nao queria dizer nada.
+function periodoAnterior(ini, fim) {
+  if (!ini || !fim) return null;
+  const a = new Date(ini + 'T00:00:00');
+  const b = new Date(fim + 'T00:00:00');
+  const dias = Math.round((b - a) / 86400000) + 1;
+  const fimC = new Date(a);
+  fimC.setDate(fimC.getDate() - 1);
+  const iniC = new Date(fimC);
+  iniC.setDate(iniC.getDate() - dias + 1);
+  const iso = d => `${d.getFullYear()}-${
+    String(d.getMonth() + 1).padStart(2, '0')}-${
+    String(d.getDate()).padStart(2, '0')}`;
+  return { ini: iso(iniC), fim: iso(fimC), dias };
+}
+
+// Chamado sempre que o filtro principal muda
+function sincronizarComparacao() {
+  if (!comparando || compManual) return;
+  const p = periodoAnterior(
+    document.getElementById('dataInicio').value,
+    document.getElementById('dataFim').value);
+  if (!p) return;
+  document.getElementById('compInicio').value = p.ini;
+  document.getElementById('compFim').value    = p.fim;
+}
+
+// Aviso quando os dois periodos tem tamanhos diferentes: comparar 31 dias
+// com 3 nao e' erro de codigo, mas o numero nao quer dizer nada.
+// Qual janela esta sendo comparada, por extenso. Sem isso o usuario ve
+// "+20%" e nao sabe contra o que.
+function rotuloComparacao() {
+  const i = document.getElementById('compInicio').value;
+  const f = document.getElementById('compFim').value;
+  if (!i || !f) return '';
+  const br = d => d.split('-').reverse().join('/');
+  return `<span class="rotulo-comp">vs ${br(i)} a ${br(f)}${
+    compManual ? '' : ' · período anterior'}</span>`;
+}
+
+function avisoComparacao() {
+  if (!comparando) return '';
+  const iniA = document.getElementById('dataInicio').value;
+  const fimA = document.getElementById('dataFim').value;
+  const iniC = document.getElementById('compInicio').value;
+  const fimC = document.getElementById('compFim').value;
+  if (!iniA || !fimA || !iniC || !fimC) return '';
+  const dias = (i, f) => Math.round(
+    (new Date(f + 'T00:00:00') - new Date(i + 'T00:00:00')) / 86400000) + 1;
+  // O backlog guarda a data como DD/MM, sem ano. Um periodo de
+  // comparacao em outro ano casaria com as mesmas datas deste — o
+  // resultado seria silenciosamente errado, entao avisamos alto.
+  const anoAtual = new Date().getFullYear();
+  if (Number(iniC.slice(0, 4)) !== anoAtual
+      || Number(fimC.slice(0, 4)) !== anoAtual) {
+    return `<span class="aviso-comp" title="O dashboard guarda as datas sem o ano, então não consegue separar ${
+      iniC.slice(0, 4)} de ${anoAtual}. Escolha um período dentro de ${anoAtual}.">
+      ⚠ comparação fora de ${anoAtual} — número não confiável</span>`;
+  }
+
+  const dA = dias(iniA, fimA), dC = dias(iniC, fimC);
+  if (dA === dC) return '';
+  return `<span class="aviso-comp" title="Períodos de tamanhos diferentes deixam a variação sem significado">
+    ⚠ comparando ${dA} dia${dA === 1 ? '' : 's'} com ${dC}</span>`;
+}
+
 function alternarComparar() {
   comparando = !comparando;
   document.getElementById('compareRange').style.display = comparando ? '' : 'none';
   document.getElementById('btnComparar').classList.toggle('ativo', comparando);
 
-  // Primeira vez: sugere o periodo imediatamente anterior, do mesmo
-  // tamanho do periodo atual. O usuario pode trocar livremente depois.
+  // Ao ligar, sempre sugere o periodo anterior do mesmo tamanho. Se o
+  // usuario tinha editado antes, respeitamos a escolha dele.
+  if (comparando && !compManual) sincronizarComparacao();
   if (comparando && !document.getElementById('compInicio').value) {
-    const iniAtual = new Date(document.getElementById('dataInicio').value + 'T00:00:00');
-    const fimAtual = new Date(document.getElementById('dataFim').value + 'T00:00:00');
-    const dias = Math.round((fimAtual - iniAtual) / 86400000) + 1;
-    const fimComp = new Date(iniAtual);
-    fimComp.setDate(fimComp.getDate() - 1);
-    const iniComp = new Date(fimComp);
-    iniComp.setDate(iniComp.getDate() - dias + 1);
-    const isoData = d => d.toISOString().slice(0, 10);
-    document.getElementById('compInicio').value = isoData(iniComp);
-    document.getElementById('compFim').value    = isoData(fimComp);
+    const p = periodoAnterior(
+      document.getElementById('dataInicio').value,
+      document.getElementById('dataFim').value);
+    if (p) {
+      document.getElementById('compInicio').value = p.ini;
+      document.getElementById('compFim').value    = p.fim;
+    }
   }
   rastrear('comparar_periodo', comparando ? 'ligado' : 'desligado');
   render();
@@ -1158,8 +1241,8 @@ async function carregar() {
     render();
 
     const qtd = Object.keys(dados.produtos).length;
-    document.getElementById('statusTexto').textContent =
-      `${qtd} produtos · ${fmtNum(dados.backlog.length)} leads no backlog`;
+    textoStatus = `${qtd} produtos · ${fmtNum(dados.backlog.length)} leads no backlog`;
+    document.getElementById('statusTexto').textContent = textoStatus;
     mostrarAtualizacao(dados.dadosDe);
   } catch (err) {
     document.getElementById('conteudo').innerHTML =
@@ -1851,6 +1934,16 @@ function render() {
   }
 
   document.getElementById('filtroAtivo').textContent = labelFiltros();
+
+  // O aviso fica ao lado do contador de leads, onde o olho ja passa.
+  // O texto base vem de uma variavel e nao do proprio elemento: ler o
+  // textContent na primeira renderizacao pegaria "Buscando dados..." e
+  // esse texto ficaria colado ali pra sempre.
+  const elStatus = document.getElementById('statusTexto');
+  if (elStatus) {
+    elStatus.innerHTML = textoStatus + avisoComparacao()
+      + (comparando ? rotuloComparacao() : '');
+  }
 
   // O TME fica no cabecalho, fora do #conteudo — entao e' preenchido aqui,
   // em toda renderizacao, pra acompanhar os filtros como o resto da tela
@@ -5059,16 +5152,29 @@ window.addEventListener('DOMContentLoaded', () => {
   document.getElementById('dataInicio').value = `${ano}-${mes}-01`;
   document.getElementById('dataFim').value    = `${ano}-${mes}-${dia}`;
 
-  document.getElementById('dataInicio').addEventListener('change', e => {
-    rastrear('mudar_periodo', `início: ${e.target.value}`);
-    renderTabs();   // os cards do topo tem contagem propria, por produto
-    render();
-  });
-  document.getElementById('dataFim').addEventListener('change', e => {
-    rastrear('mudar_periodo', `fim: ${e.target.value}`);
-    renderTabs();
-    render();
-  });
+  // Mudar o periodo principal reposiciona a janela de comparacao junto —
+  // ver sincronizarComparacao(). Sem isso a comparacao ficava presa no
+  // periodo sugerido da primeira vez.
+  for (const id of ['dataInicio', 'dataFim']) {
+    document.getElementById(id).addEventListener('change', e => {
+      rastrear('mudar_periodo',
+               `${id === 'dataInicio' ? 'início' : 'fim'}: ${e.target.value}`);
+      sincronizarComparacao();
+      renderTabs();   // os cards do topo tem contagem propria, por produto
+      render();
+    });
+  }
+
+  // Editar a comparacao a mao desliga a sincronizacao automatica
+  for (const id of ['compInicio', 'compFim']) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.addEventListener('change', e => {
+      compManual = true;
+      rastrear('mudar_comparacao', `${id}: ${e.target.value}`);
+      render();
+    });
+  }
   document.getElementById('compInicio').addEventListener('change', e => {
     rastrear('mudar_periodo_comparacao', `início: ${e.target.value}`);
     render();
