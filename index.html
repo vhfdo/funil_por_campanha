@@ -118,11 +118,17 @@
     background:var(--border);border:1px solid var(--border);margin-bottom:16px;}
   .kpi-card{background:var(--panel);padding:13px 12px;}
   .kpi-label{font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;
-    letter-spacing:.1em;color:var(--white);margin-bottom:8px;}
+    letter-spacing:.1em;color:var(--white);margin-bottom:8px;
+    /* Rotulo em duas linhas desalinha o card inteiro da fileira */
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .kpi-val{font-family:'Bebas Neue',sans-serif;font-size:26px;line-height:1;color:var(--white);}
   .kpi-val.blue{color:var(--blue);}
-  .kpi-linha{display:flex;justify-content:space-between;font-family:'DM Mono',monospace;
-    font-size:9.5px;color:var(--white);margin-top:5px;}
+  .kpi-linha{display:flex;justify-content:space-between;gap:8px;
+    font-family:'DM Mono',monospace;font-size:9.5px;color:var(--white);
+    margin-top:5px;white-space:nowrap;}
+  /* Complemento do valor, tipo o % ao lado do R$: menor e apagado, pra
+     nao competir com o numero principal */
+  .kpi-sub{color:var(--gray);margin-left:5px;font-size:8.5px;}
   .kpi-linha span:last-child{color:var(--white);}
   .kpi-barra{height:3px;background:var(--border);border-radius:2px;overflow:hidden;margin-top:7px;}
   .kpi-barra div{height:100%;border-radius:2px;}
@@ -3826,18 +3832,24 @@ function cardPrevisto(v, vComp) {
     ? badgeDelta(real, vComp.kpis.investimento,
                  { fmt: fmtBRL, menorMelhor: true }) : '';
 
+  // A linha do mes so aparece quando ela diz algo novo. Em periodo ja
+  // encerrado o previsto ate hoje E o do mes sao o mesmo numero, e repetir
+  // o valor duas vezes so ocupa espaco.
+  const mostraMes = Math.abs(p.doMes - p.ateHoje) > 1;
+
   return `<div class="kpi-card">
-    <div class="kpi-label">Previsto até hoje</div>
+    <div class="kpi-label">Previsto</div>
     <div class="kpi-val">${fmtBRL(p.ateHoje)}</div>
     <div class="kpi-linha"><span>realizado</span>
       <span>${fmtBRL(real)}${dReal}</span></div>
-    <div class="kpi-linha"><span>${acima ? 'acima' : 'abaixo'}</span>
-      <span style="color:${cor}" title="${
-        acima ? 'Gastando mais rápido que o planejado'
-              : 'Verba prevista ainda não gasta'}">${
-      fmtBRL(Math.abs(dif))} · ${Math.abs(pct).toFixed(0)}%</span></div>
-    <div class="kpi-linha"><span>mês</span>
-      <span>${fmtBRL(p.doMes)}</span></div>
+    <div class="kpi-linha" title="${
+      acima ? 'Gastando mais rápido que o planejado'
+            : 'Verba prevista ainda não gasta'}">
+      <span>${acima ? 'acima' : 'abaixo'}</span>
+      <span style="color:${cor}">${fmtBRL(Math.abs(dif))}<span
+        class="kpi-sub">${Math.abs(pct).toFixed(0)}%</span></span></div>
+    ${mostraMes ? `<div class="kpi-linha"><span>mês</span>
+      <span>${fmtBRL(p.doMes)}</span></div>` : ''}
   </div>`;
 }
 
