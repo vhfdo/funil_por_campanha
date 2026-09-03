@@ -1948,7 +1948,7 @@ function render() {
   // O TME fica no cabecalho, fora do #conteudo — entao e' preenchido aqui,
   // em toda renderizacao, pra acompanhar os filtros como o resto da tela
   const boxTME = document.getElementById('tmeHeader');
-  if (boxTME) boxTME.innerHTML = cardTME(v);
+  if (boxTME) boxTME.innerHTML = cardTME(v, vComp);
 
   if (modoBase)      { renderBase(v); return; }
   if (modoGanhos)    { renderGanhos(v); return; }
@@ -2057,8 +2057,8 @@ function render() {
     kpiCard('CAC', fmtBRL(k.cac),
       { meta: metas.cac, bruto: k.cac, fmt: fmtBRL, menorMelhor: true,
         delta: dv('cac', true, fmtBRL) }),
-    cardReaplicacao(v),
-    cardPrevisto(v),
+    cardReaplicacao(v, vComp),
+    cardPrevisto(v, vComp),
   ].join('');
 
   document.getElementById('conteudo').innerHTML = `
@@ -3698,8 +3698,12 @@ const fmtHoras = x => {
   return Math.round(x / 24) + 'd';
 };
 
-function cardTME(v) {
+function cardTME(v, vComp) {
   const t = calcTME(v.backlog);
+  // TME menor e' melhor: atender rapido e' o objetivo
+  const tC = vComp ? calcTME(vComp.backlog) : null;
+  const dTME = (tC && tC.n)
+    ? badgeDelta(t.med, tC.med, { fmt: fmtHoras, menorMelhor: true }) : '';
   // Separado porque MQL e lead comum costumam ter fila diferente, e a
   // mediana dos dois junto esconde isso
   const tm = calcTME(v.backlog.filter(b => b.mql));
@@ -3752,7 +3756,7 @@ function cardTME(v) {
         title="${horas === null ? 'sem carimbo de atualização'
           : fresco ? 'dado das últimas 3 horas'
           : `planilha atualizada há ${Math.floor(horas)}h`}"></span>TME</span>
-      <span class="tme-val">${fmtHoras(t.med)}</span>
+      <span class="tme-val">${fmtHoras(t.med)}</span>${dTME}
       <span class="tme-sub">${Object.keys(SDRS_TME).length} SDRs</span>
     </div>
     <div class="tme-quebra">
@@ -3791,7 +3795,7 @@ function cardTME(v) {
 // Compara o gasto real com o planejado ATÉ HOJE, não com o do mês inteiro.
 // Contra o mês inteiro, no dia 5 pareceria que falta gastar 80% — o que é
 // verdade e não é informação nenhuma.
-function cardPrevisto(v) {
+function cardPrevisto(v, vComp) {
   const p = previstoNoPeriodo();
   if (!p.temDados) {
     return `<div class="kpi-card">
@@ -3812,11 +3816,17 @@ function cardPrevisto(v) {
   const cor = !forte ? 'var(--gray-light)'
             : acima ? 'var(--red)' : 'var(--amber)';
 
+  // O realizado ganha selo; o previsto nao, porque ele e' o planejamento
+  // e nao um resultado que subiu ou caiu.
+  const dReal = vComp
+    ? badgeDelta(real, vComp.kpis.investimento,
+                 { fmt: fmtBRL, menorMelhor: true }) : '';
+
   return `<div class="kpi-card">
     <div class="kpi-label">Previsto até hoje</div>
     <div class="kpi-val">${fmtBRL(p.ateHoje)}</div>
     <div class="kpi-linha"><span>realizado</span>
-      <span>${fmtBRL(real)}</span></div>
+      <span>${fmtBRL(real)}${dReal}</span></div>
     <div class="kpi-linha"><span>${acima ? 'acima' : 'abaixo'}</span>
       <span style="color:${cor}" title="${
         acima ? 'Gastando mais rápido que o planejado'
@@ -3831,19 +3841,43 @@ function cardPrevisto(v) {
 // Lead que ja tinha entrado antes e voltou. Vale acompanhar porque uma taxa
 // alta significa que boa parte do volume nao e' publico novo — a base esta
 // sendo reimpactada.
-function cardReaplicacao(v) {
+function cardReaplicacao(v, vComp) {
   const total  = v.backlog.length;
   const reapl  = v.backlog.filter(b => b.reaplicacao).length;
   const novos  = total - reapl;
   const pct    = total ? (reapl / total * 100) : 0;
 
+  // Comparacao: volume de reaplicacao, volume de lead novo, e a fatia.
+  //
+  // A fatia vai em pontos percentuais: sair de 20% pra 25% e' +5 p.p.
+  // Dizer "+25%" seria certo na matematica e enganoso na leitura.
+  let dReapl = '', dNovos = '', dPct = '';
+  if (vComp) {
+    const totalC = vComp.backlog.length;
+    const reaplC = vComp.backlog.filter(b => b.reaplicacao).length;
+    const novosC = totalC - reaplC;
+    const pctC   = totalC ? (reaplC / totalC * 100) : 0;
+
+    dReapl = badgeDelta(reapl, reaplC);
+    dNovos = badgeDelta(novos, novosC);
+
+    if (totalC) {
+      const d = pct - pctC;
+      const cor = Math.abs(d) < 0.5 ? 'var(--gray-light)'
+                : d > 0 ? 'var(--amber)' : 'var(--green)';
+      dPct = `<span class="kpi-delta" style="color:${cor}"
+        title="Período de comparação: ${pctC.toFixed(1)}%">${
+        d > 0 ? '▲' : d < 0 ? '▼' : '·'} ${Math.abs(d).toFixed(1)} p.p.</span>`;
+    }
+  }
+
   // Barra dividida: parte nova e parte que voltou
   return `<div class="kpi-card">
     <div class="kpi-label">Reaplicação</div>
-    <div class="kpi-val">${fmtNum(reapl)}</div>
+    <div class="kpi-val">${fmtNum(reapl)}${dReapl}</div>
     <div class="kpi-linha"><span>% dos leads</span>
-      <span style="color:var(--amber)">${pct.toFixed(1)}%</span></div>
-    <div class="kpi-linha"><span>Novos</span><span>${fmtNum(novos)}</span></div>
+      <span style="color:var(--amber)">${pct.toFixed(1)}%${dPct}</span></div>
+    <div class="kpi-linha"><span>Novos</span><span>${fmtNum(novos)}${dNovos}</span></div>
     <div class="reapl-barra" title="${fmtNum(novos)} novos · ${fmtNum(reapl)} reaplicações">
       <div style="width:${100 - pct}%"></div>
     </div>
