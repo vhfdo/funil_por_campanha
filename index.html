@@ -809,6 +809,11 @@ const ORDEM_PRODUTOS = [CONSOLIDADO, ...PRODUTOS_REAIS];
 // porque ninguém sabe que está velho.
 //
 // A estrutura fica: quando o previsto chegar, é só preencher de volta.
+// A qual mes as METAS abaixo se referem. Trocar as metas sem trocar isto
+// faz o dashboard comparar o periodo errado em silencio — por isso a
+// constante existe e o aviso na tela sai dela.
+const MES_META = '2026-09';
+
 // Metas de setembro/2026.
 //
 // O CONSOLIDADO e' a soma dos cinco produtos; CPL, CPMQL, CAC e ROAS dele
@@ -1921,13 +1926,44 @@ function cpmqlPorDiaProduto() {
 }
 
 // Quanto deveria estar a esta altura do mes, no ritmo da meta
+// Quanto da meta deveria estar cumprido a esta altura do mes.
+//
+// A meta e' MENSAL, entao a fracao e' de dias do MES ja decorridos — nao
+// do periodo selecionado. Selecionar tres dias nao muda o quanto do mes
+// ja passou.
+//
+// O fim do periodo e' limitado a hoje: escolher "setembro inteiro" no dia
+// 3 mostrava a meta cheia como projecao, como se o mes tivesse acabado, e
+// o card ficava vermelho sem motivo.
 function metaAteHoje(meta) {
   if (!meta) return null;
   const hoje = new Date();
-  const fim  = document.getElementById('dataFim').value;
-  const dia  = fim ? new Date(fim + 'T00:00:00').getDate() : hoje.getDate();
-  const diasNoMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).getDate();
+  hoje.setHours(0, 0, 0, 0);
+
+  const fimSel = document.getElementById('dataFim').value;
+  let ref = fimSel ? new Date(fimSel + 'T00:00:00') : hoje;
+  if (ref > hoje) ref = hoje;
+
+  const dia = ref.getDate();
+  const diasNoMes = new Date(ref.getFullYear(), ref.getMonth() + 1, 0).getDate();
   return Math.round(meta / diasNoMes * dia);
+}
+
+// A meta vale para um mes so. Se o periodo selecionado sai dele, os cards
+// comparam coisas diferentes — e sem aviso ninguem percebe.
+function avisoMeta() {
+  const ini = document.getElementById('dataInicio').value;
+  const fim = document.getElementById('dataFim').value;
+  if (!ini || !fim) return '';
+  if (ini.slice(0, 7) === MES_META && fim.slice(0, 7) === MES_META) return '';
+
+  const [ano, mes] = MES_META.split('-');
+  const nome = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+    'julho', 'agosto', 'setembro', 'outubro', 'novembro',
+    'dezembro'][Number(mes) - 1];
+  return `<span class="aviso-comp"
+    title="As metas cadastradas são de ${nome}. Comparar outro período com elas não faz sentido.">
+    ⚠ metas são de ${nome}</span>`;
 }
 
 // ── Render ──────────────────────────────────────────────────────────────────
@@ -1963,7 +1999,7 @@ function render() {
   // esse texto ficaria colado ali pra sempre.
   const elStatus = document.getElementById('statusTexto');
   if (elStatus) {
-    elStatus.innerHTML = textoStatus + avisoComparacao()
+    elStatus.innerHTML = textoStatus + avisoMeta() + avisoComparacao()
       + (comparando ? rotuloComparacao() : '');
   }
 
