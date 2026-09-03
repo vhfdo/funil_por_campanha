@@ -1933,6 +1933,22 @@ function render() {
     return;
   }
 
+  // Periodo de comparacao: reaproveita dadosVisiveis() inteiro trocando
+  // as datas na hora da chamada (ver comPeriodo). Assim herda automatico
+  // todos os filtros ja ativos — rede, etapa, funil etc — e nao precisa
+  // duplicar a logica so pra calcular outra janela.
+  //
+  // Fica aqui no topo porque o bloco do TME, logo abaixo, ja precisa dele:
+  // declarar mais adiante dava "Cannot access 'vComp' before
+  // initialization" e a tela nem carregava.
+  const vComp = comparando
+    ? comPeriodo(
+        document.getElementById('compInicio').value,
+        document.getElementById('compFim').value,
+        () => dadosVisiveis())
+    : null;
+  const kComp = vComp ? vComp.kpis : null;
+
   document.getElementById('filtroAtivo').textContent = labelFiltros();
 
   // O aviso fica ao lado do contador de leads, onde o olho ja passa.
@@ -1958,18 +1974,6 @@ function render() {
 
   const k = v.kpis;
   const metas = METAS[produtoAtivo] || {};
-
-  // Periodo de comparacao: reaproveita dadosVisiveis() inteiro trocando
-  // as datas na hora da chamada (ver comPeriodo). Assim herda automatico
-  // todos os filtros ja ativos — rede, etapa, funil etc — e nao precisa
-  // duplicar a logica so pra calcular outra janela.
-  const vComp = comparando
-    ? comPeriodo(
-        document.getElementById('compInicio').value,
-        document.getElementById('compFim').value,
-        () => dadosVisiveis())
-    : null;
-  const kComp = vComp ? vComp.kpis : null;
 
   // Atalho: selo de variacao pro campo `campo` de k, contra o mesmo campo
   // em kComp. Sem periodo de comparacao ligado, badgeDelta ja devolve ''.
