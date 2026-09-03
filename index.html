@@ -178,13 +178,19 @@
   .rede-topo{display:flex;justify-content:space-between;align-items:baseline;
     margin-bottom:12px;padding-bottom:9px;border-bottom:1px solid var(--border);}
   .rede-nome{font-family:'Bebas Neue',sans-serif;font-size:19px;letter-spacing:.04em;}
-  .rede-inv{font-family:'DM Mono',monospace;font-size:12px;color:var(--white);}
+  .rede-inv{font-family:'DM Mono',monospace;font-size:12px;color:var(--white);
+    display:inline-flex;align-items:baseline;white-space:nowrap;}
   .rede-nums{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:9px;}
   .rede-nums div{display:flex;flex-direction:column;gap:2px;}
   .rede-nums span{font-family:'DM Mono',monospace;font-size:8.5px;color:var(--white);
     text-transform:uppercase;letter-spacing:.06em;}
   .rede-nums strong{font-family:'DM Mono',monospace;font-size:12.5px;
     font-weight:500;color:var(--white);}
+  /* Tres colunas estreitas: o selo nao cabe ao lado do numero, entao vai
+     embaixo. Menor que o dos KPIs pelo mesmo motivo. */
+  .rede-nums .kpi-delta{display:block;font-size:8.5px;margin-top:2px;
+    font-weight:500;}
+  .rede-inv .kpi-delta{margin-left:6px;font-size:9px;}
   .rede-barra{height:3px;background:var(--border);border-radius:2px;overflow:hidden;margin-top:4px;}
   .rede-barra div{height:100%;border-radius:2px;}
 
@@ -2108,7 +2114,8 @@ function render() {
   ].join('');
 
   document.getElementById('conteudo').innerHTML = `
-    <div class="kpi-strip" style="grid-template-columns:repeat(11,1fr)">${kpisHtml}</div>
+    <div class="kpi-strip ${comparando ? 'comparando' : ''}"
+         style="grid-template-columns:repeat(${comparando ? 6 : 11},1fr)">${kpisHtml}</div>
 
     <div class="redes-grid">${cardsRedes(v, vComp)}</div>
 
@@ -4870,6 +4877,24 @@ function desenharGraficos(v, vComp) {
   const labels  = v.leadsPorDia.map(d => d.data);
   const invDias = labels.map(l => v.investPorDia[l] || 0);
 
+  // ── Periodo de comparacao ────────────────────────────────────────
+  // Alinhado por POSICAO, nao por data: os dois periodos caem em dias
+  // diferentes do calendario, e o que interessa e' comparar o 1o dia com
+  // o 1o, o 2o com o 2o. Periodo mais curto simplesmente termina antes.
+  const temComp = comparando && vComp && vComp.leadsPorDia.length;
+  const compLeads = temComp
+    ? labels.map((_, i) => vComp.leadsPorDia[i]
+        ? vComp.leadsPorDia[i].leads : null) : null;
+  const compMqls = temComp
+    ? labels.map((_, i) => vComp.leadsPorDia[i]
+        ? vComp.leadsPorDia[i].mqls : null) : null;
+  const compInv = temComp
+    ? labels.map((_, i) => {
+        const d = vComp.leadsPorDia[i];
+        return d ? (vComp.investPorDia[d.data] || 0) : null;
+      }) : null;
+  const compDatas = temComp ? vComp.leadsPorDia.map(d => d.data) : null;
+
   // Investimento x Leads x MQL
   charts.leads = comCanvas('chartLeads', el => new Chart(el, {
     data: {
@@ -4904,6 +4929,29 @@ function desenharGraficos(v, vComp) {
             datalabels:{ display:false },
           }];
         })(),
+        // Comparacao: tracejado apagado, atras de tudo. Nao compete com o
+        // dado do periodo — serve de referencia visual.
+        ...(compLeads ? [{
+          type:'line', label:'Leads · anterior', data: compLeads, yAxisID:'y',
+          borderColor:'#5a7a94', borderWidth:1.5, borderDash:[5,4],
+          pointRadius:2, pointBackgroundColor:'#5a7a94',
+          tension:.3, spanGaps:true, order: 9,
+          datalabels:{ display:false },
+        }] : []),
+        ...(compMqls ? [{
+          type:'line', label:'MQL · anterior', data: compMqls, yAxisID:'y',
+          borderColor:'#7ab4e8', borderWidth:1.5, borderDash:[5,4],
+          pointRadius:2, pointBackgroundColor:'#7ab4e8',
+          tension:.3, spanGaps:true, order: 8,
+          datalabels:{ display:false },
+        }] : []),
+        ...(compInv ? [{
+          type:'line', label:'Investimento · anterior', data: compInv,
+          yAxisID:'y1',
+          borderColor:'#8a7a4a', borderWidth:1.5, borderDash:[5,4],
+          pointRadius:0, tension:.3, spanGaps:true, order: 7,
+          datalabels:{ display:false },
+        }] : []),
         { type:'line', label:'Investimento', data: invDias,
           borderColor:'#d9a441', borderWidth:2, pointRadius:2.5, tension:.3,
           pointBackgroundColor:'#d9a441', yAxisID:'y1',
@@ -4921,8 +4969,19 @@ function desenharGraficos(v, vComp) {
     },
     options: {
       ...opcoesBase(),
-      plugins: { ...opcoesBase().plugins, legend: { display:true,
-        labels:{ color:'#e8e8e8', font:{ family:'DM Mono', size:10 }, boxWidth:10 } } },
+      interaction: { mode: 'index', intersect: false },
+      plugins: { ...opcoesBase().plugins,
+        legend: { display:true,
+          labels:{ color:'#e8e8e8', font:{ family:'DM Mono', size:10 },
+                   boxWidth:10 } },
+        tooltip: { ...opcoesBase().plugins.tooltip, callbacks: {
+          // Os dois periodos caem em datas diferentes; sem dizer qual e' a
+          // do anterior, o usuario ve dois numeros e nao sabe comparar
+          afterBody: items => compDatas && items.length
+            ? 'Período anterior: ' + (compDatas[items[0].dataIndex] || '—')
+            : '',
+        } },
+      },
       scales: {
         ...opcoesBase().scales,
         y: { ...opcoesBase().scales.y, grace:'12%' },
