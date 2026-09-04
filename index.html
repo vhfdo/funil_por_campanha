@@ -1941,7 +1941,15 @@ function cpmqlPorDiaProduto() {
 // O fim do periodo e' limitado a hoje: escolher "setembro inteiro" no dia
 // 3 mostrava a meta cheia como projecao, como se o mes tivesse acabado, e
 // o card ficava vermelho sem motivo.
-function metaAteHoje(meta) {
+// Quanto deveria ter sido feito ate hoje, no ritmo da meta.
+//
+// O parametro `previsto` existe pro investimento: a aba PREVISTO tem o
+// valor de cada dia, e a distribuicao nao e' uniforme — a primeira semana
+// gasta mais por dia que a quarta. Dividir a meta linearmente daria um
+// numero diferente do card de Previsto, e os dois apareceriam lado a lado
+// se contradizendo.
+function metaAteHoje(meta, previsto) {
+  if (previsto !== null && previsto !== undefined) return Math.round(previsto);
   if (!meta) return null;
   const hoje = new Date();
   hoje.setHours(0, 0, 0, 0);
@@ -2062,7 +2070,7 @@ function render() {
       </div>`;
     }
 
-    const alvoHoje = metaAteHoje(meta);
+    const alvoHoje = metaAteHoje(meta, opts.previstoAteHoje);
     const pct = Math.min(bruto / meta * 100, 100);
     // Volume: estar acima do ritmo e' bom. Gasto: e' o contrario — passar
     // do previsto pra data significa que o orcamento vai estourar antes do
@@ -2089,6 +2097,12 @@ function render() {
     kpiCard('Investimento', fmtBRL(k.investimento),
       { meta: metas.investimento, bruto: k.investimento,
         fmt: fmtBRL, gastoMenorMelhor: true,
+        // Mesma fonte do card de Previsto: sem isso um diz 5.333 e o
+        // outro 6.204 pro mesmo conceito
+        previstoAteHoje: (() => {
+          const p = previstoNoPeriodo();
+          return p.temDados ? p.ateHoje : undefined;
+        })(),
         // Investimento maior nao e' "ruim" por si — quem decide isso e'
         // o card de Previsto. Aqui o selo so' informa, sem menorMelhor.
         delta: dv('investimento') }),
@@ -3858,6 +3872,9 @@ function cardPrevisto(v, vComp) {
     </div>`;
   }
 
+  // A meta oficial e' a do METAS; a aba PREVISTO e' o detalhe diario dela
+  const metaMes = (METAS[produtoAtivo] || {}).investimento;
+
   const real = v.kpis.investimento;
   const dif = real - p.ateHoje;
   const pct = p.ateHoje ? dif / p.ateHoje * 100 : 0;
@@ -3892,7 +3909,17 @@ function cardPrevisto(v, vComp) {
       <span style="color:${cor}">${fmtBRL(Math.abs(dif))}<span
         class="kpi-sub">${Math.abs(pct).toFixed(0)}%</span></span></div>
     ${mostraMes ? `<div class="kpi-linha"><span>mês</span>
-      <span>${fmtBRL(p.doMes)}</span></div>` : ''}
+      <span title="${(() => {
+        // A soma dos dias da aba PREVISTO pode diferir da meta em alguns
+        // reais, por arredondamento da divisao diaria. Mostramos a meta
+        // oficial pra bater com o card de Investimento, e a soma no
+        // tooltip pra quem for conferir a planilha.
+        const dif = Math.round(p.doMes - (metaMes || 0));
+        return metaMes && Math.abs(dif) >= 1
+          ? `soma dos dias: ${fmtBRL(p.doMes)} · diferença de ${
+              fmtBRL(Math.abs(dif))} por arredondamento`
+          : 'meta do mês';
+      })()}">${fmtBRL(metaMes || p.doMes)}</span></div>` : ''}
   </div>`;
 }
 
