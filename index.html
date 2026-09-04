@@ -942,6 +942,10 @@ let comparando = false;
 
 // Contador de leads mostrado na barra de status. Guardado aqui porque o
 // render() reescreve o elemento pra encaixar os avisos de comparacao.
+// Prefixo da barra de status. Fica vazio depois que os dados carregam: a
+// contagem de leads do backlog nao dizia nada — e' o total da planilha, nao
+// o que esta na tela. Os avisos de meta e comparacao continuam usando este
+// espaco.
 let textoStatus = 'Carregando dados…';
 
 // Marca se o usuario editou as datas de comparacao a mao. Enquanto nao
@@ -1257,8 +1261,7 @@ async function carregar() {
     renderTabs();
     render();
 
-    const qtd = Object.keys(dados.produtos).length;
-    textoStatus = `${qtd} produtos · ${fmtNum(dados.backlog.length)} leads no backlog`;
+    textoStatus = '';
     document.getElementById('statusTexto').textContent = textoStatus;
     mostrarAtualizacao(dados.dadosDe);
   } catch (err) {
