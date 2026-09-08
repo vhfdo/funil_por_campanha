@@ -67,7 +67,9 @@
     font-family:'DM Mono',monospace;font-size:10px;color:var(--gray-light);}
   .tme-linha b{color:var(--white);font-weight:500;}
   .tme-linha.mql b{color:var(--blue);}
-  @media(max-width:1100px){ .tme-box{display:none;} }
+  /* So em tela de celular: em janela de desktop, mesmo estreita, o bloco
+     cabe na segunda linha do cabecalho */
+  @media(max-width:700px){ .tme-box{display:none;} }
   @media print{ .tme-box{display:none;} }
 
   .metrica-switch{display:flex;gap:1px;background:var(--border);border:1px solid var(--border);}
@@ -501,7 +503,6 @@
       <h1>PERFORMANCE</h1>
     </div>
     <div class="header-right">
-      <span id="tmeHeader"></span>
       <div class="metrica-switch">
         <button class="metrica-btn active" data-metrica="leads"
                 onclick="trocarMetrica('leads')">Leads</button>
@@ -534,6 +535,9 @@
       <button class="btn" onclick="exportarPDF()">↓ PDF</button>
       <span class="user-info" id="userInfo"></span>
       <span id="statusAtualizacao"></span>
+      <!-- Depois dos botoes: no inicio, ele empurrava a barra inteira e
+           sumia em janela estreita -->
+      <span id="tmeHeader"></span>
       <button class="btn" onclick="logout()">Sair</button>
     </div>
   </div>
@@ -3855,7 +3859,30 @@ function cardTME(v, vComp) {
   // ser tratado como "agora"
   const fresco = horas !== null && horas < 3;
 
-  if (!t.n) return '';   // sem contato registrado, o bloco nao aparece
+  // Sem nenhum TME calculado o bloco ainda aparece, com o motivo. Antes
+  // ele sumia, e quem procurava por ele nao tinha como saber se estava
+  // escondido, quebrado ou sem dado.
+  if (!t.n) {
+    // A coluna TME so existe depois que o funil_denise.py roda. Se ela
+    // nao chegou, o problema e' o script — nao o dashboard.
+    const semColuna = !v.backlog.some(
+      b => b.tme !== null && b.tme !== undefined);
+    const semSDR = !v.backlog.some(ehSDR);
+    return `<div class="tme-box" title="${
+      semColuna ? 'A coluna TME não veio da planilha. Rode o funil_denise.py '
+                + 'para gerá-la.'
+      : semSDR  ? 'Nenhum lead desta seleção pertence a um SDR da escala.'
+                : 'Os leads desta seleção ainda não têm contato registrado.'}">
+      <div class="tme-principal">
+        <span class="tme-rot">TME</span>
+        <span class="tme-val" style="color:var(--gray)">—</span>
+        <span class="tme-sub">${
+          semColuna ? 'sem dado na planilha'
+          : semSDR  ? 'nenhum SDR na seleção'
+                    : 'sem contato ainda'}</span>
+      </div>
+    </div>`;
+  }
 
   const alerta = t.cobertura < 50;
 
