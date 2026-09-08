@@ -747,24 +747,24 @@ const CORES_PRODUTO = {
 // contato. Em horas, porque é a unidade em que o TME é calculado.
 const TME_META = 5 / 60;
 
-const SDRS_TME = {
-  'Gabriela Turetta':  'Orion',
-  'Leonardo Dutra':    'Orion',
-  'Ollavo Costa':      'Orion',
-  'Alisson Santos':    'Olympus',
-  'Bruna Goes':        'Olympus',
-  'Marlon Silva':      'Olympus',
-  'Raphaela Moutinho': 'Olympus',
-  'Vitor Soares':      'Olympus',
-  'Priscila Ribeiro':  'Vanguard',
-  // LATAM cobre México e Chile juntos: os cinco atendem os dois países,
-  // entao nao da pra separar por pais so pelo proprietario
-  'Sarah Leite':        'LATAM',
-  'Thiago Santos':      'LATAM',
-  'Gabriela Morais':    'LATAM',
-  'Luanna Martins':     'LATAM',
-  'Wellington Andrade': 'LATAM',
-};
+// Quem conta no TME sai da aba ESCALA — todo mundo com Cargo preenchido.
+// Antes era uma lista fixa aqui, que envelhecia sem ninguem perceber:
+// SDR novo nao aparecia e quem saiu continuava.
+//
+// A equipe vem da coluna equipe_distribuicao; sem ela, a Subarea serve de
+// agrupamento.
+function escalaSDRs() {
+  const esc = (dados && dados.escala) || {};
+  const fora = {};
+  for (const [nome, turnos] of Object.entries(esc)) {
+    const t = turnos[0] || {};
+    fora[nome] = (t.equipe || t.subarea || 'Sem equipe')
+      .replace(/^DISTRIBUI[ÇC][ÃA]O\s*-\s*/i, '')
+      .replace(/^EQUIPE\s+/i, '')
+      .trim() || 'Sem equipe';
+  }
+  return fora;
+}
 
 // Indexado sem acento pra sobreviver a variacao de escrita.
 //
@@ -773,12 +773,18 @@ const SDRS_TME = {
 // dava ReferenceError no carregamento e a pagina inteira ficava em branco.
 let _sdrsChave = null;
 let _sdrsTime  = null;
+// Guarda qual escala gerou o índice atual
+let _sdrsEscala = undefined;
 
 function _indexarSDRs() {
-  if (_sdrsChave) return;
+  // A lista agora vem dos dados, que chegam depois do script carregar.
+  // Sem invalidar o cache, o índice ficaria vazio pra sempre — montado
+  // antes de a escala existir.
+  if (_sdrsChave && _sdrsEscala === (dados && dados.escala)) return;
+  _sdrsEscala = dados && dados.escala;
   _sdrsChave = new Set();
   _sdrsTime  = {};
-  for (const [nome, time] of Object.entries(SDRS_TME)) {
+  for (const [nome, time] of Object.entries(escalaSDRs())) {
     const k = semAcento(nome);
     _sdrsChave.add(k);
     _sdrsTime[k] = time;
@@ -849,17 +855,31 @@ const ETAPAS_IGNORADAS = ['reabertura'];
 
 // Etapas que significam "houve conexao com o lead" — base da taxa de conexao.
 // Comparadas sem acento, entao 'validacao' pega 'VALIDAÇÃO DE REUNIÃO'.
+//
+// Largada, Aceleracao, Ritmo, Impulso e Sprint NAO entram: sao tentativas
+// de contato sem resposta. Nutricao entra, porque so recebe quem respondeu.
 const ETAPAS_CONECTADAS = [
-  'contatado', 'oportunidade', 'agendados', 'no show', 'noshow',
+  'contatado', 'nutricao', 'oportunidade', 'agendados', 'no show', 'noshow',
   'validacao', 'negociacao', 'inscricao',
 ];
 
-// Ordem real do processo. Contatado vem depois das Etapas 1-3, nao logo
-// apos a Aplicacao — as etapas numeradas sao as tentativas de contato.
+// Ordem real do processo. Contatado vem depois das tentativas de contato,
+// nao logo apos a Aplicacao.
+//
+// O Sniper renomeou as etapas: Largada, Aceleracao, Ritmo, Impulso e
+// Sprint sao as cinco tentativas de pre-contato, e Nutricao entra depois
+// que o lead responde. Os outros funis continuam com Etapa 1, 2 e 3 —
+// por isso os dois conjuntos convivem aqui, cada nome na sua posicao.
 const ORDEM_ETAPAS = [
   'aplicacao', 'em agendamento',
-  'etapa 1', 'etapa 2', 'etapa 3',
-  'contatado', 'oportunidade', 'proposta',
+  // Pre-contato: o lead ainda nao respondeu
+  'largada',    'etapa 1',
+  'aceleracao', 'etapa 2',
+  'ritmo',      'etapa 3',
+  'impulso',
+  'sprint',
+  // Daqui pra frente o lead ja respondeu
+  'contatado', 'nutricao', 'oportunidade', 'proposta',
   'agendados', 'no show', 'validacao de reuniao', 'reuniao',
   'em negociacao', 'negociacao', 'inscricao em andamento', 'futuro'
 ];
@@ -2156,7 +2176,8 @@ function render() {
       <div class="card">
         <div class="card-title">
           Funis
-          <span class="card-tag">leads → mql</span>
+          <span class="card-tag"
+                title="Conta todos os leads do período, inclusive os já ganhos e perdidos. A tabela de leads em aberto, no fim da página, mostra só os que continuam vivos.">todos do período</span>
         </div>
         <div class="card-body" style="max-height:230px">${tabelaFunis(v, null, vComp)}</div>
       </div>
@@ -3726,7 +3747,7 @@ function previstoNoPeriodo() {
 // Mediana, nao media: um lead esquecido por 200 horas puxa a media e some
 // na mediana, que descreve o atendimento tipico.
 function calcTME(lista) {
-  // So os SDRs da lista — ver SDRS_TME
+  // So quem esta na escala — ver escalaSDRs()
   const base = (lista || []).filter(ehSDR);
   const v = base
     .filter(b => b.tme !== null && b.tme !== undefined)
@@ -3793,13 +3814,13 @@ function cardTME(v, vComp) {
   //
   // Os times saem da propria lista de SDRs, nao ficam fixos aqui: incluir
   // alguem de um time novo ja passa a mostrar a linha dele.
-  const times = [...new Set(Object.values(SDRS_TME))];
+  const times = [...new Set(Object.values(escalaSDRs()))];
   const porTime = times.map(nome => ({
     nome,
     t: calcTME(v.backlog.filter(b => timeDoSDR(b) === nome)),
     // Quem esta nele, pro tooltip. Nome completo: ha duas Gabrielas em
     // times diferentes, e so o primeiro nome as confundiria.
-    quem: Object.entries(SDRS_TME)
+    quem: Object.entries(escalaSDRs())
       .filter(([, tm]) => tm === nome)
       .map(([p]) => p).join(' · '),
   }));
@@ -3819,7 +3840,7 @@ function cardTME(v, vComp) {
     b => ehSDR(b) && b.tme !== null && b.tme !== undefined
          && b.tme <= TME_META).length;
   const pctPrazo = t.n ? noPrazo / t.n * 100 : 0;
-  const nomes = Object.keys(SDRS_TME).join(', ');
+  const nomes = Object.keys(escalaSDRs()).join(', ');
   return `<div class="tme-box" title="Tempo médio de espera: da entrada do lead até a primeira ligação ou mensagem. Conta horas úteis, 8h-20h de segunda a sábado.&#10;&#10;SDRs: ${nomes}">
     <div class="tme-principal">
       <span class="tme-rot"><span class="pulso ${fresco ? '' : 'parado'}"
@@ -3827,7 +3848,7 @@ function cardTME(v, vComp) {
           : fresco ? 'dado das últimas 3 horas'
           : `planilha atualizada há ${Math.floor(horas)}h`}"></span>TME</span>
       <span class="tme-val">${fmtHoras(t.med)}</span>${dTME}
-      <span class="tme-sub">${Object.keys(SDRS_TME).length} SDRs</span>
+      <span class="tme-sub">${Object.keys(escalaSDRs()).length} SDRs</span>
     </div>
     <div class="tme-quebra">
       <span class="tme-linha"><span>hoje</span>
@@ -4258,9 +4279,16 @@ function tabelaFunis(v, limite, vComp) {
   const agg = {};
   for (const b of v.backlog) {
     const f = b.funil || '—';
-    if (!agg[f]) agg[f] = { leads: 0, mqls: 0 };
+    if (!agg[f]) agg[f] = { leads: 0, mqls: 0, abertos: 0, mqlAbertos: 0 };
     agg[f].leads++;
     if (b.mql) agg[f].mqls++;
+    // Este card conta TODO lead do período; a tabela de "em aberto" mostra
+    // só status open. Sem guardar a quebra, o card diz 3 e a tabela 1, e
+    // não há como saber de onde vem a diferença.
+    if (b.status === 'open') {
+      agg[f].abertos++;
+      if (b.mql) agg[f].mqlAbertos++;
+    }
   }
 
   // Mesmo agrupamento no periodo de comparacao
@@ -4280,6 +4308,8 @@ function tabelaFunis(v, limite, vComp) {
     resto = {
       leads: cortados.reduce((s, [, d]) => s + d.leads, 0),
       mqls:  cortados.reduce((s, [, d]) => s + d.mqls, 0),
+      abertos:    cortados.reduce((s, [, d]) => s + d.abertos, 0),
+      mqlAbertos: cortados.reduce((s, [, d]) => s + d.mqlAbertos, 0),
       qtd:   cortados.length,
     };
     lista = lista.slice(0, limite);
@@ -4291,8 +4321,15 @@ function tabelaFunis(v, limite, vComp) {
   return '<div class="funil">' + lista.map(([nome, d]) => {
     const sel  = filtros.funil === nome;
     const larg = Math.max(d[metrica] / maior * 100, 3);
+    // Quantos ainda estão vivos: é a diferença entre este card e a tabela
+    // de leads em aberto, que só mostra status open
+    const vivos = metrica === 'mqls' ? d.mqlAbertos : d.abertos;
+    const fechados = d[metrica] - vivos;
     return `<div class="funil-step ${sel ? 'selecionado' : ''}"
-              onclick="toggleFiltro('funil', ${attr(nome)})">
+              onclick="toggleFiltro('funil', ${attr(nome)})"
+              title="${fmtNum(d[metrica])} ${rotuloMetrica().toLowerCase()} no período · ${
+                fmtNum(vivos)} em aberto${
+                fechados ? ' · ' + fmtNum(fechados) + ' já fechados (ganhos ou perdidos)' : ''}">
       <div class="funil-label">${nome}</div>
       <div class="funil-track">
         <div class="funil-bar" style="width:${larg}%;background:${sel ? 'var(--amber)' : '#3a7ca8'}">
