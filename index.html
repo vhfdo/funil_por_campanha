@@ -2283,7 +2283,7 @@ function render() {
 
     <div class="card" style="margin-bottom:16px">
       <div class="card-title">
-        ${metrica === 'mqls' ? 'MQL' : 'Leads'} em aberto · rastreio completo
+        ${metrica === 'mqls' ? 'MQL' : 'Leads'} do período · rastreio completo
         <span class="busca-wrap">
           <input type="text" id="campoBuscaAbertos" class="campo-busca"
                  placeholder="filtrar por campanha, criativo, cargo, nome..."
@@ -4364,7 +4364,6 @@ function leadsAbertos(v) {
   const termo = semAcento(buscaAbertos);
 
   return v.backlog
-    .filter(b => b.status === 'open')
     .filter(b => !soMql || b.mql)
     .filter(b => !termo || [
       b.nome, b.cargo, b.etapa, b.funil, b.proprietario,
@@ -4385,7 +4384,7 @@ function tabelaAbertos(v) {
       ${buscaAbertos
         ? `Nada encontrado para "${buscaAbertos}".<br><br>
            <button class="btn" onclick="buscarAbertos('')">Limpar busca</button>`
-        : `Nenhum ${soMql ? 'MQL' : 'lead'} em aberto para os filtros atuais.`}
+        : `Nenhum ${soMql ? 'MQL' : 'lead'} para os filtros atuais.`}
     </div>`;
   }
 
@@ -4395,12 +4394,26 @@ function tabelaAbertos(v) {
     return s.length > n ? s.slice(0, n) + '…' : s;
   };
 
+  // Ganho, perdido e aberto convivem na mesma tabela — sem a coluna de
+  // status seriam três linhas iguais sem dizer qual ainda está viva.
+  const status = b => {
+    if (b.status === 'won') {
+      return `<td style="color:var(--green)" title="Negócio ganho">ganho</td>`;
+    }
+    if (b.status === 'lost') {
+      return `<td style="color:var(--amber)"
+        title="${(b.motivoPerda || 'Sem motivo registrado').replace(/"/g, '&quot;')}">perdido</td>`;
+    }
+    return `<td style="color:var(--gray-light)">aberto</td>`;
+  };
+
   return `
     <div class="table-scroll" style="max-height:520px">
       <table class="tabela-utm">
         <thead><tr>
           <th class="num">ID</th><th>Aplicação</th><th>Nome</th><th>Cargo</th>
-          <th>MQL</th><th>Funil</th><th>Etapa</th><th>Proprietário</th>
+          <th>MQL</th><th>Funil</th><th>Etapa</th><th>Status</th>
+          <th>Proprietário</th>
           <th class="num" title="Horas úteis entre a entrada do lead e o primeiro contato (ligação ou mensagem). Só para os SDRs.">TME</th>
           <th>Rede</th>
           <th>utm_campaign</th><th>utm_source</th><th>utm_medium</th>
@@ -4421,6 +4434,7 @@ function tabelaAbertos(v) {
                 b.mql ? '<span style="color:var(--blue)">✓</span>' : ''}</td>
               <td>${corta(b.funil, 13)}</td>
               <td>${corta(b.etapa, 18)}</td>
+              ${status(b)}
               <td>${corta(b.proprietario, 18)}</td>
               <td class="num" title="${
                 b.tme === null || b.tme === undefined
@@ -4433,8 +4447,7 @@ function tabelaAbertos(v) {
                   : b.tme <= TME_META ? 'var(--green)'
                   : b.tme <= TME_META * 6 ? 'var(--amber)'
                   : 'var(--red)'}">${
-                b.tme === null || b.tme === undefined ? '—'
-                  : fmtHoras(b.tme)}</td>
+                b.tme === null || b.tme === undefined ? '—' : fmtHoras(b.tme)}</td>
               <td>${redeDoLead(b)}</td>
               <td class="utm" title="${b.campanha || ''}">${corta(b.campanha, 30)}</td>
               <td class="utm" title="${b.source || ''}">${corta(b.source, 12)}</td>
