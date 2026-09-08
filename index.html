@@ -1171,7 +1171,7 @@ let buscaGanhos = '';
 // entao procurar no olho numa lista de 200 linhas nao funciona.
 let buscaDescartes = '';
 
-// Busca da tabela de leads em aberto, no fim do dashboard
+// Busca da tabela de leads do período, no fim do dashboard
 let buscaAbertos = '';
 const rotuloMetrica = () => metrica === 'mqls' ? 'MQL' : 'Leads';
 let charts = {};
@@ -2177,7 +2177,7 @@ function render() {
         <div class="card-title">
           Funis
           <span class="card-tag"
-                title="Conta todos os leads do período, inclusive os já ganhos e perdidos. A tabela de leads em aberto, no fim da página, mostra só os que continuam vivos.">todos do período</span>
+                title="Conta todos os leads do período, inclusive os já ganhos e perdidos — a mesma base da tabela no fim da página.">todos do período</span>
         </div>
         <div class="card-body" style="max-height:230px">${tabelaFunis(v, null, vComp)}</div>
       </div>
@@ -2293,10 +2293,35 @@ function render() {
                  onclick="buscarAbertos('')" title="limpar">×</button>` : ''}
         </span>
         <span style="display:flex;align-items:center;gap:10px">
-          <span class="card-tag">${fmtNum(leadsAbertos(v).length)} em aberto${
-            labelFiltros()
-              ? ' · ' + labelFiltros().replace('Filtrando: ', '').replace(' — limpar ×', '')
-              : ''}</span>
+          ${(() => {
+            // A tabela mostra os tres status juntos. Sem a quebra, o total
+            // parece "em aberto" e nao bate com o funil ao lado, que so
+            // conta os vivos.
+            const l = leadsAbertos(v);
+            const ab = l.filter(b => b.status === 'open').length;
+            const ga = l.filter(b => b.status === 'won').length;
+            const pe = l.filter(b => b.status === 'lost').length;
+            const rot = metrica === 'mqls' ? 'MQL' : 'leads';
+            // O KPI do topo sai da aba LEADS quando nao ha filtro; esta
+            // tabela sai sempre do backlog. As duas fontes podem divergir,
+            // e sem avisar alguem compara os numeros e acha que quebrou.
+            const doTopo = metrica === 'mqls' ? v.kpis.mqls : v.kpis.leads;
+            const difere = !buscaAbertos && Math.abs(doTopo - l.length) > 0;
+            return `<span class="card-tag"
+              title="${fmtNum(ab)} em aberto · ${fmtNum(ga)} ganhos · ${
+                fmtNum(pe)} perdidos${difere
+                ? ' — o KPI do topo mostra ' + fmtNum(doTopo)
+                  + ', que vem da aba LEADS; esta tabela vem do backlog'
+                : ''}">${fmtNum(l.length)} ${rot}${
+              difere ? ' <span style="opacity:.7">⚠</span>' : ''}</span>
+            <span class="card-tag" style="background:var(--panel2);color:var(--gray-light)">${
+              fmtNum(ab)} aberto${ga ? ' · ' + fmtNum(ga) + ' ganho' : ''}${
+              pe ? ' · ' + fmtNum(pe) + ' perdido' : ''}</span>`;
+          })()}
+          ${labelFiltros()
+            ? `<span class="card-tag" style="background:var(--amber);color:#0a0a0a">${
+                labelFiltros().replace('Filtrando: ', '').replace(' — limpar ×', '')}</span>`
+            : ''}
           <button class="btn-mini" onclick="exportarAbertosCSV()">↓ CSV</button>
         </span>
       </div>
@@ -4460,7 +4485,7 @@ function tabelaAbertos(v) {
     </div>`;
 }
 
-// ── Exportar os leads em aberto ─────────────────────────────────────────────
+// ── Exportar os leads do período ────────────────────────────────────────────
 function exportarAbertosCSV() {
   const v = dadosVisiveis();
   const leads = leadsAbertos(v);
