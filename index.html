@@ -4352,12 +4352,13 @@ function tabelaFunis(v, limite, vComp) {
     </div>` : '') + '</div>';
 }
 
-// ── Leads em aberto: o que ainda esta vivo no funil ─────────────────────────
+// ── Todos os leads do periodo, com rastreio completo ───────────────────────
 // Sai do v.backlog, entao ja chega com produto, periodo e todos os filtros
 // da tela aplicados — clicar num funil ou numa etapa mexe aqui junto.
 //
-// So status "open": ganho e perdido tem tela propria (Ganhos e Descartes),
-// e misturar os tres aqui faria a contagem nao bater com o funil ao lado.
+// Inclui ganho e perdido, nao so quem esta em aberto: assim a contagem
+// fecha com o card de Funis e com os KPIs do topo. Antes so mostrava
+// status open, e o card dizia 3 enquanto a tabela mostrava 1.
 function leadsAbertos(v) {
   const soMql = metrica === 'mqls';
   const termo = semAcento(buscaAbertos);
@@ -4456,7 +4457,7 @@ function exportarAbertosCSV() {
 
   const cabecalho = [
     'ID', 'Produto', 'Aplicação', 'Nome', 'Email', 'Cargo', 'MQL', 'Score',
-    'Funil', 'Etapa', 'Proprietário', 'TME (h úteis)', 'Atendido em',
+    'Funil', 'Etapa', 'Status', 'Proprietário', 'TME (h úteis)', 'Atendido em',
     'Rede', 'Reaplicação', 'Valor',
     'utm_campaign', 'utm_source', 'utm_medium', 'utm_content', 'utm_term',
   ];
