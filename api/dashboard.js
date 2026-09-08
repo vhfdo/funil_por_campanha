@@ -110,6 +110,24 @@ const ABA_REUNIOES = 'BACKLOG REUNIÕES';
 const ABA_PERDIDOS = 'BACKLOG PERDIDOS';
 const ABA_META     = 'ATUALIZAÇÃO';
 const ABA_PREVISTO = 'PREVISTO';
+// Espelho da planilha do comercial via IMPORTRANGE. Fica aqui pra escala
+// mudar sem deploy: turno novo, férias ou gente entrando entram sozinhos.
+const ABA_ESCALA   = 'ESCALA';
+
+// Inside sales não tem turno na escala_comercial: são SDR e closer ao
+// mesmo tempo, em horário comercial. Sem estar na aba, ficariam de fora do
+// TME — a escala deles vem daqui.
+//
+// 9h-18h de segunda a sexta. Se mudar, o certo é cadastrar na planilha e
+// apagar esta lista: aqui envelhece sem ninguém perceber.
+const INSIDE_SALES = [
+  'Sarah Leite', 'Thiago Santos', 'Gabriela Morais',
+  'Luanna Martins', 'Wellington Andrade', 'Ollavo Costa',
+];
+const JANELA_INSIDE = [{
+  entrada: 9, saida: 18, dias: [1, 2, 3, 4, 5],
+  subarea: '', equipe: 'Inside Sales',
+}];
 
 function checkAuth(req) {
   const secret = process.env.SESSION_SECRET;
@@ -347,6 +365,9 @@ export default async function handler(req, res) {
 
     const idxPrevisto = tarefas.length;
     tarefas.push(lerAba(ABA_PREVISTO));
+
+    const idxEscala = tarefas.length;
+    tarefas.push(lerAba(ABA_ESCALA));
 
     const resultados = await Promise.all(tarefas);
 
@@ -721,10 +742,89 @@ export default async function handler(req, res) {
       }
     }
 
+    // ── Escala do comercial ─────────────────────────────────────────
+    // Uma linha por turno; a mesma pessoa pode ter vários, inclusive em
+    // equipes diferentes. Quem decide qual turno vale para um lead é o
+    // front, que conhece o funil dele.
+    // Inside sales entra primeiro; quem vier da planilha sobrescreve,
+    // porque escala cadastrada vale mais que o padrão daqui
+    const escala = {};
+    for (const nome of INSIDE_SALES) {
+      escala[nome] = JANELA_INSIDE.map(t => ({ ...t }));
+    }
+
+    const abaEsc = resultados[idxEscala] || [];
+    if (abaEsc.length > 1) {
+      // O IMPORTRANGE às vezes deixa linhas em branco antes do cabeçalho
+      let linhas = abaEsc.slice();
+      while (linhas.length && !linhas[0].some(c => String(c || '').trim())) {
+        linhas.shift();
+      }
+      const cabE = (linhas[0] || []).map(chave);
+      const achaE = (...nomes) => {
+        for (const n of nomes) {
+          const i = cabE.findIndex(c => c && c.includes(chave(n)));
+          if (i >= 0) return i;
+        }
+        return -1;
+      };
+      const cNome  = achaE('nome');
+      const cCargo = achaE('cargo');
+      const cSub   = achaE('subarea', 'subárea');
+      const cEnt   = achaE('entrada');
+      const cSai   = achaE('saida', 'saída');
+      const cDias  = achaE('dias_semana', 'dias semana', 'dias');
+      const cEquipe = achaE('equipe_distribuicao', 'equipe');
+
+      // "Seg,Ter,Qua" -> [1,2,3]. Domingo é 0, como no getDay() do JS.
+      const DIA_NUM = { dom: 0, seg: 1, ter: 2, qua: 3, qui: 4, sex: 5, sab: 6 };
+      const parseDias = t => String(t || '')
+        .split(/[,;/]+/)
+        .map(d => DIA_NUM[chave(d).slice(0, 3)])
+        .filter(d => d !== undefined);
+
+      // "08:00:00" -> 8.0 ; "18:30" -> 18.5
+      const parseHora = t => {
+        const m = String(t || '').match(/^(\d{1,2}):(\d{2})/);
+        return m ? Number(m[1]) + Number(m[2]) / 60 : null;
+      };
+
+      const vistos = new Set();
+      for (const l of linhas.slice(1)) {
+        const nome = String(l[cNome] || '').trim();
+        if (!nome) continue;
+        // Só quem tem SDR no cargo: Closer, Head e Gerente estão na mesma
+        // planilha, mas não recebem lead
+        if (cCargo >= 0 &&
+            !chave(l[cCargo]).includes('sdr')) continue;
+        const ent = parseHora(l[cEnt]);
+        const sai = parseHora(l[cSai]);
+        const dias = parseDias(l[cDias]);
+        // Sem horário ou sem dias não dá pra montar a janela do turno.
+        // Closer e Head não têm dias preenchidos — e não entram no TME.
+        if (ent === null || sai === null || !dias.length) continue;
+        // Primeira linha da planilha para esta pessoa apaga o padrão de
+        // inside sales — senão os dois se somariam e a janela ficaria
+        // maior que a real
+        if (!escala[nome] || !vistos.has(nome)) {
+          escala[nome] = [];
+          vistos.add(nome);
+        }
+        escala[nome].push({
+          entrada: ent,
+          saida: sai,
+          dias,
+          subarea: String(l[cSub] || '').trim(),
+          equipe: String(l[cEquipe] || '').trim(),
+        });
+      }
+    }
+
     return res.status(200).json({
       atualizadoEm: new Date().toISOString(),
       dadosDe,
       previsto,
+      escala,
       produtos,
       backlog,
       reunioes,
