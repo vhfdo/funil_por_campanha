@@ -3776,8 +3776,16 @@ function previstoNoPeriodo() {
 // Mediana, nao media: um lead esquecido por 200 horas puxa a media e some
 // na mediana, que descreve o atendimento tipico.
 function calcTME(lista) {
-  // So quem esta na escala — ver escalaSDRs()
-  const base = (lista || []).filter(ehSDR);
+  // So quem esta na escala — ver escalaSDRs().
+  //
+  // Mas se a escala nao chegou (aba ESCALA ausente, ou dashboard.js
+  // antigo), ninguem e' reconhecido e o bloco zerava — enquanto a tabela
+  // no fim da pagina mostrava o TME normalmente, porque ela nao filtra
+  // por SDR. Sem escala, contamos todo mundo que tem TME.
+  const temEscala = Object.keys(escalaSDRs()).length > 0;
+  const base = temEscala
+    ? (lista || []).filter(ehSDR)
+    : (lista || []).filter(b => b.tme !== null && b.tme !== undefined);
   const v = base
     .filter(b => b.tme !== null && b.tme !== undefined)
     .map(b => b.tme);
@@ -3885,6 +3893,9 @@ function cardTME(v, vComp) {
   }
 
   const alerta = t.cobertura < 50;
+  // Quantos SDRs a escala trouxe. Zero significa que a aba ESCALA nao
+  // chegou — o calculo cai no modo "conta todos", ver calcTME().
+  const nSDRs = Object.keys(escalaSDRs()).length;
 
   // Quantos foram atendidos dentro da meta. É o número que o time
   // persegue — a mediana sozinha não diz se a régua está sendo cumprida.
@@ -3900,7 +3911,10 @@ function cardTME(v, vComp) {
           : fresco ? 'dado das últimas 3 horas'
           : `planilha atualizada há ${Math.floor(horas)}h`}"></span>TME</span>
       <span class="tme-val">${fmtHoras(t.med)}</span>${dTME}
-      <span class="tme-sub">${Object.keys(escalaSDRs()).length} SDRs</span>
+      <span class="tme-sub" title="${nSDRs
+        ? 'Só leads dos SDRs da aba ESCALA'
+        : 'A aba ESCALA não chegou — o TME está contando todos os leads com contato, não só os dos SDRs'}">${
+        nSDRs ? nSDRs + ' SDRs' : 'todos · sem escala'}</span>
     </div>
     <div class="tme-quebra">
       <span class="tme-linha"><span>hoje</span>
