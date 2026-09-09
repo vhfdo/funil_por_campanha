@@ -855,6 +855,8 @@ const CORES_REDE = { Meta: '#4a6dd4', Google: '#2980b9', LinkedIn: '#0e76a8' };
 
 // Etapas que existem no Pipedrive mas nao fazem parte do funil de venda.
 // Ficam de fora do card e nao entram no calculo do percentual.
+// A Reabertura fica fora do card: ela e' resgate de lead perdido, que
+// reinicia na Largada. Contar as duas dobraria o mesmo lead no funil.
 const ETAPAS_IGNORADAS = ['reabertura'];
 
 // Etapas que significam "houve conexao com o lead" — base da taxa de conexao.
@@ -874,17 +876,41 @@ const ETAPAS_CONECTADAS = [
 // Sprint sao as cinco tentativas de pre-contato, e Nutricao entra depois
 // que o lead responde. Os outros funis continuam com Etapa 1, 2 e 3 —
 // por isso os dois conjuntos convivem aqui, cada nome na sua posicao.
+// Etapa 1, 2 e 3 sao os nomes antigos de Largada, Aceleracao e Ritmo.
+// Sao a MESMA etapa do processo, entao viram uma barra so — duas barras
+// pro mesmo passo dividiam o volume e escondiam onde o funil represa.
+//
+// A normalizacao vale tambem no filtro: clicar em "LARGADA" precisa pegar
+// quem ainda esta gravado como "ETAPA 1", senao o clique zera a tela.
+const RENOMEIA_ETAPA = {
+  'etapa 1': 'LARGADA',
+  'etapa 2': 'ACELERAÇÃO',
+  'etapa 3': 'RITMO',
+};
+
+function normalizarEtapa(etapa) {
+  const bruto = (etapa || '').trim();
+  if (!bruto) return '—';
+  return RENOMEIA_ETAPA[semAcento(bruto)] || bruto;
+}
+
+// Ordem real do processo, do jeito que a operacao roda:
+// entrada, resgate, as cinco tentativas de pre-contato, e o que vem
+// depois que o lead responde.
 const ORDEM_ETAPAS = [
   'aplicacao', 'em agendamento',
-  // Pre-contato: o lead ainda nao respondeu
-  'largada',    'etapa 1',
-  'aceleracao', 'etapa 2',
-  'ritmo',      'etapa 3',
+  // Pre-contato: o lead ainda nao respondeu (Largada dias 1-4,
+  // Aceleracao 5-8, Ritmo 9-12, Impulso 13-16, Sprint 17-20)
+  'largada',
+  'aceleracao',
+  'ritmo',
   'impulso',
   'sprint',
   // Daqui pra frente o lead ja respondeu
-  'contatado', 'nutricao', 'oportunidade', 'proposta',
-  'agendados', 'no show', 'validacao de reuniao', 'reuniao',
+  'contatado', 'nutricao',
+  'agendados', 'no show', 'noshow',
+  'oportunidade', 'proposta',
+  'validacao de reuniao', 'reuniao',
   'em negociacao', 'negociacao', 'inscricao em andamento', 'futuro'
 ];
 
@@ -1689,7 +1715,7 @@ function dadosVisiveis() {
     .filter(b => alvos.includes(semAcento(b.produto)))
     .filter(b => noPeriodo(b.aplicacao));
 
-  if (filtros.etapa)        backlog = backlog.filter(b => b.etapa === filtros.etapa);
+  if (filtros.etapa)        backlog = backlog.filter(b => normalizarEtapa(b.etapa) === filtros.etapa);
   if (filtros.proprietario) backlog = backlog.filter(b => b.proprietario === filtros.proprietario);
   if (filtros.funil)        backlog = backlog.filter(b => b.funil === filtros.funil);
   if (filtros.cargo)        backlog = backlog.filter(b => normalizarCargo(b.cargo) === filtros.cargo);
@@ -1747,7 +1773,7 @@ function dadosVisiveis() {
     const contagem = {};
     for (const b of base) {
       if (metrica === 'mqls' && !b.mql) continue;
-      const e = (b.etapa || '').trim() || '—';
+      const e = normalizarEtapa(b.etapa);
       contagem[e] = (contagem[e] || 0) + 1;
     }
     return Object.entries(contagem).map(([etapa, qtd]) => ({ etapa, qtd }));
@@ -1839,7 +1865,7 @@ function dadosVisiveis() {
   // Os rotulos vazios viram "—" e "(sem motivo)" no agrupamento; o filtro
   // precisa normalizar igual, senao clicar nessas barras nao casa com nada.
   const rot = (t, vazio) => (t || '').trim() || vazio;
-  if (filtros.etapa)        descartes = descartes.filter(p => rot(p.etapa, '—') === filtros.etapa);
+  if (filtros.etapa)        descartes = descartes.filter(p => normalizarEtapa(p.etapa) === filtros.etapa);
   if (filtros.proprietario) descartes = descartes.filter(p => rot(p.proprietario, '—') === filtros.proprietario);
   if (filtros.funil)        descartes = descartes.filter(p => p.funil === filtros.funil);
   if (filtros.cargo)        descartes = descartes.filter(p => normalizarCargo(p.cargo) === filtros.cargo);
@@ -1918,7 +1944,7 @@ function cpmqlPorDiaProduto() {
     // MQL por dia, com os mesmos filtros da tela
     const alvo = semAcento(nome);
     let base = dados.backlog.filter(b => semAcento(b.produto) === alvo && b.mql);
-    if (filtros.etapa)        base = base.filter(b => b.etapa === filtros.etapa);
+    if (filtros.etapa)        base = base.filter(b => normalizarEtapa(b.etapa) === filtros.etapa);
     if (filtros.proprietario) base = base.filter(b => b.proprietario === filtros.proprietario);
     if (filtros.funil)        base = base.filter(b => b.funil === filtros.funil);
     if (filtros.cargo)        base = base.filter(b => normalizarCargo(b.cargo) === filtros.cargo);
@@ -2972,7 +2998,7 @@ function renderDescartes(v) {
   // Motivo em branco vira rotulo proprio: saber o tamanho do "sem motivo"
   // e' o que diz se da pra confiar no ranking dos outros.
   const motivos = agrupar(p => (p.motivo || '').trim() || '(sem motivo)');
-  const etapas  = agrupar(p => (p.etapa || '').trim() || '—');
+  const etapas  = agrupar(p => normalizarEtapa(p.etapa));
   const redes   = agrupar(p => redeDoLead(p));
   const donosLt = agrupar(p => p.proprietario || '—');
 
