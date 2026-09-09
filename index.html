@@ -2151,12 +2151,13 @@ function render() {
       { meta: metas.cac, bruto: k.cac, fmt: fmtBRL, menorMelhor: true,
         delta: dv('cac', true, fmtBRL) }),
     cardReaplicacao(v, vComp),
+    cardLTG(v, vComp),
     cardPrevisto(v, vComp),
   ].join('');
 
   document.getElementById('conteudo').innerHTML = `
     <div class="kpi-strip ${comparando ? 'comparando' : ''}"
-         style="grid-template-columns:repeat(${comparando ? 6 : 11},1fr)">${kpisHtml}</div>
+         style="grid-template-columns:repeat(${comparando ? 6 : 12},1fr)">${kpisHtml}</div>
 
     <div class="redes-grid">${cardsRedes(v, vComp)}</div>
 
@@ -2724,6 +2725,8 @@ function renderGanhos(v) {
 
   const total = validos.reduce((s, g) => s + g.valor, 0);
   const ticket = total / validos.length;
+  // LTG das vendas que sobraram no filtro/busca desta aba
+  const ltgGanhos = calcLTG(validos);
 
   // Agrupa pela utm escolhida no seletor, e sempre por rede
   const rotulos = {
@@ -2748,7 +2751,7 @@ function renderGanhos(v) {
   const redes     = Object.entries(porRede).sort((a, b) => b[1].valor - a[1].valor);
 
   document.getElementById('conteudo').innerHTML = `
-    <div class="kpi-strip" style="grid-template-columns:repeat(4,1fr)">
+    <div class="kpi-strip" style="grid-template-columns:repeat(5,1fr)">
       <div class="kpi-card">
         <div class="kpi-label">Vendas ${buscaGanhos ? 'na busca' : 'validadas'}</div>
         <div class="kpi-val blue">${fmtNum(validos.length)}</div>
@@ -2777,6 +2780,12 @@ function renderGanhos(v) {
       <div class="kpi-card">
         <div class="kpi-label">Campanhas</div>
         <div class="kpi-val">${fmtNum(campanhas.length)}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">LTG</div>
+        <div class="kpi-val">${ltgGanhos.n ? fmtDias(ltgGanhos.med) : '—'}</div>
+        <div class="kpi-linha"><span>mediana</span><span>${
+          ltgGanhos.n ? fmtNum(ltgGanhos.n) + ' vendas' : 'sem data'}</span></div>
       </div>
     </div>
 
@@ -2850,7 +2859,9 @@ function renderGanhos(v) {
         <table class="tabela-utm">
           <thead><tr>
             <th>Data</th><th>Nome</th><th>Produto</th><th class="num">Valor</th>
-            <th class="num">Neg.</th><th>Rede</th>
+            <th class="num">Neg.</th>
+            <th class="num" title="Lead time até o ganho: dias entre a última aplicação e a venda.">LTG</th>
+            <th>Rede</th>
             <th>utm_campaign</th><th>utm_source</th><th>utm_medium</th>
             <th>utm_content</th><th>utm_term</th>
           </tr></thead>
@@ -2881,6 +2892,12 @@ function renderGanhos(v) {
                     : 'Um negócio'}" style="color:${
                     g.negocios > 1 ? 'var(--amber)' : 'var(--gray)'}">${
                     g.negocios > 1 ? g.negocios : '1'}</td>
+                  <td class="num" title="${g.dias > 0
+                    ? 'Aplicação em ' + (g.aplicacao || '—')
+                    : 'Sem data de aplicação'}" style="color:${
+                    !g.dias ? 'var(--gray)'
+                    : g.dias > 180 ? 'var(--amber)' : 'var(--white)'}">${
+                    g.dias > 0 ? fmtDias(g.dias) : '—'}</td>
                   <td>${redeDoLead(g)}</td>
                   <td class="utm" title="${g.campanha || ''}">${corta(g.campanha, 34)}</td>
                   <td class="utm" title="${g.source || ''}">${corta(g.source, 14)}</td>
@@ -4017,6 +4034,69 @@ function cardPrevisto(v, vComp) {
 // Lead que ja tinha entrado antes e voltou. Vale acompanhar porque uma taxa
 // alta significa que boa parte do volume nao e' publico novo — a base esta
 // sendo reimpactada.
+// ── LTG: lead time até o ganho ──────────────────────────────────────────────
+// Dias entre a última aplicação e a venda. Vem pronto da coluna "Dias até a
+// venda" da aba GANHOS (g.dias) — aqui só agregamos.
+//
+// Mediana, como em todo tempo neste dashboard: reaplicação tem média 405
+// contra mediana 374, e a média descreve um caso que não existe.
+//
+// Venda sem data de aplicação vem com dias vazio e fica de fora — por isso
+// devolvemos n, pra tela poder dizer sobre quantas vendas o número saiu.
+function calcLTG(ganhos) {
+  const v = (ganhos || [])
+    .filter(g => g.vale === 'sim' && g.dias > 0)
+    .map(g => g.dias);
+  if (!v.length) return { med: null, media: null, n: 0 };
+  const s = [...v].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return {
+    med: s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2),
+    media: Math.round(s.reduce((a, b) => a + b, 0) / s.length),
+    n: s.length,
+  };
+}
+
+const fmtDias = x => x === null || x === undefined ? '—' : fmtNum(x) + 'd';
+
+// Card do topo. O geral em cima, e a quebra novo/reaplicação embaixo:
+// juntar 374 dias com 14 numa mediana só não descreve nem um nem outro.
+function cardLTG(v, vComp) {
+  const validos = v.ganhos.filter(g => g.vale === 'sim');
+  const t = calcLTG(validos);
+  const reapl = calcLTG(validos.filter(g => g.reaplicacao));
+  const novos = calcLTG(validos.filter(g => !g.reaplicacao));
+  const semDias = validos.length - t.n;
+
+  if (!t.n) {
+    return `<div class="kpi-card">
+      <div class="kpi-label">LTG</div>
+      <div class="kpi-val" style="color:var(--gray)">—</div>
+      <div class="kpi-linha"><span>${
+        validos.length ? 'vendas sem data de aplicação' : 'nenhuma venda no período'
+      }</span></div>
+    </div>`;
+  }
+
+  const d = vComp
+    ? badgeDelta(t.med, calcLTG(vComp.ganhos.filter(g => g.vale === 'sim')).med,
+                 { fmt: fmtDias, menorMelhor: true })
+    : '';
+
+  return `<div class="kpi-card">
+    <div class="kpi-label">LTG</div>
+    <div class="kpi-val" title="Mediana de ${fmtNum(t.n)} vendas · média ${
+      fmtDias(t.media)}">${fmtDias(t.med)}</div>${d}
+    <div class="kpi-linha"><span>Novos</span>
+      <span>${novos.n ? fmtDias(novos.med) : '—'}</span></div>
+    <div class="kpi-linha"><span>Reaplicação</span>
+      <span style="color:var(--amber)">${
+        reapl.n ? fmtDias(reapl.med) : '—'}</span></div>
+    <div class="kpi-linha"><span>${fmtNum(t.n)} venda${t.n === 1 ? '' : 's'}${
+      semDias ? ' · ' + fmtNum(semDias) + ' sem data' : ''}</span></div>
+  </div>`;
+}
+
 function cardReaplicacao(v, vComp) {
   const total  = v.backlog.length;
   const reapl  = v.backlog.filter(b => b.reaplicacao).length;
@@ -4300,6 +4380,10 @@ function cardsRedes(v, vComp) {
 
     const taxa = d.leads ? (d.mqls / d.leads * 100) : 0;
     const cpmql = d.mqls ? d.investimento / d.mqls : null;
+    // Poucas vendas por rede: o n vai no tooltip pra ninguem ler uma
+    // venda so como se fosse mediana.
+    const ltg = calcLTG(v.ganhos.filter(
+      g => g.vale === 'sim' && redeDoLead(g) === rede));
 
     // Mesma rede no periodo de comparacao. Se ela nao existia la, o selo
     // sai como "—" em vez de fingir uma variacao de 100%.
@@ -4332,6 +4416,13 @@ function cardsRedes(v, vComp) {
         <div><span>Share</span><strong>${
           v.kpis.investimento ? (d.investimento / v.kpis.investimento * 100).toFixed(0) : 0
         }%</strong></div>
+      </div>
+      <div class="rede-nums" style="grid-template-columns:1fr">
+        <div><span>LTG</span><strong title="${ltg.n
+          ? 'Mediana de ' + fmtNum(ltg.n) + ' venda(s) · média ' + fmtDias(ltg.media)
+          : 'Nenhuma venda com data de aplicação nesta rede'}">${
+          ltg.n ? fmtDias(ltg.med) : '—'}${
+          ltg.n === 1 ? '<span class="kpi-sub">1 venda</span>' : ''}</strong></div>
       </div>
       <div class="rede-barra"><div style="width:${
         v.kpis.leads ? Math.min(d.leads / v.kpis.leads * 100, 100) : 0
