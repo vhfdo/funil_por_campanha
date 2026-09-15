@@ -4752,6 +4752,38 @@ function leadsAbertos(v) {
     .sort((a, b) => (b.aplicacao || '').localeCompare(a.aplicacao || ''));
 }
 
+// Celula da coluna Atraso. Tres estados, nao dois:
+//
+//   sem ativ.  — aberto e sem nenhuma atividade marcada. E' o pior caso e
+//                nao aparece como atraso em lugar nenhum; por isso vem em
+//                vermelho, mesmo sem numero de dias.
+//   Nd         — atividade marcada e vencida ha N dias
+//   em dia     — atividade marcada pra hoje ou pro futuro
+//
+// Ganho e perdido recebem traco: nao existe follow-up pendente neles.
+function celulaAtraso(b) {
+  if (semAcento(b.status) !== 'open') {
+    return `<td class="num" style="color:var(--gray)"
+      title="Negócio fechado — não há follow-up pendente">—</td>`;
+  }
+  if (semAtividade(b)) {
+    return `<td class="num" style="color:var(--red)"
+      title="Nenhuma atividade marcada — o lead não aparece em lista de pendência nenhuma">sem ativ.</td>`;
+  }
+  const d = diasDeAtraso(b);
+  if (d === null) {
+    return `<td class="num" style="color:var(--gray)"
+      title="Sem data de próxima atividade na planilha">—</td>`;
+  }
+  if (d === 0) {
+    return `<td class="num" style="color:var(--gray-light)"
+      title="Próxima atividade em ${b.proximaAtividade}">em dia</td>`;
+  }
+  const cor = d > 7 ? 'var(--red)' : 'var(--amber)';
+  return `<td class="num" style="color:${cor}"
+    title="Atividade vencida em ${b.proximaAtividade}">${fmtNum(d)}d</td>`;
+}
+
 function tabelaAbertos(v) {
   const leads = leadsAbertos(v);
   const soMql = metrica === 'mqls';
@@ -4792,6 +4824,7 @@ function tabelaAbertos(v) {
           <th>MQL</th><th>Funil</th><th>Etapa</th><th>Status</th>
           <th>Proprietário</th>
           <th class="num" title="Horas úteis entre a entrada do lead e o primeiro contato (ligação ou mensagem). Só para os SDRs.">TME</th>
+          <th class="num" title="Dias desde a data da próxima atividade em aberto. 'sem ativ.' = o negócio não tem nenhuma atividade marcada — não aparece em lista de pendência nenhuma.">Atraso</th>
           <th>Rede</th>
           <th>utm_campaign</th><th>utm_source</th><th>utm_medium</th>
           <th>utm_content</th><th>utm_term</th>
@@ -4825,6 +4858,7 @@ function tabelaAbertos(v) {
                   : b.tme <= TME_META * 6 ? 'var(--amber)'
                   : 'var(--red)'}">${
                 b.tme === null || b.tme === undefined ? '—' : fmtHoras(b.tme)}</td>
+              ${celulaAtraso(b)}
               <td>${redeDoLead(b)}</td>
               <td class="utm" title="${b.campanha || ''}">${corta(b.campanha, 30)}</td>
               <td class="utm" title="${b.source || ''}">${corta(b.source, 12)}</td>
@@ -4848,6 +4882,7 @@ function exportarAbertosCSV() {
   const cabecalho = [
     'ID', 'Produto', 'Aplicação', 'Nome', 'Email', 'Cargo', 'MQL', 'Score',
     'Funil', 'Etapa', 'Status', 'Proprietário', 'TME (h úteis)', 'Atendido em',
+    'Próxima Atividade', 'Dias de Atraso', 'Ativ. Abertas',
     'Rede', 'Reaplicação', 'Valor',
     'utm_campaign', 'utm_source', 'utm_medium', 'utm_content', 'utm_term',
   ];
@@ -4868,6 +4903,10 @@ function exportarAbertosCSV() {
     b.tme === null || b.tme === undefined
       ? '' : String(b.tme).replace('.', ','),
     b.atendidoEm || '',
+    b.proximaAtividade || '',
+    // Vazio quando nao se aplica (fechado ou sem data); 0 = em dia
+    (() => { const d = diasDeAtraso(b); return d === null ? '' : d; })(),
+    b.ativAbertas || 0,
     redeDoLead(b),
     b.reaplicacao ? 'Sim' : 'Não',
     String(b.valor || 0).replace('.', ','),
