@@ -918,10 +918,23 @@ const ORDEM_ETAPAS = [
 // e Organico. As campanhas que nao sao de aquisicao (eventos, pesquisa,
 // coautoria) ja foram descartadas pelo update_all.py antes de chegar aqui —
 // entao tudo que nao carrega marca de midia paga e' organico.
+// Campanhas que contam como organicas mesmo que o utm_source venha de
+// midia paga. Sao captacoes proprias (pesquisa, base) que as vezes herdam
+// o source de outra origem — sem esta trava elas apareceriam como Meta ou
+// LinkedIn e somariam investimento que nao existe pra elas.
+//
+// Comparado sem acento e em minusculas, por substring: "[TD][PESQUISA-
+// STATON-CHASE]" casa com "pesquisa-staton-chase".
+const CAMPANHAS_ORGANICAS = ['pesquisa-staton-chase'];
+
 function redeDoLead(b) {
   const s = (b.source || '').toLowerCase().trim();
   const bruto = (b.campanha || '').trim();
   const c = bruto.toUpperCase();
+
+  // Antes de tudo: a lista acima manda sobre o source
+  const cn = semAcento(bruto);
+  if (CAMPANHAS_ORGANICAS.some(x => cn.includes(semAcento(x)))) return 'Orgânico';
 
   if (s.includes('lkdn') || s.includes('linkedin') ||
       c.includes('[LKDN]') || c.includes('LINKEDIN')) return 'LinkedIn';
