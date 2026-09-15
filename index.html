@@ -1178,6 +1178,15 @@ let filtros = { rede: null, etapa: null, proprietario: null, funil: null,
 // 'leads' ou 'mqls' — define o que as barras dos cards medem
 let metrica = 'leads';
 
+// Qual visao o card de qualificacao mostra nos produtos que qualificam por
+// cargo (Brasil, Mexico, Chile): 'cargo' ou 'score'.
+//
+// Sao duas reguas diferentes olhando a mesma base, nao uma substituindo a
+// outra: o MQL continua saindo do cargo: o score e' so uma lente pra ver
+// quem respondeu as quatro perguntas e como se distribui.
+// Lean e CES nao usam isso — la o score E a regua de MQL.
+let visaoQuali = 'cargo';
+
 // Ordenacao da tabela de proprietarios. Tem coluna propria, separada do
 // seletor Leads/MQL do topo — da pra ver quem tem mais lead e quem tem
 // mais MQL sem trocar a metrica do dashboard inteiro.
@@ -1567,6 +1576,12 @@ function ordenarProp(coluna) {
     ordemPropCol = coluna;
     ordemProp = 'desc';
   }
+  render();
+}
+
+function trocarVisaoQuali(v) {
+  rastrear('visao_qualificacao', v);
+  visaoQuali = v;
   render();
 }
 
@@ -2226,17 +2241,27 @@ function render() {
         <div class="card-body" style="max-height:230px">${tabelaFunis(v, null, vComp)}</div>
       </div>
       <div class="card">
+        ${PRODUTOS_COM_SCORE.includes(produtoAtivo) ? `
         <div class="card-title">
-          ${PRODUTOS_COM_SCORE.includes(produtoAtivo) ? 'Pontuação' : 'Cargos'}
-          <span class="card-tag">${
-            PRODUTOS_COM_SCORE.includes(produtoAtivo)
-              ? 'MQL a partir de ' + SCORE_MINIMO
-              : '% dos leads'}</span>
+          Pontuação
+          <span class="card-tag">MQL a partir de ${SCORE_MINIMO}</span>
+        </div>
+        <div class="card-body" style="max-height:230px">${tabelaScore(v)}</div>
+        ` : `
+        <div class="card-title">
+          ${visaoQuali === 'score' ? 'Pontuação' : 'Cargos'}
+          <span class="agrupa-switch">
+            <button class="agrupa-btn ${visaoQuali === 'cargo' ? 'ativo' : ''}"
+                    onclick="trocarVisaoQuali('cargo')"
+                    title="A régua que define o MQL hoje">cargo</button>
+            <button class="agrupa-btn ${visaoQuali === 'score' ? 'ativo' : ''}"
+                    onclick="trocarVisaoQuali('score')"
+                    title="Quem respondeu as quatro perguntas — não altera o MQL">score</button>
+          </span>
         </div>
         <div class="card-body" style="max-height:230px">${
-          PRODUTOS_COM_SCORE.includes(produtoAtivo)
-            ? tabelaScore(v)
-            : tabelaCargos(v, vComp)}</div>
+          visaoQuali === 'score' ? tabelaScoreMQL(v) : tabelaCargos(v, vComp)}</div>
+        `}
       </div>
       <div class="card">
         <div class="card-title">
@@ -4920,6 +4945,87 @@ function perfilDosGanhos(v, campo) {
     : '';
 
   return `<div class="funil">${linhas}</div>${nota}`;
+}
+
+// ── Score como LENTE, nao como regua (Brasil, Mexico, Chile) ────────────────
+// Aqui o MQL continua sendo o do cargo — esta tabela nao muda contagem
+// nenhuma. Ela responde outra pergunta: dos leads que ja sao MQL, quantos
+// responderam as quatro perguntas (idade, renda, cargo, escolaridade) e
+// como eles se distribuem na nota.
+//
+// O score so e' calculado pelo Pipedrive quando as quatro sao respondidas,
+// entao "score preenchido" e' o mesmo que "cadastro completo" — nao
+// precisamos ler os quatro campos separados.
+//
+// A ultima linha e' o numero que interessa pra decidir se um dia vale
+// trocar a regua: quantos leads que NAO sao MQL pelo cargo teriam score
+// suficiente. Sao esses que as duas reguas discordam.
+function tabelaScoreMQL(v) {
+  const mqls = v.backlog.filter(b => b.mql);
+  if (!mqls.length) {
+    return '<div class="empty">Nenhum MQL no período.</div>';
+  }
+
+  const temScore = b => b.score !== null && b.score !== undefined;
+  const comScore = mqls.filter(temScore);
+
+  if (!comScore.length) {
+    return `<div class="empty">
+      Nenhum dos ${fmtNum(mqls.length)} MQL tem pontuação.<br><br>
+      <span style="font-size:11px">O Score só é calculado quando as quatro
+      perguntas são respondidas. Se está tudo vazio, confira o campo no
+      Pipedrive.</span>
+    </div>`;
+  }
+
+  const agg = {};
+  for (const b of comScore) {
+    const faixa = Math.floor(b.score);
+    if (!agg[faixa]) agg[faixa] = { qtd: 0, ganhos: 0 };
+    agg[faixa].qtd++;
+    if (b.status === 'won') agg[faixa].ganhos++;
+  }
+
+  const faixas = Object.keys(agg).map(Number).sort((a, b) => a - b);
+  const maior  = Math.max(...faixas.map(f => agg[f].qtd), 1);
+  const acima  = comScore.filter(b => b.score >= SCORE_MINIMO).length;
+  const semScore = mqls.length - comScore.length;
+
+  // Os que discordam: nao sao MQL pelo cargo, mas teriam score suficiente
+  const foraComScore = v.backlog.filter(
+    b => !b.mql && temScore(b) && b.score >= SCORE_MINIMO).length;
+
+  const linhas = faixas.map(f => {
+    const d   = agg[f];
+    const ok  = f >= SCORE_MINIMO;
+    const sel = filtros.score === String(f);
+    const cor = sel ? 'var(--amber)' : (ok ? '#2f6b46' : '#4a4a52');
+    return `<div class="funil-step ${sel ? 'selecionado' : ''}"
+              onclick="toggleFiltro('score', '${f}')"
+              title="${fmtNum(d.qtd)} MQL nesta faixa · ${d.ganhos} viraram venda">
+      <div class="funil-label">${f}.0 – ${f}.9${ok ? ' ✓' : ''}</div>
+      <div class="funil-track">
+        <div class="funil-bar" style="width:${
+          Math.max(d.qtd / maior * 100, 3)}%;background:${cor}">
+          <span class="funil-val">${fmtNum(d.qtd)}</span>
+        </div>
+      </div>
+      <div class="funil-pct">${(d.qtd / comScore.length * 100).toFixed(0)}%</div>
+    </div>`;
+  }).join('');
+
+  return `<div class="funil">${linhas}</div>
+    <div class="calor-nota">
+      ${fmtNum(comScore.length)} de ${fmtNum(mqls.length)} MQL com cadastro
+      completo (${(comScore.length / mqls.length * 100).toFixed(0)}%)${
+      semScore ? ` · ${fmtNum(semScore)} sem pontuação` : ''}
+      <br>${fmtNum(acima)} chegam a ${SCORE_MINIMO}
+      (${(acima / comScore.length * 100).toFixed(0)}% dos que têm score)
+    </div>
+    ${foraComScore ? `<div class="calor-nota" style="color:var(--amber)"
+      title="Não entram no MQL porque o cargo não qualifica, mas a pontuação passaria do corte. É aqui que as duas réguas discordam.">
+      ${fmtNum(foraComScore)} leads fora do MQL teriam score ≥ ${SCORE_MINIMO}
+    </div>` : ''}`;
 }
 
 // ── Distribuicao de score (so Lean e CES) ───────────────────────────────────
