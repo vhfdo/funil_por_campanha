@@ -916,7 +916,11 @@ const ORDEM_ETAPAS = [
   'agendados', 'no show', 'noshow',
   'oportunidade', 'proposta',
   'validacao de reuniao', 'reuniao',
-  'em negociacao', 'negociacao', 'inscricao em andamento', 'futuro'
+  'em negociacao', 'negociacao',
+  // Depois da negociacao. Sem estarem listadas aqui, caiam no fim da
+  // ordenacao por volume — ordenadas por quantidade, nao por processo.
+  'autoridade', 'clareza', 'compromisso',
+  'inscricao em andamento', 'futuro'
 ];
 
 // Existem quatro entradas de lead e mais nenhuma: Meta, LinkedIn, Google
