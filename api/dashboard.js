@@ -644,6 +644,16 @@ export default async function handler(req, res) {
         tme:         linha[22] === '' || linha[22] === undefined
                        ? null : parseScore(linha[22]),
         atendidoEm:  linha[23] || '',
+        // Data da proxima atividade em aberto, como AAAA-MM-DD. Vazia
+        // quando o deal nao tem nenhuma atividade marcada — que e' um
+        // estado diferente de "atrasado", e pior: o lead nao aparece em
+        // lista de pendencia nenhuma.
+        //
+        // Guardamos a DATA, nao os dias de atraso: dias calculados na
+        // gravacao congelariam ate a proxima rodada do script, enquanto a
+        // data deixa o front contar contra hoje e nunca ficar velha.
+        proximaAtividade: linha[24] || '',
+        ativAbertas:      Number(linha[25]) || 0,
       });
     }
 
