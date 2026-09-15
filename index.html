@@ -4961,39 +4961,46 @@ function perfilDosGanhos(v, campo) {
 // trocar a regua: quantos leads que NAO sao MQL pelo cargo teriam score
 // suficiente. Sao esses que as duas reguas discordam.
 function tabelaScoreMQL(v) {
-  const mqls = v.backlog.filter(b => b.mql);
-  if (!mqls.length) {
-    return '<div class="empty">Nenhum MQL no período.</div>';
-  }
-
   const temScore = b => b.score !== null && b.score !== undefined;
-  const comScore = mqls.filter(temScore);
+
+  // Base: TODOS os leads, nao so os MQL. As duas reguas olham a mesma
+  // populacao — ver quem tem nota alta e nao e' MQL (e o contrario) e'
+  // justamente o que esta visao serve pra mostrar.
+  const leads    = v.backlog;
+  const comScore = leads.filter(temScore);
+
+  if (!leads.length) {
+    return '<div class="empty">Nenhum lead no período.</div>';
+  }
 
   if (!comScore.length) {
     return `<div class="empty">
-      Nenhum dos ${fmtNum(mqls.length)} MQL tem pontuação.<br><br>
-      <span style="font-size:11px">O Score só é calculado quando as quatro
-      perguntas são respondidas. Se está tudo vazio, confira o campo no
-      Pipedrive.</span>
+      Nenhum dos ${fmtNum(leads.length)} leads tem pontuação.<br><br>
+      <span style="font-size:11px">O Score só conta quando as quatro
+      perguntas (idade, escolaridade, renda e cargo) estão preenchidas.</span>
     </div>`;
   }
 
+  // Cada faixa guarda o total e quantos dali sao MQL pelo cargo
   const agg = {};
   for (const b of comScore) {
     const faixa = Math.floor(b.score);
-    if (!agg[faixa]) agg[faixa] = { qtd: 0, ganhos: 0 };
+    if (!agg[faixa]) agg[faixa] = { qtd: 0, mqls: 0, ganhos: 0 };
     agg[faixa].qtd++;
+    if (b.mql) agg[faixa].mqls++;
     if (b.status === 'won') agg[faixa].ganhos++;
   }
 
   const faixas = Object.keys(agg).map(Number).sort((a, b) => a - b);
   const maior  = Math.max(...faixas.map(f => agg[f].qtd), 1);
-  const acima  = comScore.filter(b => b.score >= SCORE_MINIMO).length;
-  const semScore = mqls.length - comScore.length;
 
-  // Os que discordam: nao sao MQL pelo cargo, mas teriam score suficiente
-  const foraComScore = v.backlog.filter(
-    b => !b.mql && temScore(b) && b.score >= SCORE_MINIMO).length;
+  const acima     = comScore.filter(b => b.score >= SCORE_MINIMO);
+  const mqlsTotal = leads.filter(b => b.mql).length;
+  const semScore  = leads.length - comScore.length;
+
+  // Onde as duas reguas discordam, nos dois sentidos
+  const altoSemMql = acima.filter(b => !b.mql).length;
+  const mqlBaixo   = comScore.filter(b => b.mql && b.score < SCORE_MINIMO).length;
 
   const linhas = faixas.map(f => {
     const d   = agg[f];
@@ -5002,7 +5009,7 @@ function tabelaScoreMQL(v) {
     const cor = sel ? 'var(--amber)' : (ok ? '#2f6b46' : '#4a4a52');
     return `<div class="funil-step ${sel ? 'selecionado' : ''}"
               onclick="toggleFiltro('score', '${f}')"
-              title="${fmtNum(d.qtd)} MQL nesta faixa · ${d.ganhos} viraram venda">
+              title="${fmtNum(d.qtd)} leads nesta faixa · ${fmtNum(d.mqls)} são MQL pelo cargo · ${d.ganhos} viraram venda">
       <div class="funil-label">${f}.0 – ${f}.9${ok ? ' ✓' : ''}</div>
       <div class="funil-track">
         <div class="funil-bar" style="width:${
@@ -5010,21 +5017,25 @@ function tabelaScoreMQL(v) {
           <span class="funil-val">${fmtNum(d.qtd)}</span>
         </div>
       </div>
-      <div class="funil-pct">${(d.qtd / comScore.length * 100).toFixed(0)}%</div>
+      <div class="funil-pct" title="${fmtNum(d.mqls)} MQL"
+        style="color:var(--blue)">${fmtNum(d.mqls)}</div>
     </div>`;
   }).join('');
 
   return `<div class="funil">${linhas}</div>
     <div class="calor-nota">
-      ${fmtNum(comScore.length)} de ${fmtNum(mqls.length)} MQL com cadastro
-      completo (${(comScore.length / mqls.length * 100).toFixed(0)}%)${
+      Barra = leads · número à direita = quantos são MQL pelo cargo
+      <br>${fmtNum(comScore.length)} de ${fmtNum(leads.length)} leads com
+      cadastro completo (${(comScore.length / leads.length * 100).toFixed(0)}%)${
       semScore ? ` · ${fmtNum(semScore)} sem pontuação` : ''}
-      <br>${fmtNum(acima)} chegam a ${SCORE_MINIMO}
-      (${(acima / comScore.length * 100).toFixed(0)}% dos que têm score)
+      <br>${fmtNum(acima.length)} chegam a ${SCORE_MINIMO}, contra
+      ${fmtNum(mqlsTotal)} MQL pelo cargo
     </div>
-    ${foraComScore ? `<div class="calor-nota" style="color:var(--amber)"
-      title="Não entram no MQL porque o cargo não qualifica, mas a pontuação passaria do corte. É aqui que as duas réguas discordam.">
-      ${fmtNum(foraComScore)} leads fora do MQL teriam score ≥ ${SCORE_MINIMO}
+    ${(altoSemMql || mqlBaixo) ? `<div class="calor-nota" style="color:var(--amber)"
+      title="É aqui que as duas réguas discordam: o cargo e a pontuação classificam essas pessoas de formas diferentes.">
+      ${altoSemMql ? fmtNum(altoSemMql) + ` com score ≥ ${SCORE_MINIMO} não são MQL` : ''}${
+      altoSemMql && mqlBaixo ? ' · ' : ''}${
+      mqlBaixo ? fmtNum(mqlBaixo) + ` MQL ficam abaixo de ${SCORE_MINIMO}` : ''}
     </div>` : ''}`;
 }
 
