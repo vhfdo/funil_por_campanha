@@ -1919,9 +1919,19 @@ function dadosVisiveis() {
   const conectados  = mqlsBacklog.filter(b =>
     ETAPAS_CONECTADAS.some(e => semAcento(b.etapa).includes(e)));
 
+  // Descarte da SAFRA: dos leads que entraram no periodo, quantos ja foram
+  // perdidos. Sai do backlog, nao da aba de descartes — a aba traz todo
+  // deal perdido no mes, inclusive base antiga, e o total passava do volume
+  // de leads. Aqui o denominador e o numerador falam da mesma safra.
+  const perdidosSafra    = backlog.filter(b => semAcento(b.status) === 'lost');
+  const perdidosSafraMql = perdidosSafra.filter(b => b.mql);
+
   const taxas = {
     // Que % dos leads vira MQL
     qualificacao: leads ? mqls / leads * 100 : null,
+    // Que % da safra do periodo ja foi descartada
+    descarte:    leads ? perdidosSafra.length / leads * 100 : null,
+    descarteMql: mqls  ? perdidosSafraMql.length / mqls * 100 : null,
     // Que % dos MQLs teve algum contato
     conexao: mqlsBacklog.length
       ? conectados.length / mqlsBacklog.length * 100 : null,
@@ -1942,6 +1952,8 @@ function dadosVisiveis() {
     investPorRede, investPorDia, porRede, etapas,
     ehConsolidado, mqlTresFunisPorDia, mqlTresFunis, filtraFunil,
     reunioes, taxas, descartes,
+    perdidosSafra: perdidosSafra.length,
+    perdidosSafraMql: perdidosSafraMql.length,
     kpis: {
       leads, mqls, investimento,
       ganhos: qtdGanhos, faturamento,
@@ -2364,6 +2376,31 @@ function render() {
       <div class="chart-box" style="height:360px"><canvas id="chartCpmqlProdutos"></canvas></div>
     </div>
 
+    ${(() => {
+      // Card de largura cheia, abaixo do CPMQL. So aparece quando ha lead
+      // com pontuacao: sem dado, uma linha reta em zero nao diz nada e so
+      // ocupa a tela.
+      const comScore = v.backlog.filter(
+        b => b.score !== null && b.score !== undefined).length;
+      if (!comScore) return '';
+      return `
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title">
+          Pontuação · distribuição por faixa
+          <span class="card-tag" style="background:var(--amber);color:#0a0a0a"
+                title="Zona ICP: faixa de score onde está o perfil que a operação procura">
+            ICP ${ICP_DE} a ${ICP_ATE},9</span>
+          <span class="card-tag">${fmtNum(comScore)} leads com score${
+            PRODUTOS_COM_SCORE.includes(produtoAtivo)
+              ? ' · MQL a partir de ' + SCORE_MINIMO
+              : ' · não altera o MQL'}</span>
+        </div>
+        <div class="chart-box" style="height:300px">
+          <canvas id="chartScore"></canvas>
+        </div>
+      </div>`;
+    })()}
+
     <div class="card" style="margin-bottom:16px">
       <div class="card-title">
         ${metrica === 'mqls' ? 'MQL' : 'Leads'} do período · rastreio completo
@@ -2411,9 +2448,17 @@ function render() {
       ${tabelaAbertos(v)}
     </div>
 
-    <div class="taxas" style="grid-template-columns:repeat(6,1fr)">
+    <div class="taxas" style="grid-template-columns:repeat(7,1fr)">
       ${[
         ['Tx. Qualificação',   'qualificacao', `${fmtNum(v.kpis.mqls)} de ${fmtNum(v.kpis.leads)} leads`],
+        // Lead e MQL no mesmo card: o numero grande e' a safra inteira, e a
+        // linha de baixo o recorte de MQL. Separados em dois cards, ninguem
+        // lembraria que os dois denominadores sao diferentes.
+        ['Tx. Descarte',       'descarte',
+          `${fmtNum(v.perdidosSafra)} de ${fmtNum(v.kpis.leads)} leads`
+          + ` · MQL ${v.taxas.descarteMql === null ? '—'
+              : v.taxas.descarteMql.toFixed(1) + '%'}`
+          + ` (${fmtNum(v.perdidosSafraMql)})`],
         ['Tx. Conexão',        'conexao',      'MQLs que chegaram a Contatado+'],
         ['Tx. Agendamento',    'agendamento',  `${fmtNum(v.reunioes.length)} reuniões`],
         ['Tx. Vendas s/ Call', 'vendasCall',   `${fmtNum(v.kpis.ganhos)} vendas`],
@@ -2425,11 +2470,15 @@ function render() {
         // percentuais, nao a variacao relativa — subir de 2% pra 3% e'
         // +1 p.p., dizer "+50%" confundiria.
         const ant = vComp ? vComp.taxas[chave] : null;
+        // Em quase toda taxa subir e' bom. No descarte e' o contrario —
+        // sem inverter, o selo ficaria verde justamente quando piorasse.
+        const menorMelhor = chave === 'descarte';
         const delta = (comparando && valor !== null && ant !== null)
           ? (() => {
               const d = valor - ant;
+              const bom = menorMelhor ? d < 0 : d > 0;
               const cor = Math.abs(d) < 0.2 ? 'var(--gray-light)'
-                        : d > 0 ? 'var(--green)' : 'var(--red)';
+                        : bom ? 'var(--green)' : 'var(--red)';
               return `<span class="kpi-delta" style="color:${cor}"
                 title="Período de comparação: ${ant.toFixed(1)}%">${
                 d > 0 ? '▲' : d < 0 ? '▼' : '·'} ${
@@ -5146,6 +5195,151 @@ function perfilDosGanhos(v, campo) {
   return `<div class="funil">${linhas}</div>${nota}`;
 }
 
+// ── Faixas de score ────────────────────────────────────────────────────────
+// Escala fixa de 2 a 10, sempre desenhada por inteiro mesmo onde nao ha
+// lead. Faixa vazia vira 0% em vez de sumir: a linha so descreve a
+// distribuicao se todos os degraus estiverem la — com faixas faltando, dois
+// periodos diferentes ficam com eixos diferentes e param de ser comparaveis.
+const FAIXAS_SCORE = [2, 3, 4, 5, 6, 7, 8, 9];
+const rotuloFaixa = f => f === 9 ? 'De 9 a 10' : `De ${f} a ${f},9`;
+
+// Zona ICP: onde o lead tem o perfil que a operacao procura. Comeca no
+// corte de MQL e vai ate 8,9 — o 9+ fica fora porque e' uma cauda minima
+// e costuma ser cadastro com resposta inflada.
+const ICP_DE  = SCORE_MINIMO;
+const ICP_ATE = 8;
+
+// Distribuicao por faixa. Score fora da escala e' puxado pra ponta mais
+// proxima, senao o lead sumiria da conta sem ninguem notar.
+function distribuicaoScore(lista) {
+  const qtd  = {}, mqls = {}, ganhos = {};
+  for (const f of FAIXAS_SCORE) { qtd[f] = 0; mqls[f] = 0; ganhos[f] = 0; }
+
+  let total = 0;
+  for (const b of lista) {
+    if (b.score === null || b.score === undefined) continue;
+    const f = Math.min(9, Math.max(2, Math.floor(b.score)));
+    qtd[f]++;
+    if (b.mql) mqls[f]++;
+    if (b.status === 'won') ganhos[f]++;
+    total++;
+  }
+
+  return {
+    total,
+    qtd:  FAIXAS_SCORE.map(f => qtd[f]),
+    mqls: FAIXAS_SCORE.map(f => mqls[f]),
+    ganhos: FAIXAS_SCORE.map(f => ganhos[f]),
+    pct:  FAIXAS_SCORE.map(f => total ? qtd[f] / total * 100 : 0),
+  };
+}
+
+// Faixa dourada por tras da linha. Desenhada antes das series (beforeDraw)
+// pra ficar de fundo, e calculada pelos pixels do eixo — assim acompanha
+// qualquer largura de card sem numero magico.
+const pluginZonaICP = {
+  id: 'zonaICP',
+  beforeDatasetsDraw(chart) {
+    const { ctx, chartArea, scales } = chart;
+    const x = scales.x;
+    if (!x || !chartArea) return;
+    const i0 = FAIXAS_SCORE.indexOf(ICP_DE);
+    const i1 = FAIXAS_SCORE.indexOf(ICP_ATE);
+    if (i0 < 0 || i1 < 0) return;
+
+    const passo = FAIXAS_SCORE.length > 1
+      ? (x.getPixelForValue(1) - x.getPixelForValue(0)) / 2 : 0;
+    const esq = x.getPixelForValue(i0) - passo;
+    const dir = x.getPixelForValue(i1) + passo;
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(217,164,65,.10)';
+    ctx.fillRect(esq, chartArea.top, dir - esq, chartArea.bottom - chartArea.top);
+    ctx.strokeStyle = 'rgba(217,164,65,.45)';
+    ctx.setLineDash([4, 4]);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(esq, chartArea.top); ctx.lineTo(esq, chartArea.bottom);
+    ctx.moveTo(dir, chartArea.top); ctx.lineTo(dir, chartArea.bottom);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(217,164,65,.75)';
+    ctx.font = '9px DM Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('ICP', (esq + dir) / 2, chartArea.top + 10);
+    ctx.restore();
+  },
+};
+
+// Desenha a linha no canvas do card de Pontuacao. Chamado pelo
+// desenharGraficos — se o card nao estiver na tela, comCanvas devolve null.
+function graficoScore(v) {
+  const base = PRODUTOS_COM_SCORE.includes(produtoAtivo)
+    ? v.backlog                      // Lean e CES: o score E' a regua
+    : v.backlog;                     // Brasil: mesma base, outra leitura
+  const d = distribuicaoScore(base);
+  if (!d.total) return null;
+
+  return comCanvas('chartScore', el => new Chart(el, {
+    type: 'line',
+    plugins: [pluginZonaICP],
+    data: {
+      labels: FAIXAS_SCORE.map(rotuloFaixa),
+      datasets: [{
+        label: '% dos leads',
+        data: d.pct,
+        borderColor: '#4a9eed',
+        backgroundColor: 'rgba(74,158,237,.12)',
+        borderWidth: 2.5,
+        tension: .4,
+        fill: true,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        pointBackgroundColor: FAIXAS_SCORE.map(
+          f => f >= ICP_DE && f <= ICP_ATE ? '#d9a441' : '#4a9eed'),
+        datalabels: {
+          // So onde ha lead: rotulo "0%" em seis faixas vazias vira ruido
+          display: ctx => d.qtd[ctx.dataIndex] > 0,
+          anchor: 'end', align: 'top', offset: 4,
+          color: '#ffffff', font: { family: 'DM Mono', size: 10, weight: 500 },
+          backgroundColor: 'rgba(10,10,10,.82)',
+          borderRadius: 3, padding: { top: 2, bottom: 2, left: 5, right: 5 },
+          formatter: x => x.toFixed(1) + '%',
+        },
+      }],
+    },
+    options: {
+      ...opcoesBase(),
+      onClick: (_, els) => {
+        if (els.length) toggleFiltro('score', String(FAIXAS_SCORE[els[0].index]));
+      },
+      plugins: {
+        ...opcoesBase().plugins,
+        tooltip: { ...opcoesBase().plugins.tooltip, callbacks: {
+          label: ctx => {
+            const i = ctx.dataIndex;
+            const linhas = [` ${ctx.raw.toFixed(1)}% · ${fmtNum(d.qtd[i])} leads`];
+            if (!PRODUTOS_COM_SCORE.includes(produtoAtivo)) {
+              linhas.push(` ${fmtNum(d.mqls[i])} são MQL pelo cargo`);
+            }
+            if (d.ganhos[i]) linhas.push(` ${fmtNum(d.ganhos[i])} viraram venda`);
+            return linhas;
+          },
+        } },
+      },
+      scales: {
+        x: { ticks: { color: '#c8c8c8', font: { family: 'DM Mono', size: 8.5 },
+                      maxRotation: 45 },
+             grid: { color: '#1a1a1a' } },
+        y: { beginAtZero: true, grace: '20%',
+             ticks: { color: '#c8c8c8', font: { family: 'DM Mono', size: 9 },
+                      callback: val => val + '%' },
+             grid: { color: '#1c1c1c' } },
+      },
+    },
+  }));
+}
+
 // ── Score como LENTE, nao como regua (Brasil, Mexico, Chile) ────────────────
 // Aqui o MQL continua sendo o do cargo — esta tabela nao muda contagem
 // nenhuma. Ela responde outra pergunta: dos leads que ja sao MQL, quantos
@@ -5161,16 +5355,10 @@ function perfilDosGanhos(v, campo) {
 // suficiente. Sao esses que as duas reguas discordam.
 function tabelaScoreMQL(v) {
   const temScore = b => b.score !== null && b.score !== undefined;
-
-  // Base: TODOS os leads, nao so os MQL. As duas reguas olham a mesma
-  // populacao — ver quem tem nota alta e nao e' MQL (e o contrario) e'
-  // justamente o que esta visao serve pra mostrar.
   const leads    = v.backlog;
   const comScore = leads.filter(temScore);
 
-  if (!leads.length) {
-    return '<div class="empty">Nenhum lead no período.</div>';
-  }
+  if (!leads.length) return '<div class="empty">Nenhum lead no período.</div>';
 
   if (!comScore.length) {
     return `<div class="empty">
@@ -5180,7 +5368,6 @@ function tabelaScoreMQL(v) {
     </div>`;
   }
 
-  // Cada faixa guarda o total e quantos dali sao MQL pelo cargo
   const agg = {};
   for (const b of comScore) {
     const faixa = Math.floor(b.score);
@@ -5196,8 +5383,6 @@ function tabelaScoreMQL(v) {
   const acima     = comScore.filter(b => b.score >= SCORE_MINIMO);
   const mqlsTotal = leads.filter(b => b.mql).length;
   const semScore  = leads.length - comScore.length;
-
-  // Onde as duas reguas discordam, nos dois sentidos
   const altoSemMql = acima.filter(b => !b.mql).length;
   const mqlBaixo   = comScore.filter(b => b.mql && b.score < SCORE_MINIMO).length;
 
@@ -5208,7 +5393,7 @@ function tabelaScoreMQL(v) {
     const cor = sel ? 'var(--amber)' : (ok ? '#2f6b46' : '#4a4a52');
     return `<div class="funil-step ${sel ? 'selecionado' : ''}"
               onclick="toggleFiltro('score', '${f}')"
-              title="${fmtNum(d.qtd)} leads nesta faixa · ${fmtNum(d.mqls)} são MQL pelo cargo · ${d.ganhos} viraram venda">
+              title="${fmtNum(d.qtd)} leads · ${fmtNum(d.mqls)} são MQL pelo cargo · ${d.ganhos} viraram venda">
       <div class="funil-label">${f}.0 – ${f}.9${ok ? ' ✓' : ''}</div>
       <div class="funil-track">
         <div class="funil-bar" style="width:${
@@ -5216,8 +5401,7 @@ function tabelaScoreMQL(v) {
           <span class="funil-val">${fmtNum(d.qtd)}</span>
         </div>
       </div>
-      <div class="funil-pct" title="${fmtNum(d.mqls)} MQL"
-        style="color:var(--blue)">${fmtNum(d.mqls)}</div>
+      <div class="funil-pct" style="color:var(--blue)">${fmtNum(d.mqls)}</div>
     </div>`;
   }).join('');
 
@@ -5231,7 +5415,7 @@ function tabelaScoreMQL(v) {
       ${fmtNum(mqlsTotal)} MQL pelo cargo
     </div>
     ${(altoSemMql || mqlBaixo) ? `<div class="calor-nota" style="color:var(--amber)"
-      title="É aqui que as duas réguas discordam: o cargo e a pontuação classificam essas pessoas de formas diferentes.">
+      title="É aqui que as duas réguas discordam.">
       ${altoSemMql ? fmtNum(altoSemMql) + ` com score ≥ ${SCORE_MINIMO} não são MQL` : ''}${
       altoSemMql && mqlBaixo ? ' · ' : ''}${
       mqlBaixo ? fmtNum(mqlBaixo) + ` MQL ficam abaixo de ${SCORE_MINIMO}` : ''}
@@ -5270,7 +5454,6 @@ function tabelaScore(v) {
     const d   = agg[f];
     const mql = f >= SCORE_MINIMO;
     const sel = filtros.score === String(f);
-    // Verde nas faixas que qualificam, cinza-azulado nas que nao
     const cor = sel ? 'var(--amber)' : (mql ? '#2f6b46' : '#4a4a52');
     return `<div class="funil-step ${sel ? 'selecionado' : ''}"
               onclick="toggleFiltro('score', '${f}')">
@@ -5466,6 +5649,10 @@ function desenharGraficos(v, vComp) {
   };
   if (!v.leadsPorDia.length) aviso('chartLeads', 'Sem leads no período selecionado.');
   if (!v.ganhos.length)      aviso('chartGanhos', 'Nenhum ganho no período.');
+
+  // Card de Pontuacao em largura cheia. O canvas so existe quando ha lead
+  // com score — fora disso comCanvas devolve null sem reclamar.
+  charts.score = graficoScore(v);
 
   const labels  = v.leadsPorDia.map(d => d.data);
   const invDias = labels.map(l => v.investPorDia[l] || 0);
