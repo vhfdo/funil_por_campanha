@@ -3,7 +3,7 @@
 // com os dados dos 5 produtos. O index carrega isso uma vez e filtra local.
 
 import { verifyToken } from '../lib/auth.js';
-import { getValues } from '../lib/sheets.js';
+import { getSheetTitles, batchGetValues } from '../lib/sheets.js';
 
 const SPREADSHEET_ID = '1yw82Xywh0pTDj10Kwq7jfpezE14gyBGwFsbDLiAXjYY';
 
@@ -337,13 +337,65 @@ function paraOrdem(ddmm) {
   return (Number(m) || 0) * 100 + (Number(d) || 0);
 }
 
-// Le uma aba e nunca derruba a resposta inteira se ela nao existir
-async function lerAba(range) {
-  try {
-    return await getValues({ spreadsheetId: SPREADSHEET_ID, range: `'${range}'` });
-  } catch {
-    return [];
-  }
+// Chave de comparacao de nome de aba: sem acento, sem caixa, espaco unico.
+const chaveAba = s => String(s || '').toLowerCase()
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .replace(/\s+/g, ' ').trim();
+
+// Le todas as abas em DUAS requisicoes: uma pra listar as que existem e
+// uma pra ler todas de uma vez. Devolve na mesma ordem pedida.
+//
+// Antes eram 45 requisicoes por carregamento, uma por aba. A cota do Google
+// e' 60 por minuto: uma recarga ja estourava, e o catch transformava o erro
+// de cota em "aba vazia" — o dashboard desenhava zeros sem aviso nenhum.
+//
+// Duas protecoes no lugar do catch mudo:
+//
+//  * Aba que nao existe NAO derruba a leitura (o batchGet falharia inteiro
+//    por causa dela). Ela volta vazia, mas entra na lista `faltando`, que
+//    vai na resposta e aparece na tela.
+//
+//  * Nome que so difere em acento ou maiuscula ("PRATICA" x "PRÁTICA") e'
+//    resolvido pelo titulo real da aba, e registrado em `corrigidas`. Assim
+//    uma aba criada sem acento nao some — mas alguem fica sabendo.
+//
+// Qualquer OUTRO erro (cota, permissao, rede) sobe e vira erro 500 visivel.
+// Numero errado sem aviso e' pior que tela de erro.
+async function lerAbas(nomes) {
+  const titulos = await getSheetTitles({ spreadsheetId: SPREADSHEET_ID });
+  const exato   = new Set(titulos);
+  const porChave = new Map(titulos.map(t => [chaveAba(t), t]));
+
+  const faltando = [];
+  const corrigidas = [];
+  // Nome real a ler pra cada posicao, ou null se a aba nao existe
+  const reais = nomes.map(nome => {
+    if (exato.has(nome)) return nome;
+    const achado = porChave.get(chaveAba(nome));
+    if (achado) {
+      corrigidas.push({ esperado: nome, encontrado: achado });
+      return achado;
+    }
+    faltando.push(nome);
+    return null;
+  });
+
+  // So as que existem vao pro batchGet, sem repetir
+  const unicos = [...new Set(reais.filter(Boolean))];
+  const lidos  = await batchGetValues({
+    spreadsheetId: SPREADSHEET_ID,
+    ranges: unicos.map(n => `'${n.replace(/'/g, "''")}'`),
+  });
+  const porNome = new Map(unicos.map((n, i) => [n, lidos[i] || []]));
+
+  if (faltando.length) console.warn('abas não encontradas:', faltando);
+  if (corrigidas.length) console.warn('abas com nome divergente:', corrigidas);
+
+  return {
+    valores: reais.map(n => (n ? porNome.get(n) : [])),
+    faltando,
+    corrigidas,
+  };
 }
 
 export default async function handler(req, res) {
@@ -357,40 +409,43 @@ export default async function handler(req, res) {
 
     for (const [produto, cfg] of Object.entries(PRODUTOS)) {
       indice[produto] = { leads: tarefas.length };
-      tarefas.push(lerAba(cfg.leads));
+      tarefas.push(cfg.leads);
 
       indice[produto].etapa = tarefas.length;
-      tarefas.push(lerAba(cfg.etapa));
+      tarefas.push(cfg.etapa);
 
       indice[produto].ganhos = tarefas.length;
-      tarefas.push(lerAba(cfg.ganhos));
+      tarefas.push(cfg.ganhos);
 
       indice[produto].investimento = [];
       for (const inv of cfg.investimento) {
         indice[produto].investimento.push({ ...inv, idx: tarefas.length });
-        tarefas.push(lerAba(inv.aba));
+        tarefas.push(inv.aba);
       }
     }
 
     const idxBacklog = tarefas.length;
-    tarefas.push(lerAba(ABA_BACKLOG));
+    tarefas.push(ABA_BACKLOG);
 
     const idxReunioes = tarefas.length;
-    tarefas.push(lerAba(ABA_REUNIOES));
+    tarefas.push(ABA_REUNIOES);
 
     const idxPerdidos = tarefas.length;
-    tarefas.push(lerAba(ABA_PERDIDOS));
+    tarefas.push(ABA_PERDIDOS);
 
     const idxMeta = tarefas.length;
-    tarefas.push(lerAba(ABA_META));
+    tarefas.push(ABA_META);
 
     const idxPrevisto = tarefas.length;
-    tarefas.push(lerAba(ABA_PREVISTO));
+    tarefas.push(ABA_PREVISTO);
 
     const idxEscala = tarefas.length;
-    tarefas.push(lerAba(ABA_ESCALA));
+    tarefas.push(ABA_ESCALA);
 
-    const resultados = await Promise.all(tarefas);
+    // `tarefas` agora e' uma lista de NOMES de aba, na mesma ordem de antes
+    // — os indices guardados acima continuam valendo.
+    const { valores: resultados, faltando: abasFaltando,
+            corrigidas: abasCorrigidas } = await lerAbas(tarefas);
 
     // ── Monta cada produto ────────────────────────────────────────────────
     const produtos = {};
@@ -860,10 +915,21 @@ export default async function handler(req, res) {
       backlog,
       reunioes,
       perdidos,
+      // Diagnostico de leitura: o front mostra na tela em vez de desenhar
+      // zero calado
+      abasFaltando,
+      abasCorrigidas,
     });
 
   } catch (err) {
     console.error('dashboard error:', err.message);
-    return res.status(500).json({ error: 'Falha ao ler a planilha.' });
+    // A causa vai pro front: "Falha ao ler a planilha" sozinho nao diz se
+    // foi cota, permissao ou rede.
+    const cota = /\b429\b|quota|RESOURCE_EXHAUSTED/i.test(err.message);
+    return res.status(500).json({
+      error: cota
+        ? 'Limite de leituras do Google atingido. Espere um minuto e tente de novo.'
+        : 'Falha ao ler a planilha: ' + err.message.slice(0, 200),
+    });
   }
 }
