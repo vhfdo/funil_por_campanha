@@ -169,7 +169,7 @@
   .chart-box.baixo{height:230px;}
 
   /* ── Cards de rede ── */
-  .redes-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:16px;}
+  .redes-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin-bottom:16px;}
   @media(max-width:1200px){.redes-grid{grid-template-columns:repeat(2,1fr);}}
   @media(max-width:700px){.redes-grid{grid-template-columns:1fr;}}
   .rede-card{background:var(--panel);border:1px solid var(--border);padding:14px 16px;
@@ -945,6 +945,11 @@ function redeDoLead(b) {
   const cn = semAcento(bruto);
   if (CAMPANHAS_ORGANICAS.some(x => cn.includes(semAcento(x)))) return 'Orgânico';
 
+  // Workshop e' uma entrada propria, nao organico e nao midia paga. Vem
+  // antes do source: o lead de workshop as vezes herda utm_source de Meta
+  // ou LinkedIn, e sem esta trava cairia numa rede de midia.
+  if (cn.includes('workshop')) return 'Workshop';
+
   if (s.includes('lkdn') || s.includes('linkedin') ||
       c.includes('[LKDN]') || c.includes('LINKEDIN')) return 'LinkedIn';
 
@@ -958,7 +963,7 @@ function redeDoLead(b) {
   return 'Orgânico';
 }
 
-const REDES = ['LinkedIn', 'Google', 'Meta', 'Orgânico'];
+const REDES = ['LinkedIn', 'Google', 'Meta', 'Orgânico', 'Workshop'];
 
 // Os cargos vem digitados de mil formas. Aqui agrupamos nos grandes blocos
 // pra tabela nao virar uma lista de 200 variacoes com 1 lead cada.
@@ -4637,6 +4642,7 @@ function mapaCalor(v) {
 function cardsRedes(v, vComp) {
   const CORES = {
     Meta: '#4a6dd4', LinkedIn: '#0e76a8', Google: '#2980b9', 'Orgânico': '#4ade80',
+    Workshop: '#d9a441',
   };
 
   return REDES.map(rede => {
