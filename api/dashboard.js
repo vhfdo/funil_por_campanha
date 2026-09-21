@@ -64,25 +64,30 @@ const PRODUTOS = {
       { rede: 'LinkedIn', aba: 'INVESTIMENTO LINKEDIN CES', colData: 6, colValor: 7 },
     ],
   },
-  // IA: so Meta e LinkedIn. Indices a partir de zero, e so plano B — o
-  // cabecalho e' lido primeiro. Meta: F = dia (5), G = valor (6).
-  // LinkedIn: G = dia (6), H = valor (7).
-  'IA INICIANTES': {
-    leads:  'LEADS IA INICIANTES',
-    etapa:  'ETAPA IA INICIANTES',
-    ganhos: 'GANHOS IA INICIANTES',
+  // IA: Meta, LinkedIn e Google. Indices a partir de zero, e so plano B —
+  // o cabecalho e' lido primeiro. Meta: F = dia (5), G = valor (6).
+  // LinkedIn: G = dia (6), H = valor (7). Google: F = dia (5), G = valor (6),
+  // o mesmo layout do Google nos outros produtos.
+  //
+  // PRATICA sem acento, como esta na planilha.
+  'IA PARA INICIANTES': {
+    leads:  'LEADS IA PARA INICIANTES',
+    etapa:  'ETAPA IA PARA INICIANTES',
+    ganhos: 'GANHOS IA PARA INICIANTES',
     investimento: [
-      { rede: 'Meta',     aba: 'INVESTIMENTO META IA INICIANTES',     colData: 5, colValor: 6 },
-      { rede: 'LinkedIn', aba: 'INVESTIMENTO LINKEDIN IA INICIANTES', colData: 6, colValor: 7 },
+      { rede: 'Meta',     aba: 'INVESTIMENTO META IA PARA INICIANTES',     colData: 5, colValor: 6 },
+      { rede: 'LinkedIn', aba: 'INVESTIMENTO LINKEDIN IA PARA INICIANTES', colData: 6, colValor: 7 },
+      { rede: 'Google',   aba: 'INVESTIMENTO GOOGLE IA PARA INICIANTES',   colData: 5, colValor: 6 },
     ],
   },
   'IA NA PRÁTICA': {
-    leads:  'LEADS IA NA PRÁTICA',
-    etapa:  'ETAPA IA NA PRÁTICA',
-    ganhos: 'GANHOS IA NA PRÁTICA',
+    leads:  'LEADS IA NA PRATICA',
+    etapa:  'ETAPA IA NA PRATICA',
+    ganhos: 'GANHOS IA NA PRATICA',
     investimento: [
-      { rede: 'Meta',     aba: 'INVESTIMENTO META IA NA PRÁTICA',     colData: 5, colValor: 6 },
-      { rede: 'LinkedIn', aba: 'INVESTIMENTO LINKEDIN IA NA PRÁTICA', colData: 6, colValor: 7 },
+      { rede: 'Meta',     aba: 'INVESTIMENTO META IA NA PRATICA',     colData: 5, colValor: 6 },
+      { rede: 'LinkedIn', aba: 'INVESTIMENTO LINKEDIN IA NA PRATICA', colData: 6, colValor: 7 },
+      { rede: 'Google',   aba: 'INVESTIMENTO GOOGLE IA NA PRATICA',   colData: 5, colValor: 6 },
     ],
   },
 };
