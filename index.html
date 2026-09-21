@@ -2077,6 +2077,29 @@ function metaAteHoje(meta, previsto) {
   return Math.round(meta / diasNoMes * dia);
 }
 
+// Abas que o dashboard.js nao achou na planilha. Antes esse erro virava
+// zero calado — agora aparece na barra de status, com o nome da aba no
+// tooltip. Aba achada so por aproximacao (acento/maiuscula) tambem avisa,
+// mais discreto: o numero esta certo, mas o nome devia ser acertado.
+function avisoAbas() {
+  const falt = (dados && dados.abasFaltando) || [];
+  const corr = (dados && dados.abasCorrigidas) || [];
+  let html = '';
+  if (falt.length) {
+    html += `<span class="aviso-comp"
+      title="Estas abas não existem na planilha e aparecem zeradas no dashboard:&#10;${
+        falt.join('&#10;')}">⚠ ${falt.length} aba${
+        falt.length === 1 ? '' : 's'} não encontrada${falt.length === 1 ? '' : 's'}</span>`;
+  }
+  if (corr.length) {
+    html += `<span class="rotulo-comp"
+      title="O nome na planilha difere do esperado só em acento ou maiúscula. Os dados foram lidos, mas vale corrigir o nome:&#10;${
+        corr.map(c => c.esperado + '  →  ' + c.encontrado).join('&#10;')}">${
+        corr.length} aba${corr.length === 1 ? '' : 's'} com nome divergente</span>`;
+  }
+  return html;
+}
+
 // A meta vale para um mes so. Se o periodo selecionado sai dele, os cards
 // comparam coisas diferentes — e sem aviso ninguem percebe.
 function avisoMeta() {
@@ -2127,8 +2150,8 @@ function render() {
   // esse texto ficaria colado ali pra sempre.
   const elStatus = document.getElementById('statusTexto');
   if (elStatus) {
-    elStatus.innerHTML = textoStatus + avisoMeta() + avisoComparacao()
-      + (comparando ? rotuloComparacao() : '');
+    elStatus.innerHTML = textoStatus + avisoAbas() + avisoMeta()
+      + avisoComparacao() + (comparando ? rotuloComparacao() : '');
   }
 
   // O TME fica no cabecalho, fora do #conteudo — entao e' preenchido aqui,
