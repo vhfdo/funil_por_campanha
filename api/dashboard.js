@@ -64,6 +64,27 @@ const PRODUTOS = {
       { rede: 'LinkedIn', aba: 'INVESTIMENTO LINKEDIN CES', colData: 6, colValor: 7 },
     ],
   },
+  // IA: so Meta e LinkedIn. Indices a partir de zero, e so plano B — o
+  // cabecalho e' lido primeiro. Meta: F = dia (5), G = valor (6).
+  // LinkedIn: G = dia (6), H = valor (7).
+  'IA INICIANTES': {
+    leads:  'LEADS IA INICIANTES',
+    etapa:  'ETAPA IA INICIANTES',
+    ganhos: 'GANHOS IA INICIANTES',
+    investimento: [
+      { rede: 'Meta',     aba: 'INVESTIMENTO META IA INICIANTES',     colData: 5, colValor: 6 },
+      { rede: 'LinkedIn', aba: 'INVESTIMENTO LINKEDIN IA INICIANTES', colData: 6, colValor: 7 },
+    ],
+  },
+  'IA NA PRÁTICA': {
+    leads:  'LEADS IA NA PRÁTICA',
+    etapa:  'ETAPA IA NA PRÁTICA',
+    ganhos: 'GANHOS IA NA PRÁTICA',
+    investimento: [
+      { rede: 'Meta',     aba: 'INVESTIMENTO META IA NA PRÁTICA',     colData: 5, colValor: 6 },
+      { rede: 'LinkedIn', aba: 'INVESTIMENTO LINKEDIN IA NA PRÁTICA', colData: 6, colValor: 7 },
+    ],
+  },
 };
 
 // ── Separacao por pais dentro da mesma conta ─────────────────────────────
