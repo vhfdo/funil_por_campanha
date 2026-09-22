@@ -1793,16 +1793,26 @@ function dadosVisiveis() {
   //
   // O filtro de etapa fica de fora do proprio funil, senao ele viraria
   // uma barra unica ao clicar numa etapa.
-  const etapas = (() => {
-    // Só negócios em aberto: o backlog traz perdidos e ganhos também, e
-    // contá-los aqui inflava as etapas de um funil que se diz "em aberto".
+  // ── Base de negocios em aberto ─────────────────────────────────────
+  // UMA lista so, lida pelo funil em aberto e pelo KPI de Fila. Antes cada
+  // um montava a sua, e os numeros nao batiam: o KPI contava Reabertura
+  // (que o funil ignora), ignorava o botao Leads/MQL e aplicava o filtro
+  // de etapa. Com a mesma lista, divergir fica impossivel.
+  //
+  // O filtro de etapa fica de fora de proposito: senao clicar numa etapa
+  // transformaria o funil numa barra unica.
+  const baseAbertos = (() => {
     let base = dados.backlog
-      .filter(b => alvos.includes(semAcento(b.produto)) && b.status === 'open')
+      .filter(b => alvos.includes(semAcento(b.produto)))
+      .filter(b => semAcento(b.status) === 'open')
       .filter(b => noPeriodo(b.aplicacao));
     if (filtros.proprietario) base = base.filter(b => b.proprietario === filtros.proprietario);
     if (filtros.funil)        base = base.filter(b => b.funil === filtros.funil);
     if (filtros.cargo)        base = base.filter(b => normalizarCargo(b.cargo) === filtros.cargo);
     if (filtros.rede)         base = base.filter(b => redeDoLead(b) === filtros.rede);
+    if (filtros.score)        base = base.filter(b =>
+      b.score !== null && b.score !== undefined
+      && String(Math.floor(b.score)) === filtros.score);
     if (filtros.diaSemana || filtros.hora) {
       base = base.filter(b => {
         const m = momentoDoLead(b);
@@ -1812,16 +1822,19 @@ function dadosVisiveis() {
         return true;
       });
     }
+    if (metrica === 'mqls') base = base.filter(b => b.mql);
+    // Etapas ignoradas (Reabertura) saem daqui, e nao so do desenho do
+    // funil — senao o KPI continuaria contando o que o funil nao mostra.
+    return base.filter(b =>
+      !ETAPAS_IGNORADAS.some(x => semAcento(b.etapa).includes(x)));
+  })();
 
+  const etapas = (() => {
     const contagem = {};
-    for (const b of base) {
-      if (metrica === 'mqls' && !b.mql) continue;
+    for (const b of baseAbertos) {
       const e = normalizarEtapa(b.etapa);
       if (!contagem[e]) contagem[e] = { qtd: 0, atrasados: 0, semAtiv: 0 };
       contagem[e].qtd++;
-      // Contados aqui junto com o total: calcular depois exigiria refazer
-      // a base inteira com os mesmos filtros, e abriria espaco pros dois
-      // lados divergirem.
       if (estaAtrasado(b)) contagem[e].atrasados++;
       if (semAtividade(b)) contagem[e].semAtiv++;
     }
@@ -1956,7 +1969,7 @@ function dadosVisiveis() {
   };
 
   return {
-    leadsPorDia, ganhos, backlog, backlogMapa,
+    leadsPorDia, ganhos, backlog, backlogMapa, baseAbertos,
     investPorRede, investPorDia, porRede, etapas,
     ehConsolidado, mqlTresFunisPorDia, mqlTresFunis, filtraFunil,
     reunioes, taxas, descartes,
@@ -4265,7 +4278,9 @@ const semAtividade = b =>
   && !(b.ativAbertas > 0);
 
 function cardAtividades(v) {
-  const abertos = v.backlog.filter(b => semAcento(b.status) === 'open');
+  // Mesma lista do funil em aberto — ver baseAbertos em dadosVisiveis.
+  // Os dois numeros tem que bater, entao nao podem vir de contas separadas.
+  const abertos = v.baseAbertos || [];
   if (!abertos.length) {
     return `<div class="kpi-card">
       <div class="kpi-label">Fila</div>
