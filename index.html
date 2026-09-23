@@ -4750,6 +4750,7 @@ function cardObjetivos(v) {
   for (const r of rotulos) agg[r] = { investimento: 0, leads: 0, mqls: 0, ganhos: 0 };
 
   let temLinhas = false;
+  const semNome = {};   // campanha sem objetivo -> investimento
   for (const nome of nomes) {
     const p = dados.produtos[nome];
     if (!p || !p.investLinhas) continue;
@@ -4757,8 +4758,19 @@ function cardObjetivos(v) {
     for (const l of p.investLinhas) {
       if (!dentroDoPeriodo(l.data)) continue;
       if (filtros.rede && filtros.rede !== l.rede) continue;
-      agg[objetivoDaCampanha(l.campanha, l.conjunto, l.anuncio)]
-        .investimento += l.valor;
+      const obj = objetivoDaCampanha(l.campanha, l.conjunto, l.anuncio);
+      agg[obj].investimento += l.valor;
+      // Guarda o nome de quem ficou sem objetivo: e' a lista do que falta
+      // renomear. Sem ela, o aviso diz o tamanho do problema mas nao onde
+      // ele esta, e alguem teria que garimpar no gerenciador.
+      if (obj === SEM_OBJETIVO) {
+        // Com coluna de grupo, o nome da campanha esta no `conjunto` —
+        // mostramos os dois quando diferem, pra nao sobrar duvida de qual
+        // renomear.
+        const rot = l.conjunto && l.conjunto !== l.campanha
+          ? `${l.campanha} › ${l.conjunto}` : (l.campanha || '(sem nome)');
+        semNome[rot] = (semNome[rot] || 0) + l.valor;
+      }
     }
   }
 
@@ -4833,6 +4845,30 @@ function cardObjetivos(v) {
       ⚠ ${fmtBRL(semObj.investimento)} e ${fmtNum(semObj.leads)} leads em
       campanhas sem objetivo no nome
     </div>` : ''}
+    ${(() => {
+      // Ordenadas por investimento: renomear a de cima e' o que mais muda
+      // a divisao. Mostramos 10 — a cauda costuma ser campanha parada com
+      // centavos, que nao vale o esforco agora.
+      const lista = Object.entries(semNome).sort((a, b) => b[1] - a[1]);
+      if (!lista.length) return '';
+      const topo = lista.slice(0, 10);
+      const resto = lista.length - topo.length;
+      const restoVal = lista.slice(10).reduce((s, [, x]) => s + x, 0);
+      return `<div class="calor-nota" style="color:var(--gray-light);margin-top:10px">
+        <b style="color:var(--amber)">Faltam renomear</b>
+        (${fmtNum(lista.length)} ${lista.length === 1 ? 'campanha' : 'campanhas'},
+        da maior para a menor):
+        ${topo.map(([nome, val]) => `
+          <div style="display:flex;justify-content:space-between;gap:16px;
+                      margin-top:3px">
+            <span style="word-break:break-all">${nome}</span>
+            <span style="white-space:nowrap;color:var(--white)">${fmtBRL(val)}</span>
+          </div>`).join('')}
+        ${resto ? `<div style="margin-top:4px;opacity:.7">
+          +${fmtNum(resto)} ${resto === 1 ? 'outra' : 'outras'} somando ${
+          fmtBRL(restoVal)}</div>` : ''}
+      </div>`;
+    })()}
     ${Math.abs(dif) > 1 ? `<div class="calor-nota">
       O card de Investimento soma ${fmtBRL(v.kpis.investimento)} —
       ${fmtBRL(Math.abs(dif))} ${dif > 0 ? 'a mais' : 'a menos'} que aqui.
