@@ -2287,6 +2287,15 @@ function render() {
 
     <div class="card" style="margin-bottom:16px">
       <div class="card-title">
+        Objetivo de campanha
+        <span class="card-tag" title="Lido do bloco [CAPTACAO], [NUTRICAO] ou [DISTRIBUICAO] no nome da campanha">${
+          filtros.rede ? filtros.rede + ' · ' : ''}do nome da campanha</span>
+      </div>
+      ${cardObjetivos(v)}
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-title">
         Investimento · Leads · MQL
         <span class="card-tag" style="background:#7ee0a8;color:#0a0a0a">
           ${fmtNum(v.mqlTresFunis)} nos 3 funis</span>
@@ -4677,6 +4686,153 @@ function mapaCalor(v) {
         : '';
     })()}
   `;
+}
+
+// ── Objetivo de campanha ────────────────────────────────────────────────────
+// Sai do proprio nome da campanha, como o resto da taxonomia: o bloco
+// [CAPTACAO], [NUTRICAO] ou [DISTRIBUICAO] no utm_campaign.
+//
+// Por que no nome e nao numa planilha de-para: campanha nova entra toda
+// semana. Numa planilha, ela fica sem objetivo ate alguem preencher, e o
+// investimento dela some da analise sem aviso. No nome, ja nasce
+// classificada.
+//
+// Comparado sem acento e em qualquer posicao do nome — "[CAPTAÇÃO]" no fim
+// ou "[CAPTACAO]" no meio dao no mesmo.
+const OBJETIVOS = [
+  ['Captação',     'captacao',     '#4a9eed'],
+  ['Nutrição',     'nutricao',     '#7ee0a8'],
+  ['Distribuição', 'distribuicao', '#d9a441'],
+];
+
+// Campanha sem nenhum dos blocos. Nao e' erro: pode ser campanha antiga que
+// ainda nao foi renomeada. Mas precisa aparecer, senao o investimento dela
+// sai da conta calado.
+const SEM_OBJETIVO = 'Sem objetivo';
+
+// Recebe os textos onde o bloco pode estar e devolve o primeiro objetivo
+// que aparecer em qualquer um deles.
+//
+// Sao varios campos de proposito: quando a aba de investimento tem coluna
+// de GRUPO (caso da INVESTIMENTO META PFCC BRASIL), o dashboard.js guarda o
+// nome do grupo em `campanha` e empurra o nome da campanha pra `conjunto`.
+// Olhando so o primeiro, o [CAPTACAO] do Brasil — o maior volume — cairia
+// todo em "Sem objetivo".
+function objetivoDaCampanha(...textos) {
+  const c = semAcento(textos.filter(Boolean).join(' '));
+  if (!c) return SEM_OBJETIVO;
+  for (const [rotulo, termo] of OBJETIVOS) {
+    if (c.includes(termo)) return rotulo;
+  }
+  return SEM_OBJETIVO;
+}
+
+// Divisao por objetivo: investimento das linhas de midia, leads e MQL do
+// backlog.
+//
+// O investimento vem do investLinhas (uma linha por dia/campanha), nao do
+// total por rede — e' o unico lugar que tem o nome da campanha, e sem ele
+// nao da pra saber de que objetivo e' o gasto.
+function cardObjetivos(v) {
+  const nomes = produtoAtivo === CONSOLIDADO ? PRODUTOS_REAIS : [produtoAtivo];
+  const rotulos = [...OBJETIVOS.map(o => o[0]), SEM_OBJETIVO];
+  const cores = Object.fromEntries([...OBJETIVOS.map(o => [o[0], o[2]]),
+                                    [SEM_OBJETIVO, '#4a4a52']]);
+
+  const agg = {};
+  for (const r of rotulos) agg[r] = { investimento: 0, leads: 0, mqls: 0, ganhos: 0 };
+
+  let temLinhas = false;
+  for (const nome of nomes) {
+    const p = dados.produtos[nome];
+    if (!p || !p.investLinhas) continue;
+    temLinhas = true;
+    for (const l of p.investLinhas) {
+      if (!dentroDoPeriodo(l.data)) continue;
+      if (filtros.rede && filtros.rede !== l.rede) continue;
+      agg[objetivoDaCampanha(l.campanha, l.conjunto, l.anuncio)]
+        .investimento += l.valor;
+    }
+  }
+
+  for (const b of v.backlog) {
+    // b.medium e' o utm do conjunto — mesma razao do comentario acima
+    const o = agg[objetivoDaCampanha(b.campanha, b.medium)];
+    o.leads++;
+    if (b.mql) o.mqls++;
+  }
+  for (const g of v.ganhos) {
+    if (g.vale === 'sim') agg[objetivoDaCampanha(g.campanha, g.medium)].ganhos++;
+  }
+
+  if (!temLinhas) {
+    return `<div class="empty">
+      As abas de investimento não trazem o nome da campanha nesta API.<br><br>
+      <span style="font-size:11px">Sem ele não dá para separar o gasto por
+      objetivo.</span>
+    </div>`;
+  }
+
+  const totalInv   = rotulos.reduce((s, r) => s + agg[r].investimento, 0);
+  const totalLeads = rotulos.reduce((s, r) => s + agg[r].leads, 0);
+  const semObj     = agg[SEM_OBJETIVO];
+
+  // So mostra o objetivo que existe no periodo — colunas zeradas nao dizem
+  // nada e roubam largura das que tem dado
+  const vivos = rotulos.filter(r => agg[r].investimento > 0 || agg[r].leads > 0);
+  if (!vivos.length) {
+    return '<div class="empty">Sem investimento ou lead no período.</div>';
+  }
+
+  const blocos = vivos.map(r => {
+    const d = agg[r];
+    const cpl   = d.leads ? d.investimento / d.leads : null;
+    const cpmql = d.mqls  ? d.investimento / d.mqls  : null;
+    const taxa  = d.leads ? d.mqls / d.leads * 100 : 0;
+    const cor   = cores[r];
+    return `<div class="rede-card" style="cursor:default">
+      <div class="rede-topo">
+        <span class="rede-nome" style="color:${cor}">${r}</span>
+        <span class="rede-inv">${fmtBRL(d.investimento)}</span>
+      </div>
+      <div class="rede-nums">
+        <div><span>Leads</span><strong>${fmtNum(d.leads)}</strong></div>
+        <div><span>MQL</span><strong style="color:${cor}">${fmtNum(d.mqls)}</strong></div>
+        <div><span>Taxa MQL</span><strong>${taxa.toFixed(0)}%</strong></div>
+      </div>
+      <div class="rede-nums">
+        <div><span>CPL</span><strong>${cpl === null ? '—' : fmtBRL(cpl)}</strong></div>
+        <div><span>CPMQL</span><strong>${cpmql === null ? '—' : fmtBRL(cpmql)}</strong></div>
+        <div><span>Share</span><strong>${
+          totalInv ? (d.investimento / totalInv * 100).toFixed(0) : 0}%</strong></div>
+      </div>
+      <div class="rede-barra"><div style="width:${
+        totalLeads ? Math.min(d.leads / totalLeads * 100, 100) : 0
+      }%;background:${cor}"></div></div>
+    </div>`;
+  }).join('');
+
+  // Diferenca contra o card de Investimento do topo. Os cards leem a coluna
+  // de valor da planilha inteira; aqui sai a leitura por campanha, que
+  // exclui outro pais e campanha que nao e' de aquisicao. Sem dizer, alguem
+  // compara os dois numeros e acha que um esta quebrado.
+  const dif = v.kpis.investimento - totalInv;
+
+  return `<div class="redes-grid" style="grid-template-columns:repeat(${
+      Math.min(vivos.length, 4)},1fr);margin-bottom:0">${blocos}</div>
+    ${semObj.investimento || semObj.leads ? `<div class="calor-nota"
+      style="color:var(--amber)"
+      title="Campanhas sem [CAPTACAO], [NUTRICAO] ou [DISTRIBUICAO] no nome. Provavelmente ainda não foram renomeadas.">
+      ⚠ ${fmtBRL(semObj.investimento)} e ${fmtNum(semObj.leads)} leads em
+      campanhas sem objetivo no nome
+    </div>` : ''}
+    ${Math.abs(dif) > 1 ? `<div class="calor-nota">
+      O card de Investimento soma ${fmtBRL(v.kpis.investimento)} —
+      ${fmtBRL(Math.abs(dif))} ${dif > 0 ? 'a mais' : 'a menos'} que aqui.
+      Não é erro: os cards leem a planilha inteira, e esta divisão sai da
+      leitura por campanha, que exclui outro país e campanha que não é de
+      aquisição.
+    </div>` : ''}`;
 }
 
 // ── Cards de rede ───────────────────────────────────────────────────────────
