@@ -2285,6 +2285,7 @@ function render() {
 
     <div class="redes-grid">${cardsRedes(v, vComp)}</div>
 
+    ${PRODUTOS_COM_OBJETIVO.includes(produtoAtivo) ? `
     <div class="card" style="margin-bottom:16px">
       <div class="card-title">
         Objetivo de campanha
@@ -2292,7 +2293,7 @@ function render() {
           filtros.rede ? filtros.rede + ' · ' : ''}do nome da campanha</span>
       </div>
       ${cardObjetivos(v)}
-    </div>
+    </div>` : ''}
 
     <div class="card" style="margin-bottom:16px">
       <div class="card-title">
@@ -4709,6 +4710,12 @@ const OBJETIVOS = [
 // ainda nao foi renomeada. Mas precisa aparecer, senao o investimento dela
 // sai da conta calado.
 const SEM_OBJETIVO = 'Sem objetivo';
+
+// Onde o card aparece. So os produtos que ja usam o bloco de objetivo no
+// nome da campanha — nos outros o card mostraria tudo em "Sem objetivo" e
+// se leria como problema, quando e' so uma convencao que nao vale la.
+// Para ligar outro produto, basta acrescentar o nome aqui.
+const PRODUTOS_COM_OBJETIVO = ['PFCC BRASIL'];
 
 // Recebe os textos onde o bloco pode estar e devolve o primeiro objetivo
 // que aparecer em qualquer um deles.
