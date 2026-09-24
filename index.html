@@ -4751,8 +4751,12 @@ function cardObjetivos(v) {
   const cores = Object.fromEntries([...OBJETIVOS.map(o => [o[0], o[2]]),
                                     [SEM_OBJETIVO, '#4a4a52']]);
 
+  // So investimento: o objetivo diz pra onde a verba foi, nao o que ela
+  // trouxe. CPL e CPMQL por objetivo enganam — nutricao nao existe pra
+  // gerar lead, entao o CPL dela seria altissimo e se leria como campanha
+  // ruim. Quem responde por lead e' o card de rede.
   const agg = {};
-  for (const r of rotulos) agg[r] = { investimento: 0, leads: 0, mqls: 0, ganhos: 0 };
+  for (const r of rotulos) agg[r] = 0;
 
   let temLinhas = false;
   for (const nome of nomes) {
@@ -4762,24 +4766,8 @@ function cardObjetivos(v) {
     for (const l of p.investLinhas) {
       if (!dentroDoPeriodo(l.data)) continue;
       if (l.rede !== REDE_COM_OBJETIVO) continue;
-      agg[objetivoDaCampanha(l.campanha, l.conjunto, l.anuncio)]
-        .investimento += l.valor;
+      agg[objetivoDaCampanha(l.campanha, l.conjunto, l.anuncio)] += l.valor;
     }
-  }
-
-  // Leads e ganhos tambem so do Meta, pelo mesmo motivo — e pra o CPL
-  // daqui dividir gasto do Meta por lead do Meta.
-  for (const b of v.backlog) {
-    if (redeDoLead(b) !== REDE_COM_OBJETIVO) continue;
-    // b.medium e' o utm do conjunto — mesma razao do comentario acima
-    const o = agg[objetivoDaCampanha(b.campanha, b.medium)];
-    o.leads++;
-    if (b.mql) o.mqls++;
-  }
-  for (const g of v.ganhos) {
-    if (g.vale !== 'sim') continue;
-    if (redeDoLead(g) !== REDE_COM_OBJETIVO) continue;
-    agg[objetivoDaCampanha(g.campanha, g.medium)].ganhos++;
   }
 
   if (!temLinhas) {
@@ -4790,61 +4778,40 @@ function cardObjetivos(v) {
     </div>`;
   }
 
-  const totalInv   = rotulos.reduce((s, r) => s + agg[r].investimento, 0);
-  const totalLeads = rotulos.reduce((s, r) => s + agg[r].leads, 0);
-  const semObj     = agg[SEM_OBJETIVO];
-
-  // So mostra o objetivo que existe no periodo — colunas zeradas nao dizem
-  // nada e roubam largura das que tem dado
-  const vivos = rotulos.filter(r => agg[r].investimento > 0 || agg[r].leads > 0);
+  const total = rotulos.reduce((s, r) => s + agg[r], 0);
+  const vivos = rotulos.filter(r => agg[r] > 0);
   if (!vivos.length) {
-    return '<div class="empty">Sem investimento ou lead no período.</div>';
+    return '<div class="empty">Sem investimento de Meta no período.</div>';
   }
 
   const blocos = vivos.map(r => {
-    const d = agg[r];
-    const cpl   = d.leads ? d.investimento / d.leads : null;
-    const cpmql = d.mqls  ? d.investimento / d.mqls  : null;
-    const taxa  = d.leads ? d.mqls / d.leads * 100 : 0;
-    const cor   = cores[r];
+    const val = agg[r];
+    const pct = total ? val / total * 100 : 0;
+    const cor = cores[r];
     return `<div class="rede-card" style="cursor:default">
       <div class="rede-topo">
         <span class="rede-nome" style="color:${cor}">${r}</span>
-        <span class="rede-inv">${fmtBRL(d.investimento)}</span>
+        <span class="rede-inv">${fmtBRL(val)}</span>
       </div>
-      <div class="rede-nums">
-        <div><span>Leads</span><strong>${fmtNum(d.leads)}</strong></div>
-        <div><span>MQL</span><strong style="color:${cor}">${fmtNum(d.mqls)}</strong></div>
-        <div><span>Taxa MQL</span><strong>${taxa.toFixed(0)}%</strong></div>
-      </div>
-      <div class="rede-nums">
-        <div><span>CPL</span><strong>${cpl === null ? '—' : fmtBRL(cpl)}</strong></div>
-        <div><span>CPMQL</span><strong>${cpmql === null ? '—' : fmtBRL(cpmql)}</strong></div>
-        <div><span>Share</span><strong>${
-          totalInv ? (d.investimento / totalInv * 100).toFixed(0) : 0}%</strong></div>
+      <div class="rede-nums" style="grid-template-columns:1fr;margin-bottom:4px">
+        <div><span>Share</span><strong>${pct.toFixed(1)}%</strong></div>
       </div>
       <div class="rede-barra"><div style="width:${
-        totalLeads ? Math.min(d.leads / totalLeads * 100, 100) : 0
-      }%;background:${cor}"></div></div>
+        Math.min(pct, 100)}%;background:${cor}"></div></div>
     </div>`;
   }).join('');
 
-  // Diferenca contra o card de Investimento do topo. Os cards leem a coluna
-  // de valor da planilha inteira; aqui sai a leitura por campanha, que
-  // exclui outro pais e campanha que nao e' de aquisicao. Sem dizer, alguem
-  // compara os dois numeros e acha que um esta quebrado.
   // Comparado com o investimento do META, nao com o total das tres redes:
   // o card so fala de Meta, entao comparar com o total acusaria uma
   // diferenca gigante que nao e' erro nenhum.
   const invMeta = (v.porRede[REDE_COM_OBJETIVO] || {}).investimento || 0;
-  const dif = invMeta - totalInv;
+  const dif = invMeta - total;
 
   return `<div class="redes-grid" style="grid-template-columns:repeat(${
       Math.min(vivos.length, 4)},1fr);margin-bottom:0">${blocos}</div>
-    ${semObj.investimento || semObj.leads ? `<div class="calor-nota"
+    ${agg[SEM_OBJETIVO] ? `<div class="calor-nota"
       title="Campanhas encerradas antes da padronização do nome. As que estão no ar já carregam o bloco de objetivo.">
-      ${fmtBRL(semObj.investimento)} e ${fmtNum(semObj.leads)} leads vêm de
-      campanhas anteriores à padronização
+      ${fmtBRL(agg[SEM_OBJETIVO])} vêm de campanhas anteriores à padronização
     </div>` : ''}
     ${Math.abs(dif) > 1 ? `<div class="calor-nota">
       O card do Meta soma ${fmtBRL(invMeta)} —
