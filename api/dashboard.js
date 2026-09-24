@@ -123,6 +123,10 @@ const MARCA_LATAM = /\b(mx|mexico|cl|chile)\b/;
 const CAMPANHAS_FORA = [
   'hotseat', 'summit', 'ppc', 'pesquisa', 'masterclass', 'coautoria',
   'workshop',
+  // Board Review: conteudo de marca, nao aquisicao de PFCC. Roda na conta
+  // do Meta do Brasil, entao sem este termo o gasto dela entrava no
+  // produto e aparecia como campanha por classificar.
+  'board review',
 ];
 
 // Minusculo, sem acento, pontuacao virando espaco: "[TD][PFCC][MX]" vira
