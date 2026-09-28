@@ -2451,6 +2451,7 @@ function render() {
         <div class="chart-box" style="height:300px">
           <canvas id="chartScore"></canvas>
         </div>
+        ${notaMetaScore(v)}
       </div>`;
     })()}
 
@@ -5399,6 +5400,28 @@ const rotuloFaixa = f => f === 9 ? 'De 9 a 10' : `De ${f} a ${f},9`;
 const ICP_DE  = SCORE_MINIMO;
 const ICP_ATE = 8;
 
+// Meta de distribuicao: que fatia da base deveria cair em cada faixa.
+// Mesma ordem do FAIXAS_SCORE.
+//
+// E' uma META DE FORMATO, nao de volume: diz onde os leads deveriam estar
+// concentrados, nao quantos deveriam ser. Por isso e' comparada em ponto
+// percentual, e vale igual pra um produto de 200 leads e um de 3.000.
+//
+// Os valores somam 99% — sao os percentuais como foram definidos, com
+// arredondamento. Nao normalizamos: mexer neles aqui faria o dashboard
+// mostrar um numero diferente do que foi combinado.
+const META_SCORE = {
+  2: 0, 3: 0, 4: 3, 5: 9, 6: 17, 7: 30, 8: 24, 9: 16,
+};
+const metaDaFaixa = f => META_SCORE[f] || 0;
+
+// Soma da meta dentro de um intervalo de faixas — usado pra comparar o
+// bloco do ICP inteiro, que e' o numero que decide acao.
+function somaMeta(de, ate) {
+  return FAIXAS_SCORE.filter(f => f >= de && f <= ate)
+                     .reduce((s, f) => s + metaDaFaixa(f), 0);
+}
+
 // Distribuicao por faixa. Score fora da escala e' puxado pra ponta mais
 // proxima, senao o lead sumiria da conta sem ninguem notar.
 function distribuicaoScore(lista) {
@@ -5461,6 +5484,54 @@ const pluginZonaICP = {
   },
 };
 
+// Resumo do desvio contra a meta, em pontos percentuais.
+//
+// Tres blocos, nao oito: faixa a faixa o desvio e' ruido de arredondamento.
+// O que decide acao e' o formato — quanto da base esta no ICP, quanto ficou
+// abaixo dele e quanto escapou pro topo.
+function notaMetaScore(v) {
+  const d = distribuicaoScore(v.backlog);
+  if (!d.total) return '';
+
+  const fatia = (de, ate) => FAIXAS_SCORE
+    .map((f, i) => [f, d.pct[i]])
+    .filter(([f]) => f >= de && f <= ate)
+    .reduce((s, [, p]) => s + p, 0);
+
+  // O terceiro campo diz se o desvio tem um lado bom:
+  //   +1  mais que a meta e' bom   -1  menos que a meta e' bom   0  sem lado
+  //
+  // O bloco de 9+ fica sem lado de proposito. A meta pede 16% la, mas nota
+  // 9+ tambem e' onde aparece cadastro com resposta inflada — pintar de
+  // vermelho "abaixo da meta" ou de verde "acima" afirmaria uma direcao que
+  // o dado nao sustenta. Mostramos o desvio e deixamos a leitura com quem
+  // conhece a origem daquele lead.
+  const blocos = [
+    ['abaixo do ICP', 2, ICP_DE - 1, -1],
+    [`ICP (${ICP_DE} a ${ICP_ATE},9)`, ICP_DE, ICP_ATE, +1],
+    ['acima do ICP', ICP_ATE + 1, 9, 0],
+  ];
+
+  const partes = blocos.map(([rotulo, de, ate, lado]) => {
+    const real = fatia(de, ate);
+    const meta = somaMeta(de, ate);
+    const dif  = real - meta;
+    // Meio ponto e' arredondamento, nao desvio — cinza pra nao virar
+    // alarme falso toda semana.
+    const cor = (!lado || Math.abs(dif) < 0.5) ? 'var(--gray-light)'
+              : (dif * lado > 0 ? 'var(--green)' : 'var(--red)');
+    return `<span style="white-space:nowrap">${rotulo}
+      <b style="color:var(--white)">${real.toFixed(0)}%</b>
+      <span style="opacity:.6">de ${meta}%</span>
+      <b style="color:${cor}">${dif >= 0 ? '+' : ''}${dif.toFixed(0)}</b></span>`;
+  }).join(' &nbsp;·&nbsp; ');
+
+  return `<div class="calor-nota"
+    title="Desvio em pontos percentuais contra a meta de distribuição. Verde = mais leads no ICP ou menos abaixo dele. O bloco de 9+ fica sem cor: a meta pede 16%, mas nota alta também é onde aparece cadastro inflado.">
+    ${partes}
+  </div>`;
+}
+
 // Desenha a linha no canvas do card de Pontuacao. Chamado pelo
 // desenharGraficos — se o card nao estiver na tela, comCanvas devolve null.
 function graficoScore(v) {
@@ -5476,7 +5547,24 @@ function graficoScore(v) {
     data: {
       labels: FAIXAS_SCORE.map(rotuloFaixa),
       datasets: [{
-        label: '% dos leads',
+        // A meta vem PRIMEIRO no array pra ser desenhada atras da linha
+        // real — Chart.js pinta na ordem do array, e a referencia nao pode
+        // cobrir o dado.
+        label: 'meta',
+        data: FAIXAS_SCORE.map(metaDaFaixa),
+        borderColor: 'rgba(200,200,200,.55)',
+        borderWidth: 1.5,
+        borderDash: [5, 4],
+        tension: .4,
+        fill: false,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        pointBackgroundColor: 'rgba(200,200,200,.8)',
+        // Sem rotulo: dois numeros em cima de cada ponto competem entre si
+        // e nenhum dos dois se le. O valor da meta fica no tooltip.
+        datalabels: { display: false },
+      }, {
+        label: 'realizado',
         data: d.pct,
         borderColor: '#4a9eed',
         backgroundColor: 'rgba(74,158,237,.12)',
@@ -5505,10 +5593,25 @@ function graficoScore(v) {
       },
       plugins: {
         ...opcoesBase().plugins,
+        // Ligada so aqui: com duas linhas na tela, sem legenda ninguem sabe
+        // qual e' a meta e qual e' o realizado.
+        legend: {
+          display: true, position: 'top', align: 'end',
+          labels: { color: '#c8c8c8', boxWidth: 18, boxHeight: 2,
+                    font: { family: 'DM Mono', size: 10 },
+                    usePointStyle: false },
+        },
         tooltip: { ...opcoesBase().plugins.tooltip, callbacks: {
           label: ctx => {
             const i = ctx.dataIndex;
+            const meta = metaDaFaixa(FAIXAS_SCORE[i]);
+            // O tooltip da linha da meta so precisa dizer o alvo
+            if (ctx.datasetIndex === 0) return [` meta: ${meta}%`];
+
+            const dif = ctx.raw - meta;
             const linhas = [` ${ctx.raw.toFixed(1)}% · ${fmtNum(d.qtd[i])} leads`];
+            linhas.push(` meta ${meta}% · ${dif >= 0 ? '+' : ''}${
+              dif.toFixed(1)} ponto${Math.abs(dif) === 1 ? '' : 's'}`);
             if (!PRODUTOS_COM_SCORE.includes(produtoAtivo)) {
               linhas.push(` ${fmtNum(d.mqls[i])} são MQL pelo cargo`);
             }
