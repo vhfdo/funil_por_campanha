@@ -5415,6 +5415,34 @@ const META_SCORE = {
 };
 const metaDaFaixa = f => META_SCORE[f] || 0;
 
+// Diz se o desvio daquela faixa tem um lado bom:
+//   +1  mais que a meta e' bom (dentro do ICP)
+//   -1  menos que a meta e' bom (abaixo do ICP: lead fraco)
+//    0  sem lado — ver o comentario em notaMetaScore sobre o 9+
+//
+// Uma funcao so, usada pelo grafico E pela nota de rodape: com duas copias
+// da regra, um dia uma pinta de verde o que a outra pinta de vermelho.
+function ladoDaFaixa(f) {
+  if (f >= ICP_DE && f <= ICP_ATE) return +1;
+  if (f < ICP_DE) return -1;
+  return 0;
+}
+
+// Cor do desvio. Meio ponto e' arredondamento, nao desvio.
+//
+// Hex literal, nao var(--green): o Chart.js desenha no canvas e nao resolve
+// variavel de CSS. O verde e' o mesmo do sistema; o vermelho e' uma versao
+// clareada do --red (#c0392b), que em texto de 9px sobre fundo preto fica
+// escuro demais pra ler.
+const VERDE_DESVIO = '#4ade80';
+const VERMELHO_DESVIO = '#e0645c';
+const NEUTRO_DESVIO = 'rgba(200,200,200,.7)';
+
+function corDesvio(dif, lado) {
+  if (!lado || Math.abs(dif) < 0.5) return NEUTRO_DESVIO;
+  return dif * lado > 0 ? VERDE_DESVIO : VERMELHO_DESVIO;
+}
+
 // Soma da meta dentro de um intervalo de faixas — usado pra comparar o
 // bloco do ICP inteiro, que e' o numero que decide acao.
 function somaMeta(de, ate) {
@@ -5498,28 +5526,26 @@ function notaMetaScore(v) {
     .filter(([f]) => f >= de && f <= ate)
     .reduce((s, [, p]) => s + p, 0);
 
-  // O terceiro campo diz se o desvio tem um lado bom:
-  //   +1  mais que a meta e' bom   -1  menos que a meta e' bom   0  sem lado
+  // O lado bom de cada bloco sai do ladoDaFaixa, a mesma funcao que o
+  // grafico usa — com a regra escrita duas vezes, um dia o rotulo pinta de
+  // verde o que a nota pinta de vermelho.
   //
-  // O bloco de 9+ fica sem lado de proposito. A meta pede 16% la, mas nota
-  // 9+ tambem e' onde aparece cadastro com resposta inflada — pintar de
-  // vermelho "abaixo da meta" ou de verde "acima" afirmaria uma direcao que
-  // o dado nao sustenta. Mostramos o desvio e deixamos a leitura com quem
-  // conhece a origem daquele lead.
+  // O bloco de 9+ fica sem lado. A meta pede 16% la, mas nota 9+ tambem e'
+  // onde aparece cadastro com resposta inflada: pintar de vermelho "abaixo
+  // da meta" ou de verde "acima" afirmaria uma direcao que o dado nao
+  // sustenta. Mostramos o desvio e deixamos a leitura com quem conhece a
+  // origem daquele lead.
   const blocos = [
-    ['abaixo do ICP', 2, ICP_DE - 1, -1],
-    [`ICP (${ICP_DE} a ${ICP_ATE},9)`, ICP_DE, ICP_ATE, +1],
-    ['acima do ICP', ICP_ATE + 1, 9, 0],
+    ['abaixo do ICP', 2, ICP_DE - 1],
+    [`ICP (${ICP_DE} a ${ICP_ATE},9)`, ICP_DE, ICP_ATE],
+    ['acima do ICP', ICP_ATE + 1, 9],
   ];
 
-  const partes = blocos.map(([rotulo, de, ate, lado]) => {
+  const partes = blocos.map(([rotulo, de, ate]) => {
     const real = fatia(de, ate);
     const meta = somaMeta(de, ate);
     const dif  = real - meta;
-    // Meio ponto e' arredondamento, nao desvio — cinza pra nao virar
-    // alarme falso toda semana.
-    const cor = (!lado || Math.abs(dif) < 0.5) ? 'var(--gray-light)'
-              : (dif * lado > 0 ? 'var(--green)' : 'var(--red)');
+    const cor  = corDesvio(dif, ladoDaFaixa(de));
     return `<span style="white-space:nowrap">${rotulo}
       <b style="color:var(--white)">${real.toFixed(0)}%</b>
       <span style="opacity:.6">de ${meta}%</span>
@@ -5560,9 +5586,24 @@ function graficoScore(v) {
         pointRadius: 0,
         pointHoverRadius: 4,
         pointBackgroundColor: 'rgba(200,200,200,.8)',
-        // Sem rotulo: dois numeros em cima de cada ponto competem entre si
-        // e nenhum dos dois se le. O valor da meta fica no tooltip.
-        datalabels: { display: false },
+        datalabels: {
+          // Vai pro lado OPOSTO ao do rotulo do realizado: quando a linha
+          // real esta acima, o numero dela sobe e o da meta desce. Sem isso
+          // os dois se encontram no meio e um cobre o outro.
+          //
+          // Faixa com meta zero nao ganha rotulo: "0%" nas duas primeiras
+          // so ocupa espaco, e a linha ja mostra que ali nao ha alvo.
+          display: ctx => metaDaFaixa(FAIXAS_SCORE[ctx.dataIndex]) > 0,
+          anchor: 'center',
+          align: ctx => d.pct[ctx.dataIndex]
+            >= metaDaFaixa(FAIXAS_SCORE[ctx.dataIndex]) ? 'bottom' : 'top',
+          offset: 4,
+          color: 'rgba(190,190,190,.85)',
+          font: { family: 'DM Mono', size: 9 },
+          backgroundColor: 'rgba(10,10,10,.7)',
+          borderRadius: 3, padding: { top: 1, bottom: 1, left: 4, right: 4 },
+          formatter: x => x + '%',
+        },
       }, {
         label: 'realizado',
         data: d.pct,
@@ -5578,11 +5619,44 @@ function graficoScore(v) {
         datalabels: {
           // So onde ha lead: rotulo "0%" em seis faixas vazias vira ruido
           display: ctx => d.qtd[ctx.dataIndex] > 0,
-          anchor: 'end', align: 'top', offset: 4,
-          color: '#ffffff', font: { family: 'DM Mono', size: 10, weight: 500 },
-          backgroundColor: 'rgba(10,10,10,.82)',
-          borderRadius: 3, padding: { top: 2, bottom: 2, left: 5, right: 5 },
-          formatter: x => x.toFixed(1) + '%',
+          anchor: 'center',
+          font: { family: 'DM Mono', size: 10, weight: 500 },
+          // Dois rotulos por ponto (API `labels` do datalabels): o valor e,
+          // logo acima dele, o desvio contra a meta. Separados porque so
+          // assim o desvio ganha cor propria — numa string unica o rotulo
+          // inteiro teria que ser de uma cor so, e o valor perderia
+          // legibilidade pra carregar o sinal do desvio.
+          labels: {
+            valor: {
+              // Lado oposto ao da meta — ver o comentario no dataset dela
+              align: ctx => d.pct[ctx.dataIndex]
+                >= metaDaFaixa(FAIXAS_SCORE[ctx.dataIndex]) ? 'top' : 'bottom',
+              offset: 4,
+              color: '#ffffff',
+              backgroundColor: 'rgba(10,10,10,.82)',
+              borderRadius: 3, padding: { top: 2, bottom: 2, left: 5, right: 5 },
+              formatter: x => x.toFixed(1) + '%',
+            },
+            desvio: {
+              align: ctx => d.pct[ctx.dataIndex]
+                >= metaDaFaixa(FAIXAS_SCORE[ctx.dataIndex]) ? 'top' : 'bottom',
+              // Empilhado acima do valor, sem fundo: e' leitura de apoio,
+              // nao concorre com o numero principal
+              offset: 24,
+              font: { family: 'DM Mono', size: 9, weight: 500 },
+              color: ctx => {
+                const f = FAIXAS_SCORE[ctx.dataIndex];
+                return corDesvio(d.pct[ctx.dataIndex] - metaDaFaixa(f),
+                                 ladoDaFaixa(f));
+              },
+              formatter: (x, ctx) => {
+                const dif = x - metaDaFaixa(FAIXAS_SCORE[ctx.dataIndex]);
+                // Abaixo de meio ponto o numero seria "+0" — nao diz nada
+                if (Math.abs(dif) < 0.5) return 'na meta';
+                return (dif > 0 ? '+' : '') + dif.toFixed(0) + ' pt';
+              },
+            },
+          },
         },
       }],
     },
@@ -5624,7 +5698,9 @@ function graficoScore(v) {
         x: { ticks: { color: '#c8c8c8', font: { family: 'DM Mono', size: 8.5 },
                       maxRotation: 45 },
              grid: { color: '#1a1a1a' } },
-        y: { beginAtZero: true, grace: '20%',
+        // grace maior que o resto do dashboard: cada ponto carrega valor,
+        // desvio e meta empilhados, e com 20% o rotulo de cima era cortado
+        y: { beginAtZero: true, grace: '35%',
              ticks: { color: '#c8c8c8', font: { family: 'DM Mono', size: 9 },
                       callback: val => val + '%' },
              grid: { color: '#1c1c1c' } },
