@@ -3265,8 +3265,26 @@ function renderGanhos(v) {
     porRede[r].valor += g.valor;
   }
 
+  // Por funil: qual time comercial fechou a venda. Vem do campo `funil` do
+  // proprio ganho, gravado pelo script — nao do funil do lead hoje, que ja
+  // pode ter mudado depois do fechamento.
+  //
+  // Guardamos os dias de cada venda pra calcular a mediana do LTG por
+  // funil: ciclo de venda muda MUITO entre funis (o Sniper fecha em dias,
+  // o Elite em meses), e a media de todos junto nao descreve nenhum.
+  const porFunil = {};
+  for (const g of validos) {
+    const f = (g.funil || '').trim() || '(sem funil)';
+    if (!porFunil[f]) porFunil[f] = { qtd: 0, valor: 0, reapl: 0, dias: [] };
+    porFunil[f].qtd++;
+    porFunil[f].valor += g.valor;
+    if (g.reaplicacao) porFunil[f].reapl++;
+    if (g.dias > 0) porFunil[f].dias.push(g.dias);
+  }
+
   const campanhas = Object.entries(porChave).sort((a, b) => b[1].valor - a[1].valor);
   const redes     = Object.entries(porRede).sort((a, b) => b[1].valor - a[1].valor);
+  const funis     = Object.entries(porFunil).sort((a, b) => b[1].valor - a[1].valor);
 
   document.getElementById('conteudo').innerHTML = `
     <div class="kpi-strip" style="grid-template-columns:repeat(5,1fr)">
@@ -3356,6 +3374,66 @@ function renderGanhos(v) {
               </div>`;
             }).join('')}
           </div>
+
+          <!-- Ganhos por funil ocupa a sobra do card: sao poucas redes e
+               sobravam uns 350px vazios aqui embaixo.
+
+               Quatro colunas, nao sete: este card tem metade da largura da
+               tela. Ticket medio, LTG e reaplicacao vao no tooltip da
+               linha — apertar tudo em sete colunas deixaria os numeros
+               ilegiveis, que e' pior do que precisar passar o mouse. -->
+          <div style="margin-top:20px;border-top:1px solid var(--border);
+                      padding-top:14px">
+            <div style="font-family:'DM Mono',monospace;font-size:9px;
+                        text-transform:uppercase;letter-spacing:.05em;
+                        color:var(--gray-light);margin-bottom:8px">
+              Ganhos por funil
+              <span style="opacity:.6">· passe o mouse para ticket, LTG e reaplicação</span>
+            </div>
+            <table>
+              <thead><tr>
+                <th>Funil</th>
+                <th class="num">Vendas</th>
+                <th class="num">Faturamento</th>
+                <th class="num">%</th>
+              </tr></thead>
+              <tbody>
+                ${funis.map(([nome, d]) => {
+                  // Mediana, nao media: uma venda de lead com anos de base
+                  // puxaria a media do funil inteiro
+                  const s = [...d.dias].sort((a, b) => a - b);
+                  const mid = Math.floor(s.length / 2);
+                  const ltg = s.length
+                    ? (s.length % 2 ? s[mid] : Math.round((s[mid - 1] + s[mid]) / 2))
+                    : null;
+                  const dica = [
+                    `Ticket médio: ${fmtBRL(d.valor / d.qtd)}`,
+                    ltg === null
+                      ? 'LTG: sem venda com data de aplicação'
+                      : `LTG: ${fmtNum(ltg)} dias (mediana de ${fmtNum(s.length)} de ${
+                          fmtNum(d.qtd)} vendas)`,
+                    d.reapl
+                      ? `Reaplicação: ${fmtNum(d.reapl)} de ${fmtNum(d.qtd)} (${
+                          (d.reapl / d.qtd * 100).toFixed(0)}%)`
+                      : 'Reaplicação: nenhuma',
+                  ].join('&#10;');
+                  return `<tr title="${dica}">
+                    <td>${nome}</td>
+                    <td class="num">${fmtNum(d.qtd)}</td>
+                    <td class="num" style="color:var(--green)">${fmtBRL(d.valor)}</td>
+                    <td class="num">${(d.valor / total * 100).toFixed(1)}%</td>
+                  </tr>`;
+                }).join('')}
+                <tr style="border-top:2px solid var(--blue)">
+                  <td style="font-weight:600">TOTAL</td>
+                  <td class="num" style="font-weight:600">${fmtNum(validos.length)}</td>
+                  <td class="num" style="font-weight:600;color:var(--green)">${
+                    fmtBRL(total)}</td>
+                  <td class="num">100%</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
@@ -3380,6 +3458,7 @@ function renderGanhos(v) {
             <th class="num">Neg.</th>
             <th class="num" title="Lead time até o ganho: dias entre a última aplicação e a venda.">LTG</th>
             <th>Rede</th>
+            <th title="Funil comercial em que a venda foi fechada">Funil</th>
             <th>utm_campaign</th><th>utm_source</th><th>utm_medium</th>
             <th>utm_content</th><th>utm_term</th>
           </tr></thead>
@@ -3417,6 +3496,7 @@ function renderGanhos(v) {
                     : g.dias > 180 ? 'var(--amber)' : 'var(--white)'}">${
                     g.dias > 0 ? fmtDias(g.dias) : '—'}</td>
                   <td>${redeDoLead(g)}</td>
+                  <td style="color:var(--gray-light)">${corta(g.funil, 14) || '—'}</td>
                   <td class="utm" title="${g.campanha || ''}">${corta(g.campanha, 34)}</td>
                   <td class="utm" title="${g.source || ''}">${corta(g.source, 14)}</td>
                   <td class="utm" title="${g.medium || ''}">${corta(g.medium, 14)}</td>
