@@ -8,6 +8,10 @@
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>
+<!-- Excel de verdade no report mensal. Poderia ser CSV, mas ali o valor sai
+     como texto e o Excel brasileiro ainda pede o diálogo de importação; com
+     xlsx o número abre somável e já formatado em real. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{
     --bg:#0a0a0a; --panel:#111; --panel2:#1a1a1a; --border:#222;
@@ -859,7 +863,15 @@ const METAS = {
   'CES':          { leads: 395,  mqls: 276,  faturamento: 132632,  investimento: 15000,
                     vendas: 11,  cpl: 38,  cpmql: 54,  cac: 1357, roas: 8.84 },
 };
-const CORES_REDE = { Meta: '#4a6dd4', Google: '#2980b9', LinkedIn: '#0e76a8' };
+// Paleta de rede, usada pelos cards de rede e pelo report mensal. Uma so:
+// com duas copias, o Meta um dia sai azul num card e roxo no outro.
+//
+// Organico e Workshop entram aqui mesmo sem aba de investimento — sao
+// classificacao de LEAD, e aparecem nos cards de rede.
+const CORES_REDE = {
+  Meta: '#4a6dd4', Google: '#2980b9', LinkedIn: '#0e76a8',
+  'Orgânico': '#4ade80', Workshop: '#d9a441',
+};
 
 // Etapas que existem no Pipedrive mas nao fazem parte do funil de venda.
 // Ficam de fora do card e nao entram no calculo do percentual.
@@ -2555,6 +2567,303 @@ function render() {
 }
 
 // ── Report: uma pagina, so o essencial ──────────────────────────────────────
+// ── Investimento mes a mes ──────────────────────────────────────────────────
+// Sai do investDiaRede, que e' a leitura "oficial" do investimento: a mesma
+// que alimenta o card de Investimento, o CPL e o CAC. NAO e' a leitura por
+// campanha da aba Campanhas — aquela exclui campanha de outro pais e o que
+// nao e' aquisicao, e daria um numero menor que o da fatura.
+//
+// IGNORA o filtro de periodo de proposito. Um report mes a mes com o filtro
+// aplicado mostraria uma coluna so; aqui o recorte e' sempre o que existe
+// nas abas de investimento.
+const NOME_MES = {
+  '01': 'jan', '02': 'fev', '03': 'mar', '04': 'abr', '05': 'mai', '06': 'jun',
+  '07': 'jul', '08': 'ago', '09': 'set', '10': 'out', '11': 'nov', '12': 'dez',
+};
+
+// 'produto' | 'rede' | 'ambos' — como as linhas da tabela sao quebradas
+let visaoMensal = 'produto';
+
+// Num produto so, "por produto" e "produto x rede" dariam uma linha unica —
+// os botoes somem e a visao cai pra rede. Sem isso, entrar num produto com
+// 'produto' selecionado mostrava uma tabela de uma linha e nenhum botao
+// aceso pra sair dela.
+const visaoMensalEfetiva = () =>
+  produtoAtivo === CONSOLIDADO ? visaoMensal : 'rede';
+
+function trocarVisaoMensal(x) {
+  rastrear('visao_mensal', x);
+  visaoMensal = x;
+  render();
+}
+
+// Agrega o investimento por mes. Devolve os meses que existem, os totais
+// por produto, por rede, e o cruzamento produto x rede.
+function investimentoMensal() {
+  const nomes = produtoAtivo === CONSOLIDADO ? PRODUTOS_REAIS : [produtoAtivo];
+
+  const meses = new Set();
+  const porProduto = {};   // produto -> mes -> valor
+  const porRede    = {};   // rede    -> mes -> valor
+  const cruzado    = {};   // produto -> rede -> mes -> valor
+  const redes      = new Set();
+
+  for (const nome of nomes) {
+    const p = dados.produtos[nome];
+    if (!p || !p.investDiaRede) continue;
+
+    for (const [rede, dias] of Object.entries(p.investDiaRede)) {
+      for (const [dia, val] of Object.entries(dias)) {
+        if (!val) continue;
+        // A data chega como DD/MM — o mes e' o que vem depois da barra
+        const mes = String(dia).split('/')[1];
+        if (!mes || !NOME_MES[mes]) continue;
+
+        meses.add(mes);
+        redes.add(rede);
+        (porProduto[nome]  ||= {})[mes] = (porProduto[nome][mes]  || 0) + val;
+        (porRede[rede]     ||= {})[mes] = (porRede[rede][mes]     || 0) + val;
+        ((cruzado[nome] ||= {})[rede] ||= {})[mes] =
+          (cruzado[nome][rede][mes] || 0) + val;
+      }
+    }
+  }
+
+  return {
+    meses: [...meses].sort(),
+    redes: [...redes].sort(),
+    produtos: nomes.filter(n => porProduto[n]),
+    porProduto, porRede, cruzado,
+  };
+}
+
+function tabelaMensal() {
+  const m = investimentoMensal();
+  if (!m.meses.length) {
+    return `<div class="empty">
+      Sem investimento nas abas de mídia.<br><br>
+      <span style="font-size:11px">Esta tabela lê as abas INVESTIMENTO da
+      planilha, não o filtro de período.</span>
+    </div>`;
+  }
+
+  const soma = linha => m.meses.reduce((s, mes) => s + (linha[mes] || 0), 0);
+  const totalMes = {};
+  for (const mes of m.meses) {
+    totalMes[mes] = m.produtos.reduce(
+      (s, n) => s + ((m.porProduto[n] || {})[mes] || 0), 0);
+  }
+  const totalGeral = m.meses.reduce((s, mes) => s + totalMes[mes], 0);
+
+  // Celula vazia vira traco cinza, nao "R$ 0": mes sem veiculacao e mes com
+  // gasto zero se leem diferente.
+  const cel = val => val
+    ? `<td class="num">${fmtBRL(val)}</td>`
+    : '<td class="num" style="color:var(--gray)">—</td>';
+
+  // Uma linha da tabela. `nivel` recua as sublinhas de rede.
+  const linha = (rotulo, dados_, opts = {}) => {
+    const { cor = null, nivel = 0, forte = false } = opts;
+    const tot = soma(dados_);
+    return `<tr${forte ? ' style="background:#141414"' : ''}>
+      <td style="${nivel ? 'padding-left:26px;color:var(--gray-light);' : ''}${
+        forte ? 'font-weight:600;' : ''}white-space:nowrap">${
+        cor ? `<span style="color:${cor}">■</span> ` : ''}${rotulo}</td>
+      ${m.meses.map(mes => cel(dados_[mes])).join('')}
+      <td class="num" style="font-weight:600;border-left:1px solid var(--border)">${
+        tot ? fmtBRL(tot) : '—'}</td>
+      <td class="num" style="color:var(--gray-light)">${
+        totalGeral ? (tot / totalGeral * 100).toFixed(0) + '%' : '—'}</td>
+    </tr>`;
+  };
+
+  const visao = visaoMensalEfetiva();
+  let corpo = '';
+  if (visao === 'rede') {
+    corpo = m.redes.map(r =>
+      linha(r, m.porRede[r] || {}, { cor: CORES_REDE[r] })).join('');
+  } else if (visao === 'produto') {
+    corpo = m.produtos.map(n =>
+      linha(n, m.porProduto[n] || {}, { cor: CORES_PRODUTO[n] })).join('');
+  } else {
+    // Produto x rede: o produto vira cabecalho de grupo e as redes recuam
+    corpo = m.produtos.map(n => {
+      const redesDoProduto = Object.keys(m.cruzado[n] || {}).sort();
+      return linha(n, m.porProduto[n] || {},
+                   { cor: CORES_PRODUTO[n], forte: true })
+        + redesDoProduto.map(r =>
+            linha(r, m.cruzado[n][r], { cor: CORES_REDE[r], nivel: 1 })).join('');
+    }).join('');
+  }
+
+  return `<div class="table-scroll" style="max-height:460px">
+    <table class="tabela-utm">
+      <thead><tr>
+        <th>${visao === 'rede' ? 'Rede' : 'Produto'}</th>
+        ${m.meses.map(mes => `<th class="num">${NOME_MES[mes]}</th>`).join('')}
+        <th class="num" style="border-left:1px solid var(--border)">Total</th>
+        <th class="num">Share</th>
+      </tr></thead>
+      <tbody>
+        ${corpo}
+        <tr style="border-top:2px solid var(--blue)">
+          <td style="font-weight:600;white-space:nowrap">TOTAL</td>
+          ${m.meses.map(mes => `<td class="num" style="font-weight:600">${
+            fmtBRL(totalMes[mes])}</td>`).join('')}
+          <td class="num" style="font-weight:600;border-left:1px solid var(--border)">${
+            fmtBRL(totalGeral)}</td>
+          <td class="num" style="color:var(--gray-light)">100%</td>
+        </tr>
+        <tr>
+          <td style="color:var(--gray-light);white-space:nowrap"
+              title="Variação do total contra o mês anterior">vs. mês anterior</td>
+          ${m.meses.map((mes, i) => {
+            if (!i) return '<td class="num" style="color:var(--gray)">—</td>';
+            const ant = totalMes[m.meses[i - 1]];
+            if (!ant) return '<td class="num" style="color:var(--gray)">—</td>';
+            const d = (totalMes[mes] - ant) / ant * 100;
+            return `<td class="num" style="color:${
+              Math.abs(d) < 1 ? 'var(--gray-light)'
+              : d > 0 ? 'var(--amber)' : 'var(--blue)'}">${
+              d > 0 ? '+' : ''}${d.toFixed(0)}%</td>`;
+          }).join('')}
+          <td class="num"></td><td class="num"></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>`;
+}
+
+// Barras empilhadas por mes. Empilhada, nao agrupada: a pergunta e' quanto
+// foi investido no mes e como esse total se divide — com barras lado a lado
+// o total vira uma soma que ninguem faz de cabeca.
+function graficoMensal() {
+  const m = investimentoMensal();
+  if (!m.meses.length) return null;
+
+  // Na visao "produto x rede" o grafico mostra por produto: empilhar 20
+  // series numa barra so vira listra sem leitura. O cruzamento fica na
+  // tabela e no CSV, que aguentam o detalhe.
+  const series = visaoMensalEfetiva() === 'rede'
+    ? m.redes.map(r => ({ nome: r, cor: CORES_REDE[r] || '#666',
+                          dados: m.porRede[r] || {} }))
+    : m.produtos.map(n => ({ nome: n, cor: CORES_PRODUTO[n] || '#666',
+                             dados: m.porProduto[n] || {} }));
+
+  return comCanvas('chartMensal', el => new Chart(el, {
+    type: 'bar',
+    data: {
+      labels: m.meses.map(x => NOME_MES[x]),
+      datasets: series.map(s => ({
+        label: s.nome,
+        data: m.meses.map(mes => s.dados[mes] || 0),
+        backgroundColor: s.cor,
+        borderWidth: 0,
+        datalabels: { display: false },
+      })),
+    },
+    options: {
+      ...opcoesBase(),
+      plugins: {
+        ...opcoesBase().plugins,
+        legend: { display: true, position: 'bottom',
+                  labels: { color: '#c8c8c8', boxWidth: 10, boxHeight: 10,
+                            font: { family: 'DM Mono', size: 9 } } },
+        tooltip: { ...opcoesBase().plugins.tooltip,
+          callbacks: { label: ctx => ` ${ctx.dataset.label}: ${fmtBRL(ctx.raw)}` } },
+      },
+      scales: {
+        x: { stacked: true, ticks: { color: '#c8c8c8',
+             font: { family: 'DM Mono', size: 10 } }, grid: { display: false } },
+        y: { stacked: true, beginAtZero: true,
+             ticks: { color: '#c8c8c8', font: { family: 'DM Mono', size: 9 },
+                      callback: val => 'R$ ' + (val / 1000).toFixed(0) + 'k' },
+             grid: { color: '#1c1c1c' } },
+      },
+    },
+  }));
+}
+
+function exportarMensalXLSX() {
+  const m = investimentoMensal();
+  if (!m.meses.length) return;
+
+  if (typeof XLSX === 'undefined') {
+    alert('A biblioteca de Excel não carregou. Recarregue a página e tente de novo.');
+    return;
+  }
+  rastrear('exportar_mensal_xlsx', visaoMensalEfetiva());
+
+  const MOEDA = 'R$ #,##0.00';
+  const cabMeses = m.meses.map(x => NOME_MES[x]);
+
+  // Monta uma aba a partir de linhas [rotulo..., valores por mes].
+  // Os valores vao como NUMERO, nao texto formatado: e' o que deixa somar,
+  // filtrar e montar tabela dinamica no Excel. A formatacao de real fica
+  // por conta do formato da celula.
+  function aba(titulos, linhas) {
+    const corpo = linhas.map(l => {
+      const rot = l.rotulos;
+      const vals = m.meses.map(mes => l.dados[mes] || 0);
+      const tot  = vals.reduce((s, x) => s + x, 0);
+      return [...rot, ...vals, tot];
+    });
+
+    // Linha de total por coluna — o Excel abre com ela pronta em vez de
+    // exigir que alguem monte a soma
+    const totalCols = m.meses.map((mes, i) =>
+      corpo.reduce((s, l) => s + (l[titulos.length + i] || 0), 0));
+    const totalGeral = totalCols.reduce((s, x) => s + x, 0);
+    const linhaTotal = [...titulos.map((_, i) => i ? '' : 'TOTAL'),
+                        ...totalCols, totalGeral];
+
+    const cabecalho = [...titulos, ...cabMeses, 'Total'];
+    const ws = XLSX.utils.aoa_to_sheet([cabecalho, ...corpo, linhaTotal]);
+
+    // Formato de moeda em toda celula numerica
+    const nLinhas = corpo.length + 2;            // cabecalho + corpo + total
+    const nCols   = cabecalho.length;
+    for (let r = 1; r < nLinhas; r++) {
+      for (let c = titulos.length; c < nCols; c++) {
+        const cel = ws[XLSX.utils.encode_cell({ r, c })];
+        if (cel && typeof cel.v === 'number') cel.z = MOEDA;
+      }
+    }
+    // Largura de coluna funciona; congelar painel nao — a versao community
+    // do SheetJS ignora '!freeze' e nao grava <pane> no arquivo. Deixar a
+    // linha ali so faria o proximo leitor achar que o congelamento existe.
+    ws['!cols'] = [...titulos.map(() => ({ wch: 22 })),
+                   ...cabMeses.map(() => ({ wch: 13 })), { wch: 15 }];
+    return ws;
+  }
+
+  const wb = XLSX.utils.book_new();
+
+  // Por rede primeiro: e' o recorte que o report existe pra responder
+  XLSX.utils.book_append_sheet(wb, aba(['Rede'],
+    m.redes.map(r => ({ rotulos: [r], dados: m.porRede[r] || {} }))),
+    'Por rede');
+
+  XLSX.utils.book_append_sheet(wb, aba(['Produto'],
+    m.produtos.map(n => ({ rotulos: [n], dados: m.porProduto[n] || {} }))),
+    'Por produto');
+
+  // O cruzamento completo: dele saem as outras duas por tabela dinamica
+  const cruz = [];
+  for (const n of m.produtos) {
+    for (const [r, dias] of Object.entries(m.cruzado[n] || {})) {
+      cruz.push({ rotulos: [n, r], dados: dias });
+    }
+  }
+  XLSX.utils.book_append_sheet(wb, aba(['Produto', 'Rede'], cruz),
+    'Produto x Rede');
+
+  const hoje = new Date().toISOString().slice(0, 10);
+  const alvo = produtoAtivo === CONSOLIDADO ? 'consolidado'
+             : produtoAtivo.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  XLSX.writeFile(wb, `investimento_mensal_${alvo}_${hoje}.xlsx`);
+}
+
 function renderReport(v) {
   const k = v.kpis;
   const metas = METAS[produtoAtivo] || {};
@@ -2617,6 +2926,31 @@ function renderReport(v) {
           { meta: metas.roas, bruto: k.roas, fmt: fmtRoas, semRitmo: true })}
     </div>
 
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-title">
+        Investimento mês a mês
+        <span class="agrupa-switch">
+          ${produtoAtivo === CONSOLIDADO ? `
+          <button class="agrupa-btn ${visaoMensal === 'produto' ? 'ativo' : ''}"
+                  onclick="trocarVisaoMensal('produto')">produto</button>` : ''}
+          <button class="agrupa-btn ${visaoMensalEfetiva() === 'rede' ? 'ativo' : ''}"
+                  onclick="trocarVisaoMensal('rede')">rede</button>
+          ${produtoAtivo === CONSOLIDADO ? `
+          <button class="agrupa-btn ${visaoMensal === 'ambos' ? 'ativo' : ''}"
+                  onclick="trocarVisaoMensal('ambos')">produto × rede</button>` : ''}
+        </span>
+        <span class="card-tag"
+              title="Sai das abas INVESTIMENTO da planilha — o mesmo número do card de Investimento. Não segue o filtro de período: um report mês a mês com o filtro aplicado mostraria uma coluna só.">
+          ano inteiro · ignora o período</span>
+        <button class="btn-mini" onclick="exportarMensalXLSX()"
+                title="Excel com três abas: por rede, por produto e o cruzamento produto × rede. Sai sempre completo, seja qual for a visão na tela.">Excel</button>
+      </div>
+      ${tabelaMensal()}
+      <div class="chart-box" style="height:260px;margin-top:14px">
+        <canvas id="chartMensal"></canvas>
+      </div>
+    </div>
+
     <div class="report-grid">
       <div class="card">
         <div class="card-title">Investimento · Leads · MQL</div>
@@ -2662,6 +2996,9 @@ function renderReport(v) {
   `;
 
   desenharGraficos(v);
+  // Depois do desenharGraficos: ele limpa o objeto charts no inicio, e
+  // registrar antes faria o grafico mensal ser destruido logo em seguida.
+  charts.mensal = graficoMensal();
 }
 
 // ── Exportar a base filtrada em CSV ─────────────────────────────────────────
@@ -4825,10 +5162,7 @@ function cardObjetivos(v) {
 
 // ── Cards de rede ───────────────────────────────────────────────────────────
 function cardsRedes(v, vComp) {
-  const CORES = {
-    Meta: '#4a6dd4', LinkedIn: '#0e76a8', Google: '#2980b9', 'Orgânico': '#4ade80',
-    Workshop: '#d9a441',
-  };
+  const CORES = CORES_REDE;
 
   return REDES.map(rede => {
     const d = v.porRede[rede];
