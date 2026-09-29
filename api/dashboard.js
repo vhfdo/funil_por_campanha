@@ -62,6 +62,10 @@ const PRODUTOS = {
     investimento: [
       { rede: 'Meta',     aba: 'INVESTIMENTO META CES',     colData: 7, colValor: 8 },
       { rede: 'LinkedIn', aba: 'INVESTIMENTO LINKEDIN CES', colData: 6, colValor: 7 },
+      // A aba existia na planilha mas nao estava aqui: o gasto de Google do
+      // CES ficava fora do investimento, e o CPL, o CPMQL e o CAC do produto
+      // saiam calculados por menos. F = dia (5), G = valor (6).
+      { rede: 'Google',   aba: 'INVESTIMENTO GOOGLE CES',   colData: 5, colValor: 6 },
     ],
   },
   // IA: Meta, LinkedIn e Google. Indices a partir de zero, e so plano B —
