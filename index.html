@@ -837,45 +837,77 @@ const ORDEM_PRODUTOS = [CONSOLIDADO, ...PRODUTOS_REAIS];
 // porque ninguém sabe que está velho.
 //
 // A estrutura fica: quando o previsto chegar, é só preencher de volta.
-// A qual mes as METAS abaixo se referem. Trocar as metas sem trocar isto
-// faz o dashboard comparar o periodo errado em silencio — por isso a
-// constante existe e o aviso na tela sai dela.
-const MES_META = '2026-09';
+// Metas POR MES. Antes era um bloco unico com uma constante MES_META
+// dizendo a qual mes ele pertencia — e toda virada de mes as metas do
+// anterior eram sobrescritas, entao olhar setembro em outubro mostrava a
+// meta errada com um aviso em vermelho no lugar do numero.
+//
+// Agora o periodo selecionado escolhe o bloco: setembro mostra a meta de
+// setembro, outubro a de outubro. Pra adicionar novembro, copie o bloco e
+// troque a chave.
+//
+// O CONSOLIDADO e' a soma dos produtos do mes; CPL, CPMQL, CAC e ROAS dele
+// saem da soma, nao da media dos produtos — media de razao nao da a razao
+// do todo.
+//
+// Produto ausente num mes = sem meta naquele mes. O card mostra so o
+// realizado, sem barra nem projecao. E' o caso do Chile em outubro, que
+// nao tem verba, e dos produtos novos em setembro, que nao existiam.
+const METAS_POR_MES = {
+  '2026-09': {
+    [CONSOLIDADO]:  { leads: 6068, mqls: 4247, faturamento: 2473718, investimento: 559850,
+                      vendas: 169, cpl: 92,  cpmql: 132, cac: 3313, roas: 4.42 },
+    'PFCC BRASIL':  { leads: 4518, mqls: 3162, faturamento: 1929475, investimento: 469850,
+                      vendas: 126, cpl: 104, cpmql: 149, cac: 3714, roas: 4.11 },
+    'PFCC MÉXICO':  { leads: 500,  mqls: 350,  faturamento: 252000,  investimento: 40000,
+                      vendas: 14,  cpl: 80,  cpmql: 114, cac: 2857, roas: 6.30 },
+    'PFCC CHILE':   { leads: 250,  mqls: 175,  faturamento: 84000,   investimento: 20000,
+                      vendas: 7,   cpl: 80,  cpmql: 110, cac: 2857, roas: 4.20 },
+    'LEAN':         { leads: 405,  mqls: 284,  faturamento: 75611,   investimento: 15000,
+                      vendas: 11,  cpl: 37,  cpmql: 53,  cac: 1321, roas: 5.04 },
+    'CES':          { leads: 395,  mqls: 276,  faturamento: 132632,  investimento: 15000,
+                      vendas: 11,  cpl: 38,  cpmql: 54,  cac: 1357, roas: 8.84 },
+  },
 
-// Metas de setembro/2026.
-//
-// O CONSOLIDADO e' a soma dos cinco produtos; CPL, CPMQL, CAC e ROAS dele
-// sao recalculados da soma, nao a media dos produtos — media de razao nao
-// da a razao do todo.
-//
-// null = sem meta. O card mostra so o realizado, sem barra nem projecao.
-const METAS = {
-  // Outubro/2026. CPL, CPMQL, CAC e ROAS sao DERIVADOS dos outros campos
-  // (investimento/leads, investimento/mqls, investimento/vendas,
-  // faturamento/investimento) — antes eram digitados a parte e divergiam:
-  // o CAC do Brasil dizia 3.714 quando a divisao dava 3.729.
+  // Outubro: CPL, CPMQL, CAC e ROAS sao as proprias divisoes dos outros
+  // campos. Em setembro eram digitados a parte e divergiam — o CAC do
+  // Brasil dizia 3.714 quando investimento/vendas dava 3.729.
   //
-  // O Consolidado e' a soma dos produtos, nao um numero proprio. Se o IC
-  // definir um alvo diferente da soma, troque aqui — mas saiba que o
-  // realizado do Consolidado continua sendo a soma.
-  //
-  // PFCC Chile saiu: nao tem verba em outubro. O produto continua no
-  // dashboard e mostra o realizado; so nao tem meta nem barra de progresso.
-  [CONSOLIDADO]:   { leads: 7108, mqls: 4975, faturamento: 2821588, investimento: 496440,
-                     vendas: 199, cpl: 70,  cpmql: 100, cac: 2495, roas: 5.68 },
-  'PFCC BRASIL':   { leads: 5286, mqls: 3700, faturamento: 2257512, investimento: 396440,
-                     vendas: 148, cpl: 75,  cpmql: 107, cac: 2679, roas: 5.69 },
-  'PFCC MÉXICO':   { leads: 625,  mqls: 438,  faturamento: 315000,  investimento: 50000,
-                     vendas: 18,  cpl: 80,  cpmql: 114, cac: 2778, roas: 6.30 },
-  'BOARD ADVISOR': { leads: 541,  mqls: 378,  faturamento: 75676,   investimento: 20000,
-                     vendas: 15,  cpl: 37,  cpmql: 53,  cac: 1333, roas: 3.78 },
-  'IA NA PRÁTICA': { leads: 123,  mqls: 86,   faturamento: 34571,   investimento: 10000,
-                     vendas: 3,   cpl: 81,  cpmql: 116, cac: 3333, roas: 3.46 },
-  'CES':           { leads: 263,  mqls: 184,  faturamento: 88421,   investimento: 10000,
-                     vendas: 7,   cpl: 38,  cpmql: 54,  cac: 1429, roas: 8.84 },
-  'LEAN':          { leads: 270,  mqls: 189,  faturamento: 50408,   investimento: 10000,
-                     vendas: 8,   cpl: 37,  cpmql: 53,  cac: 1250, roas: 5.04 },
+  // Chile sem meta: nao tem verba em outubro.
+  '2026-10': {
+    [CONSOLIDADO]:   { leads: 7108, mqls: 4975, faturamento: 2821588, investimento: 496440,
+                       vendas: 199, cpl: 70,  cpmql: 100, cac: 2495, roas: 5.68 },
+    'PFCC BRASIL':   { leads: 5286, mqls: 3700, faturamento: 2257512, investimento: 396440,
+                       vendas: 148, cpl: 75,  cpmql: 107, cac: 2679, roas: 5.69 },
+    'PFCC MÉXICO':   { leads: 625,  mqls: 438,  faturamento: 315000,  investimento: 50000,
+                       vendas: 18,  cpl: 80,  cpmql: 114, cac: 2778, roas: 6.30 },
+    'BOARD ADVISOR': { leads: 541,  mqls: 378,  faturamento: 75676,   investimento: 20000,
+                       vendas: 15,  cpl: 37,  cpmql: 53,  cac: 1333, roas: 3.78 },
+    'IA NA PRÁTICA': { leads: 123,  mqls: 86,   faturamento: 34571,   investimento: 10000,
+                       vendas: 3,   cpl: 81,  cpmql: 116, cac: 3333, roas: 3.46 },
+    'CES':           { leads: 263,  mqls: 184,  faturamento: 88421,   investimento: 10000,
+                       vendas: 7,   cpl: 38,  cpmql: 54,  cac: 1429, roas: 8.84 },
+    'LEAN':          { leads: 270,  mqls: 189,  faturamento: 50408,   investimento: 10000,
+                       vendas: 8,   cpl: 37,  cpmql: 53,  cac: 1250, roas: 5.04 },
+  },
 };
+
+// O mes do periodo selecionado, ou null quando ele atravessa mais de um.
+// Periodo de 25/09 a 05/10 nao tem meta: somar duas metas parciais daria
+// um alvo que nunca foi combinado com ninguem.
+function mesSelecionado() {
+  const ini = (document.getElementById('dataInicio') || {}).value || '';
+  const fim = (document.getElementById('dataFim')    || {}).value || '';
+  if (!ini || !fim) return null;
+  return ini.slice(0, 7) === fim.slice(0, 7) ? ini.slice(0, 7) : null;
+}
+
+// Metas do produto ativo no mes selecionado. {} quando nao ha meta — os
+// cards ja tratam isso mostrando so o realizado.
+function metasAtivas() {
+  const m = mesSelecionado();
+  return (m && METAS_POR_MES[m] && METAS_POR_MES[m][produtoAtivo]) || {};
+}
 // Paleta de rede, usada pelos cards de rede e pelo report mensal. Uma so:
 // com duas copias, o Meta um dia sai azul num card e roxo no outro.
 //
@@ -2141,19 +2173,31 @@ function avisoAbas() {
 // A meta vale para um mes so. Se o periodo selecionado sai dele, os cards
 // comparam coisas diferentes — e sem aviso ninguem percebe.
 function avisoMeta() {
-  const ini = document.getElementById('dataInicio').value;
-  const fim = document.getElementById('dataFim').value;
-  if (!ini || !fim) return '';
-  if (ini.slice(0, 7) === MES_META && fim.slice(0, 7) === MES_META) return '';
+  // So avisa quando NAO ha meta pro periodo — com metas por mes, olhar
+  // setembro passou a ser normal e nao merece alerta nenhum.
+  const m = mesSelecionado();
+  if (m && METAS_POR_MES[m]) return '';
 
-  const [ano, mes] = MES_META.split('-');
-  const nome = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
-    'julho', 'agosto', 'setembro', 'outubro', 'novembro',
-    'dezembro'][Number(mes) - 1];
+  const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+    'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+  const nome = chave => {
+    const [ano, mes] = chave.split('-');
+    return `${MESES[Number(mes) - 1]}/${ano}`;
+  };
+  const cadastrados = Object.keys(METAS_POR_MES).sort().map(nome).join(', ');
+
+  // Dois casos diferentes: periodo que atravessa meses e mes sem meta
+  // cadastrada. O texto diz qual e' pra ninguem procurar no lugar errado.
+  const texto = m
+    ? `sem meta para ${nome(m)}`
+    : 'período entre meses · sem meta';
   return `<span class="aviso-comp"
-    title="As metas cadastradas são de ${nome}. Comparar outro período com elas não faz sentido.">
-    ⚠ metas são de ${nome}</span>`;
+    title="Metas cadastradas: ${cadastrados}.&#10;${m
+      ? 'Este mês ainda não tem meta — os cards mostram só o realizado.'
+      : 'O período selecionado atravessa mais de um mês. Somar metas parciais daria um alvo que ninguém combinou, então os cards mostram só o realizado.'}">
+    ⚠ ${texto}</span>`;
 }
+
 
 // ── Render ──────────────────────────────────────────────────────────────────
 function render() {
@@ -2204,7 +2248,7 @@ function render() {
   if (modoReport)    { renderReport(v); return; }
 
   const k = v.kpis;
-  const metas = METAS[produtoAtivo] || {};
+  const metas = metasAtivas();
 
   // Atalho: selo de variacao pro campo `campo` de k, contra o mesmo campo
   // em kComp. Sem periodo de comparacao ligado, badgeDelta ja devolve ''.
@@ -2391,8 +2435,8 @@ function render() {
       <div class="card">
         <div class="card-title">
           Vendas e faturamento
-          ${(METAS[produtoAtivo] || {}).faturamento
-            ? `<span class="card-tag">meta ${fmtBRL(METAS[produtoAtivo].faturamento)}</span>`
+          ${metasAtivas().faturamento
+            ? `<span class="card-tag">meta ${fmtBRL(metasAtivas().faturamento)}</span>`
             : ''}
         </div>
         <div class="chart-box baixo"><canvas id="chartGanhos"></canvas></div>
@@ -2879,7 +2923,7 @@ function exportarMensalXLSX() {
 
 function renderReport(v) {
   const k = v.kpis;
-  const metas = METAS[produtoAtivo] || {};
+  const metas = metasAtivas();
   const reaplicacoes = v.backlog.filter(b => b.reaplicacao).length;
   const pctReapl = k.leads ? (reaplicacoes / k.leads * 100) : 0;
 
@@ -4627,7 +4671,7 @@ function cardPrevisto(v, vComp) {
   }
 
   // A meta oficial e' a do METAS; a aba PREVISTO e' o detalhe diario dela
-  const metaMes = (METAS[produtoAtivo] || {}).investimento;
+  const metaMes = metasAtivas().investimento;
 
   const real = v.kpis.investimento;
   const dif = real - p.ateHoje;
@@ -6788,7 +6832,7 @@ function desenharGraficos(v, vComp) {
   const acumulado = diasGanhos.map(d => acum += ganhosPorDia[d]);
 
   // Faturamento acumulado, com a linha de ritmo da meta ao lado
-  const metaFat = (METAS[produtoAtivo] || {}).faturamento;
+  const metaFat = metasAtivas().faturamento;
   const diasNoMes = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
 
   // A meta cresce linear ao longo do mes: no dia N deveria estar em
