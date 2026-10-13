@@ -850,18 +850,31 @@ const MES_META = '2026-09';
 //
 // null = sem meta. O card mostra so o realizado, sem barra nem projecao.
 const METAS = {
-  [CONSOLIDADO]:  { leads: 6068, mqls: 4247, faturamento: 2473718, investimento: 559850,
-                    vendas: 169, cpl: 92,  cpmql: 132, cac: 3313, roas: 4.42 },
-  'PFCC BRASIL':  { leads: 4518, mqls: 3162, faturamento: 1929475, investimento: 469850,
-                    vendas: 126, cpl: 104, cpmql: 149, cac: 3714, roas: 4.11 },
-  'PFCC MÉXICO':  { leads: 500,  mqls: 350,  faturamento: 252000,  investimento: 40000,
-                    vendas: 14,  cpl: 80,  cpmql: 114, cac: 2857, roas: 6.30 },
-  'PFCC CHILE':   { leads: 250,  mqls: 175,  faturamento: 84000,   investimento: 20000,
-                    vendas: 7,   cpl: 80,  cpmql: 110, cac: 2857, roas: 4.20 },
-  'LEAN':         { leads: 405,  mqls: 284,  faturamento: 75611,   investimento: 15000,
-                    vendas: 11,  cpl: 37,  cpmql: 53,  cac: 1321, roas: 5.04 },
-  'CES':          { leads: 395,  mqls: 276,  faturamento: 132632,  investimento: 15000,
-                    vendas: 11,  cpl: 38,  cpmql: 54,  cac: 1357, roas: 8.84 },
+  // Outubro/2026. CPL, CPMQL, CAC e ROAS sao DERIVADOS dos outros campos
+  // (investimento/leads, investimento/mqls, investimento/vendas,
+  // faturamento/investimento) — antes eram digitados a parte e divergiam:
+  // o CAC do Brasil dizia 3.714 quando a divisao dava 3.729.
+  //
+  // O Consolidado e' a soma dos produtos, nao um numero proprio. Se o IC
+  // definir um alvo diferente da soma, troque aqui — mas saiba que o
+  // realizado do Consolidado continua sendo a soma.
+  //
+  // PFCC Chile saiu: nao tem verba em outubro. O produto continua no
+  // dashboard e mostra o realizado; so nao tem meta nem barra de progresso.
+  [CONSOLIDADO]:   { leads: 7108, mqls: 4975, faturamento: 2821588, investimento: 496440,
+                     vendas: 199, cpl: 70,  cpmql: 100, cac: 2495, roas: 5.68 },
+  'PFCC BRASIL':   { leads: 5286, mqls: 3700, faturamento: 2257512, investimento: 396440,
+                     vendas: 148, cpl: 75,  cpmql: 107, cac: 2679, roas: 5.69 },
+  'PFCC MÉXICO':   { leads: 625,  mqls: 438,  faturamento: 315000,  investimento: 50000,
+                     vendas: 18,  cpl: 80,  cpmql: 114, cac: 2778, roas: 6.30 },
+  'BOARD ADVISOR': { leads: 541,  mqls: 378,  faturamento: 75676,   investimento: 20000,
+                     vendas: 15,  cpl: 37,  cpmql: 53,  cac: 1333, roas: 3.78 },
+  'IA NA PRÁTICA': { leads: 123,  mqls: 86,   faturamento: 34571,   investimento: 10000,
+                     vendas: 3,   cpl: 81,  cpmql: 116, cac: 3333, roas: 3.46 },
+  'CES':           { leads: 263,  mqls: 184,  faturamento: 88421,   investimento: 10000,
+                     vendas: 7,   cpl: 38,  cpmql: 54,  cac: 1429, roas: 8.84 },
+  'LEAN':          { leads: 270,  mqls: 189,  faturamento: 50408,   investimento: 10000,
+                     vendas: 8,   cpl: 37,  cpmql: 53,  cac: 1250, roas: 5.04 },
 };
 // Paleta de rede, usada pelos cards de rede e pelo report mensal. Uma so:
 // com duas copias, o Meta um dia sai azul num card e roxo no outro.
