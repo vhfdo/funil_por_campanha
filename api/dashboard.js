@@ -74,14 +74,17 @@ const PRODUTOS = {
   // o mesmo layout do Google nos outros produtos.
   //
   // PRATICA sem acento, como esta na planilha.
-  'IA PARA INICIANTES': {
-    leads:  'LEADS IA PARA INICIANTES',
-    etapa:  'ETAPA IA PARA INICIANTES',
-    ganhos: 'GANHOS IA PARA INICIANTES',
+  // Board Advisor: as abas usam so "ADVISOR". As tres redes com o mesmo
+  // layout — G = dia (indice 6), H = valor (7). Indices sao plano B: o
+  // cabecalho e' lido primeiro.
+  'BOARD ADVISOR': {
+    leads:  'LEADS ADVISOR',
+    etapa:  'ETAPA ADVISOR',
+    ganhos: 'GANHOS ADVISOR',
     investimento: [
-      { rede: 'Meta',     aba: 'INVESTIMENTO META IA PARA INICIANTES',     colData: 5, colValor: 6 },
-      { rede: 'LinkedIn', aba: 'INVESTIMENTO LINKEDIN IA PARA INICIANTES', colData: 6, colValor: 7 },
-      { rede: 'Google',   aba: 'INVESTIMENTO GOOGLE IA PARA INICIANTES',   colData: 5, colValor: 6 },
+      { rede: 'Meta',     aba: 'INVESTIMENTO META ADVISOR',     colData: 6, colValor: 7 },
+      { rede: 'LinkedIn', aba: 'INVESTIMENTO LINKEDIN ADVISOR', colData: 6, colValor: 7 },
+      { rede: 'Google',   aba: 'INVESTIMENTO GOOGLE ADVISOR',   colData: 6, colValor: 7 },
     ],
   },
   'IA NA PRÁTICA': {
