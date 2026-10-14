@@ -5473,6 +5473,10 @@ const SEM_OBJETIVO = 'Sem objetivo';
 // nome da campanha — nos outros o card mostraria tudo em "Sem objetivo" e
 // se leria como problema, quando e' so uma convencao que nao vale la.
 // Para ligar outro produto, basta acrescentar o nome aqui.
+//
+// O Consolidado fica de fora de proposito: somar o Meta de todos os
+// produtos num card de objetivo misturaria quem segue a convencao com
+// quem nao segue. O card e' pra ler PFCC Brasil, e e' la' que ele aparece.
 const PRODUTOS_COM_OBJETIVO = ['PFCC BRASIL'];
 
 // A convencao de objetivo so existe no Meta. LinkedIn e Google nao usam
@@ -5498,12 +5502,6 @@ function objetivoDaCampanha(...textos) {
   return SEM_OBJETIVO;
 }
 
-// Divisao por objetivo: investimento das linhas de midia, leads e MQL do
-// backlog.
-//
-// O investimento vem do investLinhas (uma linha por dia/campanha), nao do
-// total por rede — e' o unico lugar que tem o nome da campanha, e sem ele
-// nao da pra saber de que objetivo e' o gasto.
 // ════════════════════════════════════════════════════════════════════════
 // CAMPANHA DE SCORE x CAMPANHA DE MQL
 // ════════════════════════════════════════════════════════════════════════
@@ -5727,6 +5725,12 @@ function cardScoreMql(v) {
         : '');
 }
 
+// Divisao por objetivo: investimento das linhas de midia, leads e MQL do
+// backlog.
+//
+// O investimento vem do investLinhas (uma linha por dia/campanha), nao do
+// total por rede — e' o unico lugar que tem o nome da campanha, e sem ele
+// nao da pra saber de que objetivo e' o gasto.
 function cardObjetivos(v) {
   const nomes = produtoAtivo === CONSOLIDADO ? PRODUTOS_REAIS : [produtoAtivo];
   const rotulos = [...OBJETIVOS.map(o => o[0]), SEM_OBJETIVO];
