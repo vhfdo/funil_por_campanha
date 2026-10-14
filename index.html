@@ -144,6 +144,22 @@
     font-weight:600;margin-top:4px;letter-spacing:.02em;}
   .kpi-delta.neutro{color:var(--gray-light);font-weight:400;}
   td .kpi-delta{display:block;font-size:9px;margin-top:1px;}
+  /* ── Aba Texto ── */
+  .texto-barra{display:flex;justify-content:space-between;align-items:center;
+    gap:12px;flex-wrap:wrap;margin:14px 0 10px;}
+  .texto-escopo{display:flex;gap:6px;}
+  .texto-area{width:100%;min-height:440px;resize:vertical;
+    background:var(--panel2);color:var(--white);border:1px solid #2a2a2a;
+    border-radius:4px;padding:16px 18px;
+    font-family:'DM Mono',monospace;font-size:13px;line-height:1.75;
+    white-space:pre;overflow:auto;}
+  .texto-area:focus{outline:none;border-color:var(--blue);}
+  .texto-copiado{font-family:'DM Mono',monospace;font-size:11px;
+    color:var(--green,#4ade80);margin-right:10px;}
+  .texto-nota{margin-top:12px;font-size:11px;line-height:1.6;color:var(--gray);}
+  .texto-aviso{margin:10px 0;font-size:11px;line-height:1.5;color:var(--gray);}
+  .texto-aviso.alerta{color:var(--amber);}
+
   /* Barra dividida: o preenchido sao os leads novos, o fundo a reaplicacao */
   .reapl-barra{height:4px;background:var(--amber);border-radius:2px;
     overflow:hidden;margin-top:7px;}
@@ -541,6 +557,8 @@
       <button class="btn" id="btnCampanhas" onclick="alternarCampanhas()"
               title="Investimento x resultado por campanha, conjunto e anúncio">Campanhas</button>
       <button class="btn" id="btnReport" onclick="alternarReport()">Report</button>
+      <button class="btn" id="btnTexto" onclick="alternarTexto()"
+              title="Resumo diário de PFCC Brasil em texto, pronto para copiar">Texto</button>
       <button class="btn" onclick="exportarPDF()">↓ PDF</button>
       <span class="user-info" id="userInfo"></span>
       <span id="statusAtualizacao"></span>
@@ -686,7 +704,8 @@ function rastrear(type, detalhe = '') {
       modo: modoGanhos ? 'ganhos'
           : modoDescartes ? 'descartes'
           : modoCampanhas ? 'campanhas'
-          : modoReport ? 'report' : 'dashboard',
+          : modoReport ? 'report'
+          : modoTexto ? 'texto' : 'dashboard',
       periodo: `${document.getElementById('dataInicio')?.value || ''} a ${
         document.getElementById('dataFim')?.value || ''}`,
       filtros: Object.entries(filtros)
@@ -1273,6 +1292,7 @@ let modoGanhos    = false;
 let modoBase      = false;
 let modoDescartes = false;
 let modoCampanhas = false;
+let modoTexto     = false;
 
 // Nivel de detalhe da aba Campanhas: campanha > conjunto > anuncio
 let nivelCampanha = 'campanha';
@@ -1490,10 +1510,260 @@ function renderTabs() {
   }).join('');
 }
 
+// ════════════════════════════════════════════════════════════════════════
+// TEXTO DO RESUMO DIARIO — PFCC Brasil
+// ════════════════════════════════════════════════════════════════════════
+// Monta, pronto pra copiar, o texto que vai pro grupo todo dia. Um bloco
+// por dia do periodo selecionado: o dia em cima e o consolidado do mes
+// ate aquele dia embaixo.
+//
+// Por que PFCC Brasil fixo e nao o produto da aba: esse texto e' um
+// combinado — quem le no grupo espera sempre o mesmo produto. Trocar
+// junto com a aba faria o mesmo formato significar coisas diferentes
+// dependendo de onde o mouse estava.
+//
+// Os numeros saem de resumoProduto(), a MESMA funcao dos cards. Nenhuma
+// conta e' refeita aqui — se o card mostra 176 leads, o texto mostra 176.
+
+const PRODUTO_TEXTO = 'PFCC BRASIL';
+
+// Um bloco por dia, ou so' o ultimo dia do periodo
+let textoSoUltimo = false;
+
+// ── Metas ───────────────────────────────────────────────────────────────
+// A meta diaria e a do acumulado saem da meta MENSAL rateada por dia:
+//
+//   meta do periodo = meta do mes x dias do periodo / dias do mes
+//
+// Nao e' chute. Outubro de PFCC Brasil tem 5.286 leads e 3.700 MQL em 31
+// dias; o report manual do dia 13 trazia 2.217 e 1.552 de meta, e
+// 5286x13/31 = 2216,8 e 3700x13/31 = 1551,6. Bate nos dois.
+//
+// Um detalhe pra nao estranhar: na meta de UM dia o rateio da 171 leads
+// (5286/31 = 170,5) e o report manual escrevia 170 — a planilha truncava
+// onde aqui a gente arredonda. Diferenca de uma unidade, 0,6 ponto
+// percentual. Se o combinado com o IC for truncar, troque os dois
+// Math.round abaixo por Math.floor.
+function diasNoMes(ymd) {
+  const [a, m] = ymd.split('-').map(Number);
+  return new Date(a, m, 0).getDate();   // dia 0 do mes seguinte = ultimo deste
+}
+
+function metaRateada(ymd, dias) {
+  const meta = (METAS_POR_MES[ymd.slice(0, 7)] || {})[PRODUTO_TEXTO];
+  if (!meta) return null;
+  const nd = diasNoMes(ymd);
+  return {
+    leads: Math.round((meta.leads || 0) * dias / nd),
+    mqls:  Math.round((meta.mqls  || 0) * dias / nd),
+  };
+}
+
+// ── Formatacao ──────────────────────────────────────────────────────────
+// Uma casa decimal com virgula, como no texto que ja vai pro grupo.
+const pctMeta = (feito, meta) => !meta ? '—'
+  : (feito / meta * 100).toLocaleString('pt-BR',
+      { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
+
+const reais = v => 'R$ ' + fmtNum(Math.round(v || 0));
+
+// Datas AAAA-MM-DD <-> DD/MM, sem passar por toISOString: ele converte pra
+// UTC e, em BRT, devolveria o dia anterior.
+const ymdParaDDMM = ymd => ymd.slice(8, 10) + '/' + ymd.slice(5, 7);
+
+function ymdDe(dt) {
+  return dt.getFullYear()
+    + '-' + String(dt.getMonth() + 1).padStart(2, '0')
+    + '-' + String(dt.getDate()).padStart(2, '0');
+}
+
+// Todos os dias do periodo, inclusive as duas pontas. Teto de 62 dias:
+// um periodo absurdo nao deve travar a tela montando 300 blocos.
+function diasDoPeriodo(ini, fim) {
+  const out = [];
+  if (!ini || !fim) return out;
+  const d = new Date(ini + 'T00:00:00');
+  const f = new Date(fim + 'T00:00:00');
+  if (isNaN(d) || isNaN(f) || d > f) return out;
+  while (d <= f && out.length < 62) {
+    out.push(ymdDe(d));
+    d.setDate(d.getDate() + 1);
+  }
+  return out;
+}
+
+// ── Um trecho de numeros (serve pro dia e pro consolidado) ──────────────
+function trechoTexto(r, meta) {
+  const pctReapl = r.leads ? Math.round(r.reaplicacoes / r.leads * 100) : 0;
+  const linhas = [
+    `Leads: ${fmtNum(r.leads)}`,
+    `MQLs: ${fmtNum(r.mqls)}`,
+    '',
+  ];
+  if (meta) {
+    linhas.push(`Leads: ${fmtNum(r.leads)} / ${fmtNum(meta.leads)} (${
+      pctMeta(r.leads, meta.leads)} da meta)`);
+    linhas.push(`MQLs: ${fmtNum(r.mqls)} / ${fmtNum(meta.mqls)} (${
+      pctMeta(r.mqls, meta.mqls)} da meta)`);
+  } else {
+    linhas.push('(sem meta cadastrada para este mês)');
+  }
+  linhas.push('');
+  linhas.push(`CPL: ${reais(r.cpl)}`);
+  linhas.push(`CPMQL: ${reais(r.cpmql)}`);
+  linhas.push('');
+  linhas.push(`Reaplicações: ${pctReapl}%`);
+  return linhas.join('\n');
+}
+
+// ── O bloco de um dia: o dia + o consolidado do mes ate ele ─────────────
+function blocoTexto(ymd) {
+  const dia     = resumoProduto(PRODUTO_TEXTO, ymd, ymd);
+  const metaDia = metaRateada(ymd, 1);
+
+  // Consolidado: do dia 1 do mes ate o dia do bloco. O numero de dias
+  // decorridos e' o proprio dia do mes — e' ele que rateia a meta.
+  const primeiro = ymd.slice(0, 8) + '01';
+  const decorridos = Number(ymd.slice(8, 10));
+  const mtd     = resumoProduto(PRODUTO_TEXTO, primeiro, ymd);
+  const metaMtd = metaRateada(ymd, decorridos);
+
+  return [
+    ymdParaDDMM(ymd),
+    '',
+    trechoTexto(dia, metaDia),
+    '',
+    `Consolidado (${ymdParaDDMM(primeiro)} a ${ymdParaDDMM(ymd)})`,
+    '',
+    trechoTexto(mtd, metaMtd),
+  ].join('\n');
+}
+
+const DIVISOR = '-------------------------------x-------------------------------';
+
+function textoCompleto() {
+  const ini = (document.getElementById('dataInicio') || {}).value || '';
+  const fim = (document.getElementById('dataFim')    || {}).value || '';
+  let dias = diasDoPeriodo(ini, fim);
+  if (!dias.length) return '';
+  if (textoSoUltimo) dias = [dias[dias.length - 1]];
+  return dias.map(blocoTexto).join('\n\n' + DIVISOR + '\n\n');
+}
+
+function trocarEscopoTexto(soUltimo) {
+  rastrear('texto_escopo', soUltimo ? 'ultimo_dia' : 'todos_os_dias');
+  textoSoUltimo = soUltimo;
+  render();
+}
+
+function copiarTexto() {
+  const el = document.getElementById('areaTexto');
+  if (!el) return;
+  const aviso = document.getElementById('avisoCopia');
+  // clipboard.writeText nao existe em http nem em navegador antigo —
+  // o select + execCommand continua funcionando nesses casos
+  const pronto = () => {
+    rastrear('copiar_texto', textoSoUltimo ? 'ultimo_dia' : 'todos_os_dias');
+    if (aviso) {
+      aviso.textContent = 'copiado';
+      setTimeout(() => { aviso.textContent = ''; }, 2000);
+    }
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(el.value).then(pronto, () => {
+      el.select(); document.execCommand('copy'); pronto();
+    });
+  } else {
+    el.select(); document.execCommand('copy'); pronto();
+  }
+}
+
+function renderTexto() {
+  const ini = (document.getElementById('dataInicio') || {}).value || '';
+  const fim = (document.getElementById('dataFim')    || {}).value || '';
+  const dias = diasDoPeriodo(ini, fim);
+  const texto = textoCompleto();
+
+  // O texto e' sempre de PFCC Brasil, mas resumoProduto respeita o filtro
+  // de rede. Com um filtro ligado os numeros sao de uma rede so' — isso
+  // precisa estar na cara, ou o texto vai pro grupo como se fosse o total.
+  const avisoRede = filtros.rede
+    ? `<div class="texto-aviso alerta">⚠ Filtro de rede ativo (${
+        filtros.rede}) — os números abaixo são só dessa rede. Limpe o filtro
+        para o total de PFCC Brasil.</div>`
+    : '';
+
+  // So' avisa quando ha periodo escolhido: sem data nao da pra saber de
+  // que mes seria a meta, e um aviso chutando o mes assustaria por nada.
+  const avisoMetaMes = ini && !metaRateada(ini, 1)
+    ? `<div class="texto-aviso alerta">⚠ Não há meta cadastrada para este mês
+        em METAS_POR_MES — as linhas de meta saem em branco.</div>`
+    : '';
+
+  const avisoTeto = dias.length >= 62
+    ? '<div class="texto-aviso">Período longo: mostrando os primeiros 62 dias.</div>'
+    : '';
+
+  document.getElementById('conteudo').innerHTML = `
+    <div class="card">
+      <div class="card-title">
+        <span>Resumo diário · PFCC Brasil
+          <span style="opacity:.6">· ${
+            dias.length ? (textoSoUltimo
+              ? ymdParaDDMM(dias[dias.length - 1])
+              : dias.length === 1
+                ? ymdParaDDMM(dias[0])
+                : fmtNum(dias.length) + ' dias, um bloco cada')
+            : 'selecione um período'}</span></span>
+      </div>
+
+      ${avisoRede}${avisoMetaMes}${avisoTeto}
+
+      <div class="texto-barra">
+        <div class="texto-escopo">
+          <button class="btn ${textoSoUltimo ? '' : 'ativo'}"
+                  onclick="trocarEscopoTexto(false)"
+                  title="Um bloco por dia do período, separados pela linha de x">
+            Todos os dias</button>
+          <button class="btn ${textoSoUltimo ? 'ativo' : ''}"
+                  onclick="trocarEscopoTexto(true)"
+                  title="Só o último dia do período selecionado">
+            Só o último dia</button>
+        </div>
+        <div>
+          <span id="avisoCopia" class="texto-copiado"></span>
+          <button class="btn" onclick="copiarTexto()">⧉ Copiar</button>
+        </div>
+      </div>
+
+      <textarea id="areaTexto" class="texto-area" readonly
+                spellcheck="false">${texto || 'Selecione um período no topo.'}</textarea>
+
+      <div class="texto-nota">
+        Os números saem da mesma função que alimenta os cards — se o card
+        mostra 176 leads no dia, o texto mostra 176. A meta é a meta mensal
+        de PFCC Brasil rateada por dia: meta do mês × dias ÷ dias do mês.
+        O consolidado de cada bloco vai do dia 1º do mês até o dia do bloco,
+        independente da data de início que você escolheu.
+      </div>
+    </div>`;
+}
+
+function alternarTexto() {
+  rastrear('modo', modoTexto ? 'sair_texto' : 'abrir_texto');
+  modoTexto = !modoTexto;
+  if (modoTexto) {
+    modoReport = false; modoGanhos = false;
+    modoBase = false; modoDescartes = false; modoCampanhas = false;
+  }
+  atualizarBotoesModo();
+  render();
+}
+
 function alternarReport() {
   rastrear('modo', modoReport ? 'sair_report' : 'abrir_report');
   modoReport = !modoReport;
-  if (modoReport) { modoGanhos = false; modoBase = false; modoDescartes = false; modoCampanhas = false; }   // um modo por vez
+  if (modoReport) { modoGanhos = false; modoBase = false; modoDescartes = false; modoCampanhas = false; modoTexto = false; }   // um modo por vez
   atualizarBotoesModo();
   render();
 }
@@ -1501,7 +1771,7 @@ function alternarReport() {
 function alternarGanhos() {
   rastrear('modo', modoGanhos ? 'sair_ganhos' : 'abrir_ganhos');
   modoGanhos = !modoGanhos;
-  if (modoGanhos) { modoReport = false; modoBase = false; modoDescartes = false; modoCampanhas = false; }
+  if (modoGanhos) { modoReport = false; modoBase = false; modoDescartes = false; modoCampanhas = false; modoTexto = false; }
   atualizarBotoesModo();
   render();
 }
@@ -1509,7 +1779,7 @@ function alternarGanhos() {
 function alternarBase() {
   rastrear('modo', modoBase ? 'sair_base' : 'abrir_base');
   modoBase = !modoBase;
-  if (modoBase) { modoReport = false; modoGanhos = false; modoDescartes = false; modoCampanhas = false; }
+  if (modoBase) { modoReport = false; modoGanhos = false; modoDescartes = false; modoCampanhas = false; modoTexto = false; }
   atualizarBotoesModo();
   render();
 }
@@ -1517,7 +1787,7 @@ function alternarBase() {
 function alternarDescartes() {
   rastrear('modo', modoDescartes ? 'sair_descartes' : 'abrir_descartes');
   modoDescartes = !modoDescartes;
-  if (modoDescartes) { modoReport = false; modoGanhos = false; modoBase = false; modoCampanhas = false; }
+  if (modoDescartes) { modoReport = false; modoGanhos = false; modoBase = false; modoCampanhas = false; modoTexto = false; }
   atualizarBotoesModo();
   render();
 }
@@ -1535,7 +1805,7 @@ function alternarCampanhas() {
   modoCampanhas = !modoCampanhas;
   if (modoCampanhas) {
     modoReport = false; modoGanhos = false;
-    modoBase = false; modoDescartes = false;
+    modoBase = false; modoDescartes = false; modoTexto = false;
   }
   atualizarBotoesModo();
   render();
@@ -1636,6 +1906,11 @@ function atualizarBotoesModo() {
   if (c) {
     c.textContent = modoCampanhas ? '← Dashboard' : 'Campanhas';
     c.classList.toggle('ativo', modoCampanhas);
+  }
+  const t = document.getElementById('btnTexto');
+  if (t) {
+    t.textContent = modoTexto ? '← Dashboard' : 'Texto';
+    t.classList.toggle('ativo', modoTexto);
   }
 }
 
@@ -2246,6 +2521,7 @@ function render() {
   if (modoDescartes) { renderDescartes(v); return; }
   if (modoCampanhas) { renderCampanhas(v); return; }
   if (modoReport)    { renderReport(v); return; }
+  if (modoTexto)     { renderTexto(); return; }
 
   const k = v.kpis;
   const metas = metasAtivas();
