@@ -1282,7 +1282,12 @@ function badgeDelta(atual, anterior, opts = {}) {
 
 let filtros = { rede: null, etapa: null, proprietario: null, funil: null,
                 cargo: null, motivo: null, score: null,
-                diaSemana: null, hora: null };
+                diaSemana: null, hora: null,
+                // "Meta|SCORE" — o bloco do card de Score x MQL que foi
+                // clicado. Vive aqui, e nao numa variavel propria, pra
+                // atravessar a tela inteira como qualquer outro filtro: a
+                // tabela de leads, os KPIs e o funil respondem sozinhos.
+                tipoCampanha: null };
 
 // 'leads' ou 'mqls' — define o que as barras dos cards medem
 let metrica = 'leads';
@@ -1439,6 +1444,10 @@ async function carregar() {
     if (!r.ok) throw new Error(json.error || 'Erro ao carregar');
 
     dados = json;
+    // O mapa campanha -> bloco e' memoizado por periodo/produto/rede, e
+    // dado novo nao mexe em nenhum dos tres. Sem zerar aqui, o filtro de
+    // bloco continuaria usando o mapa da carga anterior.
+    _blocoCampCache = null;
     rastrear('carregar_dados', `${json.backlog?.length || 0} leads`);
     renderTabs();
     render();
@@ -2003,13 +2012,14 @@ function limparFiltros(silencioso) {
   if (!silencioso && Object.values(filtros).some(Boolean)) rastrear('limpar_filtros');
   filtros = { rede: null, etapa: null, proprietario: null, funil: null,
               cargo: null, motivo: null, score: null,
-              diaSemana: null, hora: null };
+              diaSemana: null, hora: null, tipoCampanha: null };
   if (!silencioso) render();
 }
 
 // Qual filtro esta redesenhando o funil, pra mostrar no titulo do card
 function labelFiltroFunil() {
-  return filtros.proprietario || filtros.funil || filtros.cargo || filtros.rede || '';
+  return filtros.proprietario || filtros.funil || filtros.cargo || filtros.rede
+    || (filtros.tipoCampanha || '').replace('|', ' · campanha de ') || '';
 }
 
 function labelFiltros() {
@@ -2021,6 +2031,11 @@ function labelFiltros() {
     if (tipo === 'diaSemana') return DIAS_SEMANA[Number(v)] || v;
     if (tipo === 'hora')      return String(v).padStart(2, '0') + 'h';
     if (tipo === 'score')     return 'score ' + v + '.0–' + v + '.9';
+    // "Meta|SCORE" sozinho na barra nao diz nada a quem nao sabe do card
+    if (tipo === 'tipoCampanha') {
+      const [rede, t] = String(v).split('|');
+      return `${rede} · campanha de ${t}`;
+    }
     return v;
   };
   return `Filtrando: ${ativos.map(legivel).join(' · ')} — limpar ×`;
@@ -2111,6 +2126,7 @@ function dadosVisiveis() {
   if (filtros.funil)        backlog = backlog.filter(b => b.funil === filtros.funil);
   if (filtros.cargo)        backlog = backlog.filter(b => normalizarCargo(b.cargo) === filtros.cargo);
   if (filtros.rede)         backlog = backlog.filter(b => redeDoLead(b) === filtros.rede);
+  if (filtros.tipoCampanha) backlog = backlog.filter(passaTipoCampanha);
   // A faixa e' a parte inteira do score: clicar em "6" pega 6.0 ate 6.9
   if (filtros.score)        backlog = backlog.filter(b =>
     b.score !== null && b.score !== undefined
@@ -2158,6 +2174,7 @@ function dadosVisiveis() {
     if (filtros.funil)        base = base.filter(b => b.funil === filtros.funil);
     if (filtros.cargo)        base = base.filter(b => normalizarCargo(b.cargo) === filtros.cargo);
     if (filtros.rede)         base = base.filter(b => redeDoLead(b) === filtros.rede);
+    if (filtros.tipoCampanha) base = base.filter(passaTipoCampanha);
     if (filtros.score)        base = base.filter(b =>
       b.score !== null && b.score !== undefined
       && String(Math.floor(b.score)) === filtros.score);
@@ -2189,7 +2206,8 @@ function dadosVisiveis() {
     return Object.entries(contagem).map(([etapa, d]) => ({ etapa, ...d }));
   })();
 
-  const filtraFunil = !!(filtros.proprietario || filtros.funil || filtros.cargo || filtros.rede);
+  const filtraFunil = !!(filtros.proprietario || filtros.funil || filtros.cargo
+                         || filtros.rede || filtros.tipoCampanha);
 
   // Leads e MQL por rede saem do backlog — a aba LEADS so tem o total
   const porRede = {};
@@ -2371,6 +2389,7 @@ function cpmqlPorDiaProduto() {
     if (filtros.funil)        base = base.filter(b => b.funil === filtros.funil);
     if (filtros.cargo)        base = base.filter(b => normalizarCargo(b.cargo) === filtros.cargo);
     if (filtros.rede)         base = base.filter(b => redeDoLead(b) === filtros.rede);
+    if (filtros.tipoCampanha) base = base.filter(passaTipoCampanha);
     if (filtros.score)        base = base.filter(b =>
       b.score !== null && b.score !== undefined
       && String(Math.floor(b.score)) === filtros.score);
@@ -5770,6 +5789,77 @@ const REDES_PAGAS_SCORE = ['Meta', 'LinkedIn', 'Google'];
 const COR_SCORE = '#4ade80';
 const COR_MQL   = '#4a9eff';
 
+// ── Clicar num bloco filtra a tela inteira ──────────────────────────────
+// O bloco escolhido vive em filtros.tipoCampanha, nao numa variavel
+// propria. Assim ele atravessa tudo que ja' respeita `filtros`: a tabela
+// de leads, os KPIs do topo, o funil, o mapa de calor. Uma variavel so'
+// deste card mudaria o card e deixaria o resto da tela falando de outra
+// coisa — que e' justamente o que se quer evitar ao clicar.
+
+// Cache do mapa campanha -> bloco. Monta-lo chama dadosCampanhas(), que
+// varre investimento, backlog e ganhos: caro demais pra refazer uma vez
+// por lead. A assinatura cobre tudo que muda o mapa.
+let _blocoCampCache = null;
+
+function mapaBlocoCampanha() {
+  const assinatura = [
+    produtoAtivo,
+    (document.getElementById('dataInicio') || {}).value || '',
+    (document.getElementById('dataFim')    || {}).value || '',
+    filtros.rede || '',
+  ].join('|');
+  if (_blocoCampCache && _blocoCampCache.assinatura === assinatura) {
+    return _blocoCampCache.mapa;
+  }
+
+  const nivelAntes = nivelCampanha;
+  const buscaAntes = buscaCampanha;
+  nivelCampanha = 'campanha';
+  buscaCampanha = '';
+  let linhas = [];
+  try {
+    linhas = dadosCampanhas().linhas;
+  } finally {
+    nivelCampanha = nivelAntes;
+    buscaCampanha = buscaAntes;
+  }
+
+  const mapa = new Map();
+  for (const l of linhas) {
+    if (soDigitos(l.rotulo)) continue;
+    if (!REDES_PAGAS_SCORE.includes(l.rede)) continue;
+    mapa.set(l.chave, l.rede + '|' + (ehCampanhaScore(l.rotulo) ? 'SCORE' : 'MQL'));
+  }
+  _blocoCampCache = { assinatura, mapa };
+  return mapa;
+}
+
+// Um lead pertence ao bloco da CAMPANHA que o trouxe — pela mesma chave
+// que o card usa pra contar, entao o numero de leads do bloco e o numero
+// de linhas na tabela batem.
+//
+// Lead sem utm, ou com utm que e' so' ID numerico, nao pertence a bloco
+// nenhum e some quando o filtro esta ligado. E' o mesmo criterio do aviso
+// no rodape do card: quem nao da' pra classificar fica de fora dos dois
+// lados, nao e' jogado no maior deles.
+function passaTipoCampanha(b) {
+  if (!filtros.tipoCampanha) return true;
+  const rotulo = (b.campanha || '').trim();
+  if (!rotulo) return false;
+  const k = soDigitos(rotulo) ? rotulo : chaveCamp(rotulo);
+  return mapaBlocoCampanha().get(k) === filtros.tipoCampanha;
+}
+
+function abrirBlocoScore(rede, tipo) {
+  const alvo = rede === null ? null : rede + '|' + tipo;
+  // Clicar no bloco ja aberto fecha. Sem isso, so' daria pra sair pelo
+  // botao de fechar, e o clique no mesmo lugar nao faria nada.
+  filtros.tipoCampanha =
+    (alvo === null || filtros.tipoCampanha === alvo) ? null : alvo;
+  rastrear('bloco_score_mql', filtros.tipoCampanha || 'fechar');
+  render();
+}
+
 function dadosScoreMql(v) {
   // dadosCampanhas() ja faz o cruzamento campanha x lead x investimento,
   // com todo o tratamento chato de chave: ID numerico do Google, utm que
@@ -5795,7 +5885,11 @@ function dadosScoreMql(v) {
   const porRede = {};
   let foraDeRede = vazio();        // rede que nao e' paga (organico etc)
   let semNome    = vazio();        // rotulo que e' so' ID: nome nao da pra ler
-  const tipoPorChave = new Map();
+
+  // Uma entrada por campanha, guardada: e' o que o drill-down abre quando
+  // alguem clica num bloco. Agregar direto pro bloco jogaria fora o
+  // detalhe e obrigaria a refazer a conta inteira numa segunda funcao.
+  const porChave = new Map();
 
   // ── Investimento e contagem de campanhas: saem das linhas ─────────────
   for (const l of linhas) {
@@ -5807,23 +5901,24 @@ function dadosScoreMql(v) {
     // Entra num balde separado em vez de virar "MQL" por omissao — seria
     // classificar no escuro e inflar um dos lados.
     const semRotulo = soDigitos(l.rotulo);
-    const tipo = semRotulo ? null : (ehCampanhaScore(l.rotulo) ? 'SCORE' : 'MQL');
-    if (naRede && tipo) tipoPorChave.set(l.chave, tipo);
 
-    const alvo = !naRede ? foraDeRede
-      : semRotulo ? semNome
-      : (porRede[rede] ||= { SCORE: vazio(), MQL: vazio() })[tipo];
-
-    alvo.campanhas++;
-    alvo.investimento += l.investimento;
-
-    // Leads e MQL dos dois baldes de aviso saem daqui mesmo — eles so
-    // viram texto no rodape. Os das redes pagas sao recontados do backlog
-    // logo abaixo, porque la' da' pra olhar o score de cada lead.
     if (!naRede || semRotulo) {
+      // Baldes de aviso: viram texto no rodape, nao bloco clicavel. Aqui
+      // o lead e o MQL podem sair da propria linha, ja' que nao ha regra
+      // de score a aplicar num grupo que nem tipo tem.
+      const alvo = !naRede ? foraDeRede : semNome;
+      alvo.campanhas++;
+      alvo.investimento += l.investimento;
       alvo.leads += l.leads;
       alvo.mqls  += l.mqls;
+      continue;
     }
+
+    porChave.set(l.chave, {
+      chave: l.chave, rotulo: l.rotulo, rede,
+      tipo: ehCampanhaScore(l.rotulo) ? 'SCORE' : 'MQL',
+      investimento: l.investimento, leads: 0, mqls: 0,
+    });
   }
 
   // ── Leads e MQL: recontados lead a lead ───────────────────────────────
@@ -5847,14 +5942,23 @@ function dadosScoreMql(v) {
   for (const b of base) {
     const rotulo = (b.campanha || '').trim();
     const k = soDigitos(rotulo) ? rotulo : chaveCamp(rotulo);
-    const tipo = k ? tipoPorChave.get(k) : null;
-    if (!tipo) continue;                       // ja' contado nos avisos
-    const rede = redeDoLead(b);
-    if (!REDES_PAGAS_SCORE.includes(rede)) continue;
+    const c = k ? porChave.get(k) : null;
+    if (!c) continue;                          // ja' contado nos avisos
+    c.leads++;
+    if (ehMqlDoTipo(b, c.tipo)) c.mqls++;
+  }
 
-    const d = (porRede[rede] ||= { SCORE: vazio(), MQL: vazio() })[tipo];
-    d.leads++;
-    if (ehMqlDoTipo(b, tipo)) d.mqls++;
+  // ── Dos totais por campanha pros blocos ───────────────────────────────
+  // A rede do bloco e' a da CAMPANHA, nao a do lead: campanha vive numa
+  // rede so', e usar a do lead espalharia uma mesma campanha por dois
+  // blocos quando a classificacao do lead divergisse.
+  for (const c of porChave.values()) {
+    const d = (porRede[c.rede] ||= { SCORE: vazio(), MQL: vazio() })[c.tipo];
+    d.campanhas++;
+    d.investimento += c.investimento;
+    d.leads += c.leads;
+    d.mqls  += c.mqls;
+    (d.camps ||= []).push(c);
   }
 
   return { porRede, foraDeRede, semNome };
@@ -5884,10 +5988,20 @@ function blocoScoreMql(rede, tipo, d, invRede) {
   const tx    = d.leads ? d.mqls / d.leads * 100 : null;
   const num = x => x === null ? '—' : x;
 
+  // Com um bloco aberto, os outros ficam apagados em vez de sumir: a
+  // comparacao entre eles e' metade do valor do card, e esconder faria
+  // perder a referencia de tamanho de um clique pro outro.
+  const selecionado = filtros.tipoCampanha === rede + '|' + tipo;
+  const apagado = filtros.tipoCampanha && !selecionado;
+
   // Tipo grande e rede pequena embaixo, em vez de "LinkedIn · SCORE" numa
   // linha so': no Bebas de 19px esse texto quebrava em duas linhas e o
   // card do LinkedIn ficava mais alto que os outros, desalinhando a grade.
-  return `<div class="rede-card" style="cursor:default">
+  return `<div class="rede-card"
+    onclick="abrirBlocoScore(${attr(rede)}, ${attr(tipo)})"
+    title="${selecionado ? 'Clique para fechar' : 'Clique para ver as campanhas deste bloco'}"
+    style="cursor:pointer;${selecionado ? `border-color:${cor};background:var(--panel2);` : ''}${
+      apagado ? 'opacity:.35;' : ''}">
     <div class="rede-topo">
       <span class="rede-nome" style="color:${cor}">${tipo}</span>
       <span class="rede-inv">${fmtBRL(d.investimento)}</span>
@@ -5912,6 +6026,74 @@ function blocoScoreMql(rede, tipo, d, invRede) {
       <div style="width:${Math.min(pct, 100)}%;background:${cor}"></div>
     </div>
   </div>`;
+}
+
+// Tabela das campanhas de UM bloco, aberta no lugar do resumo dos totais.
+function tabelaCampanhasBloco(rede, tipo, d) {
+  const cor = tipo === 'SCORE' ? COR_SCORE : COR_MQL;
+
+  // Maior investimento primeiro: a pergunta ao abrir e' "onde foi o
+  // dinheiro", nao a ordem alfabetica.
+  const camps = [...(d.camps || [])].sort((a, b) => b.investimento - a.investimento);
+  const vazio = '<span style="color:var(--gray)">—</span>';
+
+  const linhas = camps.map(c => {
+    const cpl   = c.investimento && c.leads ? c.investimento / c.leads : null;
+    const cpmql = c.investimento && c.mqls  ? c.investimento / c.mqls  : null;
+    const tx    = c.leads ? c.mqls / c.leads * 100 : null;
+    return `<tr>
+      <td class="utm" title="${attr(c.rotulo).slice(1, -1)}">${c.rotulo}</td>
+      <td class="num">${fmtBRL(c.investimento)}</td>
+      <td class="num">${fmtNum(c.leads)}</td>
+      <td class="num">${fmtNum(c.mqls)}</td>
+      <td class="num">${cpl === null ? vazio : fmtBRL(cpl)}</td>
+      <td class="num">${cpmql === null ? vazio : fmtBRL(cpmql)}</td>
+      <td class="num">${tx === null ? vazio : tx.toFixed(1) + '%'}</td>
+    </tr>`;
+  }).join('');
+
+  const cpl   = d.investimento && d.leads ? d.investimento / d.leads : null;
+  const cpmql = d.investimento && d.mqls  ? d.investimento / d.mqls  : null;
+
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:center;
+                gap:12px;flex-wrap:wrap;margin:16px 0 4px">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;
+                  letter-spacing:.04em">
+        <span style="color:${cor}">${tipo}</span>
+        <span style="color:var(--gray-light)">· ${rede} ·
+          ${fmtNum(camps.length)} campanha${camps.length === 1 ? '' : 's'}</span>
+      </div>
+      <button class="btn-mini" onclick="abrirBlocoScore(null)">fechar ×</button>
+    </div>
+    <div class="table-scroll" style="max-height:420px">
+      <table class="tabela-utm">
+        <thead><tr>
+          <th>Campanha</th>
+          <th class="num">Investimento</th>
+          <th class="num">Leads</th>
+          <th class="num" title="${tipo === 'SCORE'
+            ? 'score maior ou igual a ' + SCORE_MINIMO
+            : 'cargo de diretoria pra cima'}">MQL</th>
+          <th class="num">CPL</th>
+          <th class="num">CPMQL</th>
+          <th class="num">Tx MQL</th>
+        </tr></thead>
+        <tbody>
+          ${linhas}
+          <tr style="border-top:2px solid var(--blue)">
+            <td style="font-weight:600">TOTAL</td>
+            <td class="num" style="font-weight:600">${fmtBRL(d.investimento)}</td>
+            <td class="num" style="font-weight:600">${fmtNum(d.leads)}</td>
+            <td class="num" style="font-weight:600">${fmtNum(d.mqls)}</td>
+            <td class="num" style="font-weight:600">${cpl === null ? vazio : fmtBRL(cpl)}</td>
+            <td class="num" style="font-weight:600">${cpmql === null ? vazio : fmtBRL(cpmql)}</td>
+            <td class="num" style="font-weight:600">${
+              d.leads ? (d.mqls / d.leads * 100).toFixed(1) + '%' : vazio}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>`;
 }
 
 function cardScoreMql(v) {
@@ -6033,8 +6215,18 @@ function cardScoreMql(v) {
     regra do cargo para os dois.
   </div>`;
 
+  // O bloco aberto pode ter sumido entre um render e outro — mudou o
+  // periodo, mudou o filtro de rede, a campanha parou de rodar. Sem esta
+  // checagem a tela ficaria presa num drill-down vazio, sem botao de
+  // fechar visivel, e so' recarregando a pagina pra sair.
+  const [redeAberta, tipoAberto] = (filtros.tipoCampanha || '').split('|');
+  const dAberto = redeAberta && porRede[redeAberta] && porRede[redeAberta][tipoAberto];
+  const detalhe = dAberto && dAberto.campanhas
+    ? tabelaCampanhasBloco(redeAberta, tipoAberto, dAberto)
+    : null;
+
   return `<div class="redes-grid" style="margin-bottom:0">${blocos}</div>`
-    + linhaTotal
+    + (detalhe || linhaTotal)
     + notaMql
     + (avisos.length
         ? `<div class="texto-aviso">⚠ ${avisos.join('<br>')}</div>`
