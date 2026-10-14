@@ -4479,14 +4479,22 @@ function painelScoreCampanha(leads) {
     return linhaPerfil(
       rotuloFaixa(f), d.qtd[i], d.pct[i],
       dentro ? '#4ade80' : '#4a4a52', maior,
-      d.mqls[i] ? fmtNum(d.mqls[i]) + ' MQL' : '',
-      dentro ? 'Dentro da zona ICP' : 'Fora da zona ICP');
+      // O numero da direita e' quem tem CARGO qualificante, nao MQL: nesta
+      // campanha MQL e' score >= 6, e repetir isso por faixa so' repetiria
+      // a propria contagem. O cargo ao lado mostra onde os dois criterios
+      // concordam e onde nao.
+      d.mqls[i] ? fmtNum(d.mqls[i]) + ' c/ cargo' : '',
+      (dentro ? 'Dentro da zona ICP' : 'Fora da zona ICP')
+        + ' · ' + fmtNum(d.mqls[i]) + ' destes tem cargo qualificante');
   }).join('');
+
+  const mqlPorScore = comScore.filter(b => b.score >= SCORE_MINIMO).length;
 
   return `<div class="perfil-sub">
       ${fmtNum(comScore.length)} de ${fmtNum(leads.length)} leads com score
       preenchido · mediana <strong style="color:var(--white)">${
-        mediana.toFixed(1)}</strong> · ${
+        mediana.toFixed(1)}</strong> · <strong style="color:var(--white)">${
+        fmtNum(mqlPorScore)}</strong> MQL (score ≥ ${SCORE_MINIMO}) · ${
       (noIcp / comScore.length * 100).toFixed(0)}% na zona ICP
       (${ICP_DE} a ${ICP_ATE},9, em verde)
     </div>${linhas}`;
@@ -5787,28 +5795,84 @@ function dadosScoreMql(v) {
   const porRede = {};
   let foraDeRede = vazio();        // rede que nao e' paga (organico etc)
   let semNome    = vazio();        // rotulo que e' so' ID: nome nao da pra ler
+  const tipoPorChave = new Map();
 
+  // ── Investimento e contagem de campanhas: saem das linhas ─────────────
   for (const l of linhas) {
     const rede = l.rede || '';
-    const destino = !REDES_PAGAS_SCORE.includes(rede) ? null : rede;
+    const naRede = REDES_PAGAS_SCORE.includes(rede);
 
     // Campanha identificada so' pelo ID (caso tipico do Google quando a
     // planilha nao trouxe o nome): nao da pra dizer se tem SCORE no nome.
     // Entra num balde separado em vez de virar "MQL" por omissao — seria
     // classificar no escuro e inflar um dos lados.
-    const alvo = destino === null ? foraDeRede
-      : soDigitos(l.rotulo) ? semNome
-      : ((porRede[rede] ||= { SCORE: vazio(), MQL: vazio() })[
-          ehCampanhaScore(l.rotulo) ? 'SCORE' : 'MQL']);
+    const semRotulo = soDigitos(l.rotulo);
+    const tipo = semRotulo ? null : (ehCampanhaScore(l.rotulo) ? 'SCORE' : 'MQL');
+    if (naRede && tipo) tipoPorChave.set(l.chave, tipo);
+
+    const alvo = !naRede ? foraDeRede
+      : semRotulo ? semNome
+      : (porRede[rede] ||= { SCORE: vazio(), MQL: vazio() })[tipo];
 
     alvo.campanhas++;
     alvo.investimento += l.investimento;
-    alvo.leads        += l.leads;
-    alvo.mqls         += l.mqls;
+
+    // Leads e MQL dos dois baldes de aviso saem daqui mesmo — eles so
+    // viram texto no rodape. Os das redes pagas sao recontados do backlog
+    // logo abaixo, porque la' da' pra olhar o score de cada lead.
+    if (!naRede || semRotulo) {
+      alvo.leads += l.leads;
+      alvo.mqls  += l.mqls;
+    }
+  }
+
+  // ── Leads e MQL: recontados lead a lead ───────────────────────────────
+  // Nao da' pra usar o d.mqls das linhas aqui: ele vem da coluna MQL do
+  // backlog, que em PFCC Brasil e' marcada por CARGO (ver eh_mql no
+  // funil_denise.py — so Lean e CES qualificam por score). Numa campanha
+  // de score isso responde a pergunta errada: o formulario pediu as
+  // quatro perguntas justamente pra pontuar o lead, entao quem qualifica
+  // ali e' o score, nao o cargo.
+  const nomes = produtoAtivo === CONSOLIDADO ? PRODUTOS_REAIS : [produtoAtivo];
+  const alvos = nomes.map(semAcento);
+
+  let base = dados.backlog
+    .filter(b => alvos.includes(semAcento(b.produto)))
+    .filter(b => {
+      const dia = (b.aplicacao || '').trim().slice(0, 5);
+      return dia.includes('/') && dentroDoPeriodo(dia);
+    });
+  if (filtros.rede) base = base.filter(b => redeDoLead(b) === filtros.rede);
+
+  for (const b of base) {
+    const rotulo = (b.campanha || '').trim();
+    const k = soDigitos(rotulo) ? rotulo : chaveCamp(rotulo);
+    const tipo = k ? tipoPorChave.get(k) : null;
+    if (!tipo) continue;                       // ja' contado nos avisos
+    const rede = redeDoLead(b);
+    if (!REDES_PAGAS_SCORE.includes(rede)) continue;
+
+    const d = (porRede[rede] ||= { SCORE: vazio(), MQL: vazio() })[tipo];
+    d.leads++;
+    if (ehMqlDoTipo(b, tipo)) d.mqls++;
   }
 
   return { porRede, foraDeRede, semNome };
 }
+
+// Quem conta como MQL depende do tipo da campanha que trouxe o lead:
+//
+//   SCORE  score >= 6. O formulario pediu as quatro perguntas pra pontuar;
+//          e' o score que diz se o lead serve. Lead sem score preenchido
+//          nao qualifica — nao preencher E' a informacao.
+//   MQL    o cargo, via coluna MQL do backlog. Essa campanha nao coleta
+//          score, entao nao ha o que olhar alem do cargo.
+//
+// Por isso o CPMQL dos dois lados nao e' comparavel com o CPMQL do topo da
+// tela, que usa a coluna do backlog pros dois. Esta' dito no rodape do card.
+const ehMqlDoTipo = (b, tipo) => tipo === 'SCORE'
+  ? (b.score !== null && b.score !== undefined && b.score >= SCORE_MINIMO)
+  : !!b.mql;
 
 // Um bloco (uma rede, um tipo). Mesmo formato dos cards de rede, pra
 // leitura nao mudar de gramatica de um card pro outro.
@@ -5833,7 +5897,9 @@ function blocoScoreMql(rede, tipo, d, invRede) {
                 color:var(--white);margin:-2px 0 10px">${rede}</div>
     <div class="rede-nums">
       <div><span>Leads</span><strong>${fmtNum(d.leads)}</strong></div>
-      <div><span>MQL</span><strong>${fmtNum(d.mqls)}</strong></div>
+      <div title="${tipo === 'SCORE'
+        ? 'MQL aqui é score maior ou igual a ' + SCORE_MINIMO + ': a campanha de score coleta pontuação, e é ela que qualifica'
+        : 'MQL aqui é a coluna MQL do backlog, marcada por cargo — esta campanha não coleta score'}"><span>MQL</span><strong>${fmtNum(d.mqls)}</strong></div>
       <div><span>Campanhas</span><strong>${fmtNum(d.campanhas)}</strong></div>
     </div>
     <div class="rede-nums">
@@ -5950,8 +6016,26 @@ function cardScoreMql(v) {
 
   // Os blocos vao num redes-grid proprio e a tabela FORA dele: dentro, ela
   // viraria mais um item da grade e sairia espremida numa coluna.
+  // A definicao de MQL muda de um lado pro outro, e isso PRECISA estar na
+  // tela: sem essa linha, alguem compara o CPMQL daqui com o do topo,
+  // acha diferente e conclui que um dos dois esta' quebrado.
+  const notaMql = `<div class="texto-aviso">
+    MQL não é a mesma coisa nos dois lados. Na campanha de
+    <strong style="color:${COR_SCORE}">SCORE</strong> é
+    <strong>score ≥ ${SCORE_MINIMO}</strong> — o formulário pediu as quatro
+    perguntas pra pontuar, então é a pontuação que qualifica, e lead sem
+    score preenchido não conta. Na campanha de
+    <strong style="color:${COR_MQL}">MQL</strong> é <strong>cargo de diretoria
+    pra cima</strong> — diretor, C-level, VP, sócio, fundador, presidente,
+    conselheiro — porque essa campanha não coleta score. Gerente, coordenador
+    e analista não entram.
+    Por isso o CPMQL daqui não bate com o CPMQL do topo da tela, que usa a
+    regra do cargo para os dois.
+  </div>`;
+
   return `<div class="redes-grid" style="margin-bottom:0">${blocos}</div>`
     + linhaTotal
+    + notaMql
     + (avisos.length
         ? `<div class="texto-aviso">⚠ ${avisos.join('<br>')}</div>`
         : '');
