@@ -144,6 +144,22 @@
     font-weight:600;margin-top:4px;letter-spacing:.02em;}
   .kpi-delta.neutro{color:var(--gray-light);font-weight:400;}
   td .kpi-delta{display:block;font-size:9px;margin-top:1px;}
+  /* ── Perfil por tipo de campanha (aba Campanhas) ── */
+  .perfil-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+  @media(max-width:900px){.perfil-grid{grid-template-columns:1fr;}}
+  .perfil-cab{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--gray-light);margin-bottom:2px;}
+  .perfil-sub{font-size:10.5px;color:var(--gray);margin-bottom:12px;line-height:1.5;}
+  .perfil-linha{display:grid;grid-template-columns:118px 1fr 92px;
+    align-items:center;gap:10px;margin-bottom:6px;}
+  .perfil-rot{font-family:'DM Mono',monospace;font-size:10px;color:var(--white);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .perfil-trilho{height:9px;background:var(--panel2);border-radius:2px;overflow:hidden;}
+  .perfil-trilho div{height:100%;border-radius:2px;}
+  .perfil-val{font-family:'DM Mono',monospace;font-size:10px;text-align:right;
+    color:var(--white);white-space:nowrap;}
+  .perfil-val span{color:var(--gray);}
+
   /* ── Aba Texto ── */
   .texto-barra{display:flex;justify-content:space-between;align-items:center;
     gap:12px;flex-wrap:wrap;margin:14px 0 10px;}
@@ -2639,13 +2655,14 @@ function render() {
       ${cardObjetivos(v)}
     </div>` : ''}
 
+    ${PRODUTOS_COM_SCORE_MQL.includes(produtoAtivo) ? `
     <div class="card" style="margin-bottom:16px">
       <div class="card-title">
         <span>Campanha de Score × Campanha de MQL</span>
         <span class="card-tag" title="Campanha com SCORE no nome pede as quatro perguntas do cadastro; sem SCORE pede só o cargo">por nome da campanha</span>
       </div>
       ${cardScoreMql(v)}
-    </div>
+    </div>` : ''}
 
     <div class="card" style="margin-bottom:16px">
       <div class="card-title">
@@ -4361,6 +4378,208 @@ function avisoSemRetorno(linhas) {
   </div>`;
 }
 
+// ════════════════════════════════════════════════════════════════════════
+// O QUE CADA TIPO DE CAMPANHA TRAZ
+// ════════════════════════════════════════════════════════════════════════
+// A campanha de SCORE pede as quatro perguntas, entao o lead chega com
+// pontuacao — a pergunta util e' QUE pontuacao esta entrando. A campanha
+// de MQL pede so' o cargo, entao nao ha score pra olhar; o que ela
+// entrega de informacao e' o cargo. Por isso os dois lados mostram
+// coisas diferentes: nao e' falta de simetria, e' o que cada formulario
+// coleta.
+
+// Tipo de cada campanha, pela chave que a aba Campanhas usa pro
+// cruzamento. Sai da mesma dadosCampanhas() do card do dashboard — e' ela
+// que resolve ID numerico do Google, acento e caixa. Montar o mapa aqui
+// de novo abriria espaco pros dois lados classificarem diferente.
+function mapaTipoCampanha(v) {
+  const nivelAntes = nivelCampanha;
+  const buscaAntes = buscaCampanha;
+  nivelCampanha = 'campanha';
+  buscaCampanha = '';
+  let linhas;
+  try {
+    linhas = dadosCampanhas(v).linhas;
+  } finally {
+    nivelCampanha = nivelAntes;
+    buscaCampanha = buscaAntes;
+  }
+
+  const mapa = new Map();
+  for (const l of linhas) {
+    // Campanha que so' tem ID (Google sem nome na planilha) fica sem tipo:
+    // chutar MQL por omissao inflaria um dos lados em silencio.
+    if (soDigitos(l.rotulo)) continue;
+    mapa.set(l.chave, ehCampanhaScore(l.rotulo) ? 'SCORE' : 'MQL');
+  }
+  return mapa;
+}
+
+// Os leads do periodo, separados pelo tipo da campanha que os trouxe.
+// Mesmo recorte das outras telas: produto ativo, periodo e filtro de rede.
+function leadsPorTipoCampanha(v) {
+  const mapa = mapaTipoCampanha(v);
+  const nomes = produtoAtivo === CONSOLIDADO ? PRODUTOS_REAIS : [produtoAtivo];
+  const alvos = nomes.map(semAcento);
+
+  let base = dados.backlog
+    .filter(b => alvos.includes(semAcento(b.produto)))
+    .filter(b => {
+      const dia = (b.aplicacao || '').trim().slice(0, 5);
+      return dia.includes('/') && dentroDoPeriodo(dia);
+    });
+  if (filtros.rede) base = base.filter(b => redeDoLead(b) === filtros.rede);
+
+  const out = { SCORE: [], MQL: [], semTipo: [] };
+  for (const b of base) {
+    const rotulo = (b.campanha || '').trim();
+    // Mesma regra de chave da dadosCampanhas: utm numerica e' campanha do
+    // Google e casa com o ID da planilha; o resto casa pelo nome.
+    const k = soDigitos(rotulo) ? rotulo : chaveCamp(rotulo);
+    const tipo = k ? mapa.get(k) : null;
+    (tipo ? out[tipo] : out.semTipo).push(b);
+  }
+  return out;
+}
+
+// Uma linha de barra. Serve pras duas tabelas — muda so' o que entra.
+function linhaPerfil(rotulo, qtd, pct, cor, maior, extra, titulo) {
+  return `<div class="perfil-linha"${titulo ? ` title="${titulo}"` : ''}>
+    <div class="perfil-rot">${rotulo}</div>
+    <div class="perfil-trilho">
+      <div style="width:${maior ? Math.max(qtd / maior * 100, 1.5) : 0}%;
+                  background:${cor}"></div>
+    </div>
+    <div class="perfil-val">${fmtNum(qtd)} <span>${
+      pct.toFixed(1)}%${extra ? ' · ' + extra : ''}</span></div>
+  </div>`;
+}
+
+// ── Painel do score ─────────────────────────────────────────────────────
+function painelScoreCampanha(leads) {
+  const comScore = leads.filter(b => b.score !== null && b.score !== undefined);
+  if (!comScore.length) {
+    return `<div class="perfil-sub">Nenhum lead com score preenchido vindo de
+      campanha de score neste período.</div>`;
+  }
+
+  const d = distribuicaoScore(comScore);
+  const maior = Math.max(...d.qtd);
+
+  // Mediana, nao media: o score tem cauda, e a media de uma distribuicao
+  // torta descreve uma faixa onde quase ninguem esta.
+  const ord = comScore.map(b => b.score).sort((a, b) => a - b);
+  const meio = Math.floor(ord.length / 2);
+  const mediana = ord.length % 2 ? ord[meio] : (ord[meio - 1] + ord[meio]) / 2;
+
+  const noIcp = comScore.filter(b => b.score >= ICP_DE && b.score < ICP_ATE + 1).length;
+
+  const linhas = FAIXAS_SCORE.map((f, i) => {
+    const dentro = f >= ICP_DE && f <= ICP_ATE;
+    return linhaPerfil(
+      rotuloFaixa(f), d.qtd[i], d.pct[i],
+      dentro ? '#4ade80' : '#4a4a52', maior,
+      d.mqls[i] ? fmtNum(d.mqls[i]) + ' MQL' : '',
+      dentro ? 'Dentro da zona ICP' : 'Fora da zona ICP');
+  }).join('');
+
+  return `<div class="perfil-sub">
+      ${fmtNum(comScore.length)} de ${fmtNum(leads.length)} leads com score
+      preenchido · mediana <strong style="color:var(--white)">${
+        mediana.toFixed(1)}</strong> · ${
+      (noIcp / comScore.length * 100).toFixed(0)}% na zona ICP
+      (${ICP_DE} a ${ICP_ATE},9, em verde)
+    </div>${linhas}`;
+}
+
+// ── Painel dos cargos ───────────────────────────────────────────────────
+const TOPO_CARGOS = 12;
+
+function painelCargosCampanha(leads) {
+  const comCargo = leads.filter(b => (b.cargo || '').trim());
+  if (!comCargo.length) {
+    return `<div class="perfil-sub">Nenhum lead com cargo preenchido vindo de
+      campanha de MQL neste período.</div>`;
+  }
+
+  // Agrupa sem acento e sem caixa — "Analista Financeiro", "analista
+  // financeiro" e "ANALISTA FINANCEIRO" sao o mesmo cargo digitado de
+  // tres jeitos, e separados virariam tres linhas de cauda. O rotulo
+  // exibido e' a primeira grafia vista.
+  const grupos = {};
+  for (const b of comCargo) {
+    const k = semAcento(b.cargo);
+    if (!grupos[k]) grupos[k] = { rotulo: b.cargo.trim(), qtd: 0, mqls: 0 };
+    grupos[k].qtd++;
+    if (b.mql) grupos[k].mqls++;
+  }
+
+  const todos = Object.values(grupos).sort((a, b) => b.qtd - a.qtd);
+  const topo  = todos.slice(0, TOPO_CARGOS);
+  const resto = todos.slice(TOPO_CARGOS);
+  const maior = topo.length ? topo[0].qtd : 0;
+  const total = comCargo.length;
+
+  const linhas = topo.map(c => linhaPerfil(
+    c.rotulo, c.qtd, c.qtd / total * 100, '#4a9eff', maior,
+    c.mqls ? fmtNum(c.mqls) + ' MQL' : '', c.rotulo)).join('');
+
+  // A cauda vira uma linha so', mas aparece: sem ela as % nao fecham 100 e
+  // alguem vai procurar o erro.
+  const somaResto = resto.reduce((s, c) => s + c.qtd, 0);
+  const linhaResto = resto.length ? linhaPerfil(
+    `outros ${fmtNum(resto.length)} cargos`, somaResto,
+    somaResto / total * 100, '#4a4a52', maior, '',
+    'Cargos fora do top ' + TOPO_CARGOS) : '';
+
+  return `<div class="perfil-sub">
+      ${fmtNum(total)} de ${fmtNum(leads.length)} leads com cargo preenchido ·
+      ${fmtNum(todos.length)} cargos diferentes · top ${
+        Math.min(TOPO_CARGOS, todos.length)} abaixo
+    </div>${linhas}${linhaResto}`;
+}
+
+// ── O card ──────────────────────────────────────────────────────────────
+function cardPerfilCampanha(v) {
+  // Mesma regra dos outros dois cards de campanha: so' onde a convencao
+  // de nome existe. No Consolidado ele misturaria produto que usa "SCORE"
+  // no nome com produto que nao usa.
+  if (!PRODUTOS_COM_SCORE_MQL.includes(produtoAtivo)) return '';
+
+  const { SCORE, MQL, semTipo } = leadsPorTipoCampanha(v);
+
+  if (!SCORE.length && !MQL.length) {
+    return '';   // sem leads classificados nao ha card a mostrar
+  }
+
+  const aviso = semTipo.length
+    ? `<div class="texto-aviso">⚠ ${fmtNum(semTipo.length)} leads sem campanha
+        identificada (utm vazia, ou campanha só com ID numérico) ficaram fora
+        dos dois lados.</div>`
+    : '';
+
+  return `
+    <div class="card" style="margin-top:16px">
+      <div class="card-title">
+        <span>O que cada tipo de campanha traz</span>
+        <span class="card-tag" title="A separação é sempre pelo nome da CAMPANHA, mesmo quando a tabela abaixo está em conjunto ou anúncio">sempre por campanha</span>
+      </div>
+      <div class="perfil-grid">
+        <div>
+          <div class="perfil-cab" style="color:#4ade80">
+            Campanhas de SCORE · ${fmtNum(SCORE.length)} leads → que score entra</div>
+          ${painelScoreCampanha(SCORE)}
+        </div>
+        <div>
+          <div class="perfil-cab" style="color:#4a9eff">
+            Campanhas de MQL · ${fmtNum(MQL.length)} leads → que cargo entra</div>
+          ${painelCargosCampanha(MQL)}
+        </div>
+      </div>
+      ${aviso}
+    </div>`;
+}
+
 function renderCampanhas(v) {
   const { linhas, investSemNome, leadsSemCasar } = dadosCampanhas(v);
 
@@ -4501,6 +4720,8 @@ function renderCampanhas(v) {
       </div>
       <div class="chart-box" style="height:320px"><canvas id="chartCampanha"></canvas></div>
     </div>` : ''}
+
+    ${cardPerfilCampanha(v)}
 
     <div class="card" style="margin-top:16px">
       <div class="card-title">
@@ -5478,6 +5699,17 @@ const SEM_OBJETIVO = 'Sem objetivo';
 // produtos num card de objetivo misturaria quem segue a convencao com
 // quem nao segue. O card e' pra ler PFCC Brasil, e e' la' que ele aparece.
 const PRODUTOS_COM_OBJETIVO = ['PFCC BRASIL'];
+
+// Onde aparecem os cards de SCORE x MQL (o do dashboard e o da aba
+// Campanhas). Mesma ideia do de cima e, por enquanto, a mesma lista — mas
+// em constante propria de proposito: a convencao de "SCORE no nome" e' de
+// PFCC e pode um dia valer num produto onde a de objetivo nao vale, ou o
+// contrario. Separadas, ligar uma nao arrasta a outra junto.
+//
+// Fora dessa lista os cards somem. E' a mesma regra do card de objetivo,
+// e os tres aparecem e somem juntos — dois cards irmaos com regras
+// diferentes faziam parecer que um tinha quebrado.
+const PRODUTOS_COM_SCORE_MQL = ['PFCC BRASIL'];
 
 // A convencao de objetivo so existe no Meta. LinkedIn e Google nao usam
 // esses blocos, entao somar eles aqui jogaria o investimento inteiro dos
