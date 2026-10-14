@@ -950,7 +950,8 @@ function metasAtivas() {
 // classificacao de LEAD, e aparecem nos cards de rede.
 const CORES_REDE = {
   Meta: '#4a6dd4', Google: '#2980b9', LinkedIn: '#0e76a8',
-  'Orgânico': '#4ade80', Workshop: '#d9a441',
+  'Orgânico': '#4ade80', 'Orgânico Diretoria': '#1f9e74',
+  Workshop: '#d9a441',
 };
 
 // Etapas que existem no Pipedrive mas nao fazem parte do funil de venda.
@@ -1031,10 +1032,24 @@ const ORDEM_ETAPAS = [
 // STATON-CHASE]" casa com "pesquisa-staton-chase".
 const CAMPANHAS_ORGANICAS = ['pesquisa-staton-chase'];
 
+// ── Orgânico Diretoria ──────────────────────────────────────────────────
+// Lead com "org-dir" na utm e' Organico Diretoria. A tag e' procurada em
+// todas as utms, e a grafia e' exata: ORG-DIR conta (caixa nao importa),
+// org_dir e orgdir nao.
+const TAG_ORG_DIRETORIA = 'org-dir';
+
+const temTagOrgDiretoria = b =>
+  [b.campanha, b.source, b.medium, b.content, b.term]
+    .some(x => semAcento(x || '').includes(TAG_ORG_DIRETORIA));
+
 function redeDoLead(b) {
   const s = (b.source || '').toLowerCase().trim();
   const bruto = (b.campanha || '').trim();
   const c = bruto.toUpperCase();
+
+  // Vem antes de tudo: e' marca posta de proposito por quem montou o
+  // link, e nenhuma heuristica de source passa por cima dela.
+  if (temTagOrgDiretoria(b)) return 'Orgânico Diretoria';
 
   // Antes de tudo: a lista acima manda sobre o source
   const cn = semAcento(bruto);
@@ -1058,7 +1073,8 @@ function redeDoLead(b) {
   return 'Orgânico';
 }
 
-const REDES = ['LinkedIn', 'Google', 'Meta', 'Orgânico', 'Workshop'];
+const REDES = ['LinkedIn', 'Google', 'Meta',
+               'Orgânico', 'Orgânico Diretoria', 'Workshop'];
 
 // Os cargos vem digitados de mil formas. Aqui agrupamos nos grandes blocos
 // pra tabela nao virar uma lista de 200 variacoes com 1 lead cada.
