@@ -2641,6 +2641,14 @@ function render() {
 
     <div class="card" style="margin-bottom:16px">
       <div class="card-title">
+        <span>Campanha de Score × Campanha de MQL</span>
+        <span class="card-tag" title="Campanha com SCORE no nome pede as quatro perguntas do cadastro; sem SCORE pede só o cargo">por nome da campanha</span>
+      </div>
+      ${cardScoreMql(v)}
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-title">
         Investimento · Leads · MQL
         <span class="card-tag" style="background:#7ee0a8;color:#0a0a0a">
           ${fmtNum(v.mqlTresFunis)} nos 3 funis</span>
@@ -5496,6 +5504,229 @@ function objetivoDaCampanha(...textos) {
 // O investimento vem do investLinhas (uma linha por dia/campanha), nao do
 // total por rede — e' o unico lugar que tem o nome da campanha, e sem ele
 // nao da pra saber de que objetivo e' o gasto.
+// ════════════════════════════════════════════════════════════════════════
+// CAMPANHA DE SCORE x CAMPANHA DE MQL
+// ════════════════════════════════════════════════════════════════════════
+// Duas estrategias de captacao convivem na mesma conta:
+//
+//   SCORE  o formulario pede as quatro perguntas do cadastro (cargo,
+//          idade, escolaridade, renda). Lead mais caro, mas ja chega
+//          pontuado.
+//   MQL    o formulario pede so' o cargo. Lead mais barato, e a
+//          qualificacao fica pro time.
+//
+// Comparar CPL e CPMQL entre os dois e' o jeito de saber quanto custa,
+// na pratica, pedir as quatro perguntas em vez de uma.
+//
+// A regra de classificacao e' o NOME: "score" no nome da campanha e'
+// campanha de score, o resto e' de MQL. Vem do proprio planejamento de
+// midia — nao e' heuristica nossa. Por isso ela mora numa funcao so': se
+// um dia a nomenclatura mudar, muda aqui e vale pro card inteiro.
+const ehCampanhaScore = rotulo => chaveCamp(rotulo).includes('score');
+
+// Redes onde a separacao faz sentido: as que tem campanha paga. Organico
+// e Workshop entram no dashboard como classificacao de LEAD, nao tem
+// campanha nem investimento — apareceriam como uma coluna de CPL vazio.
+const REDES_PAGAS_SCORE = ['Meta', 'LinkedIn', 'Google'];
+
+const COR_SCORE = '#4ade80';
+const COR_MQL   = '#4a9eff';
+
+function dadosScoreMql(v) {
+  // dadosCampanhas() ja faz o cruzamento campanha x lead x investimento,
+  // com todo o tratamento chato de chave: ID numerico do Google, utm que
+  // nao casa com o nome da plataforma, acento, caixa. Refazer isso aqui
+  // criaria uma segunda versao da mesma regra, e um dia as duas
+  // divergiriam. Entao chamamos a dela, forcando o nivel "campanha" e
+  // ignorando a busca digitada na aba Campanhas.
+  const nivelAntes = nivelCampanha;
+  const buscaAntes = buscaCampanha;
+  nivelCampanha = 'campanha';
+  buscaCampanha = '';
+  let linhas;
+  try {
+    linhas = dadosCampanhas(v).linhas;
+  } finally {
+    // finally, nao depois do try: se dadosCampanhas lancar, o dashboard
+    // inteiro ficaria preso no nivel errado ate' o usuario trocar na mao.
+    nivelCampanha = nivelAntes;
+    buscaCampanha = buscaAntes;
+  }
+
+  const vazio = () => ({ campanhas: 0, investimento: 0, leads: 0, mqls: 0 });
+  const porRede = {};
+  let foraDeRede = vazio();        // rede que nao e' paga (organico etc)
+  let semNome    = vazio();        // rotulo que e' so' ID: nome nao da pra ler
+
+  for (const l of linhas) {
+    const rede = l.rede || '';
+    const destino = !REDES_PAGAS_SCORE.includes(rede) ? null : rede;
+
+    // Campanha identificada so' pelo ID (caso tipico do Google quando a
+    // planilha nao trouxe o nome): nao da pra dizer se tem SCORE no nome.
+    // Entra num balde separado em vez de virar "MQL" por omissao — seria
+    // classificar no escuro e inflar um dos lados.
+    const alvo = destino === null ? foraDeRede
+      : soDigitos(l.rotulo) ? semNome
+      : ((porRede[rede] ||= { SCORE: vazio(), MQL: vazio() })[
+          ehCampanhaScore(l.rotulo) ? 'SCORE' : 'MQL']);
+
+    alvo.campanhas++;
+    alvo.investimento += l.investimento;
+    alvo.leads        += l.leads;
+    alvo.mqls         += l.mqls;
+  }
+
+  return { porRede, foraDeRede, semNome };
+}
+
+// Um bloco (uma rede, um tipo). Mesmo formato dos cards de rede, pra
+// leitura nao mudar de gramatica de um card pro outro.
+function blocoScoreMql(rede, tipo, d, invRede) {
+  const cor = tipo === 'SCORE' ? COR_SCORE : COR_MQL;
+  const pct = invRede ? d.investimento / invRede * 100 : 0;
+  const cpl   = d.investimento && d.leads ? d.investimento / d.leads : null;
+  const cpmql = d.investimento && d.mqls  ? d.investimento / d.mqls  : null;
+  const tx    = d.leads ? d.mqls / d.leads * 100 : null;
+  const num = x => x === null ? '—' : x;
+
+  // Tipo grande e rede pequena embaixo, em vez de "LinkedIn · SCORE" numa
+  // linha so': no Bebas de 19px esse texto quebrava em duas linhas e o
+  // card do LinkedIn ficava mais alto que os outros, desalinhando a grade.
+  return `<div class="rede-card" style="cursor:default">
+    <div class="rede-topo">
+      <span class="rede-nome" style="color:${cor}">${tipo}</span>
+      <span class="rede-inv">${fmtBRL(d.investimento)}</span>
+    </div>
+    <div style="font-family:'DM Mono',monospace;font-size:8.5px;
+                letter-spacing:.12em;text-transform:uppercase;
+                color:var(--gray-light);margin:-4px 0 9px">${rede}</div>
+    <div class="rede-nums">
+      <div><span>Leads</span><strong>${fmtNum(d.leads)}</strong></div>
+      <div><span>MQL</span><strong>${fmtNum(d.mqls)}</strong></div>
+      <div><span>Campanhas</span><strong>${fmtNum(d.campanhas)}</strong></div>
+    </div>
+    <div class="rede-nums">
+      <div><span>CPL</span><strong>${num(cpl === null ? null : fmtBRL(cpl))}</strong></div>
+      <div><span>CPMQL</span><strong>${num(cpmql === null ? null : fmtBRL(cpmql))}</strong></div>
+      <div><span>Tx MQL</span><strong>${
+        num(tx === null ? null : tx.toFixed(1) + '%')}</strong></div>
+    </div>
+    <div class="rede-barra" title="${pct.toFixed(1)}% do investimento de ${rede}">
+      <div style="width:${Math.min(pct, 100)}%;background:${cor}"></div>
+    </div>
+  </div>`;
+}
+
+function cardScoreMql(v) {
+  const { porRede, foraDeRede, semNome } = dadosScoreMql(v);
+  const redes = REDES_PAGAS_SCORE.filter(r => porRede[r]);
+
+  if (!redes.length) {
+    return `<div class="empty">
+      Sem campanha com investimento no período.<br><br>
+      <span style="font-size:11px">Este card lê o nome da campanha nas abas
+      de INVESTIMENTO. Sem a coluna Campaign Name não há como separar
+      score de MQL.</span>
+    </div>`;
+  }
+
+  // Blocos na ordem rede > tipo, com SCORE primeiro: ele e' a excecao que
+  // se quer medir, e a leitura natural e' "o caro contra o barato".
+  const blocos = redes.flatMap(r => {
+    const invRede = porRede[r].SCORE.investimento + porRede[r].MQL.investimento;
+    return ['SCORE', 'MQL']
+      .filter(t => porRede[r][t].campanhas)
+      .map(t => blocoScoreMql(r, t, porRede[r][t], invRede));
+  }).join('');
+
+  // Totais somando as redes: e' a resposta da pergunta "sai mais caro
+  // pedir as quatro perguntas?" sem a quebra por canal.
+  const soma = tipo => redes.reduce((s, r) => ({
+    investimento: s.investimento + porRede[r][tipo].investimento,
+    leads:        s.leads        + porRede[r][tipo].leads,
+    mqls:         s.mqls         + porRede[r][tipo].mqls,
+    campanhas:    s.campanhas    + porRede[r][tipo].campanhas,
+  }), { investimento: 0, leads: 0, mqls: 0, campanhas: 0 });
+
+  const tS = soma('SCORE'), tM = soma('MQL');
+  const cpl   = d => d.investimento && d.leads ? d.investimento / d.leads : null;
+  const cpmql = d => d.investimento && d.mqls  ? d.investimento / d.mqls  : null;
+
+  // Quanto o score custa a mais, em %. So' aparece quando os dois lados
+  // tem numero — comparar contra zero daria "infinito%".
+  const diferenca = (a, b) => {
+    const x = a, y = b;
+    if (x === null || y === null || !y) return '—';
+    const d = (x - y) / y * 100;
+    return (d > 0 ? '+' : '') + d.toFixed(0) + '%';
+  };
+
+  const linhaTotal = `
+    <table style="margin-top:14px">
+      <thead><tr>
+        <th>Total no período</th>
+        <th class="num">Campanhas</th>
+        <th class="num">Investimento</th>
+        <th class="num">Leads</th>
+        <th class="num">MQL</th>
+        <th class="num">CPL</th>
+        <th class="num">CPMQL</th>
+      </tr></thead>
+      <tbody>
+        <tr>
+          <td style="color:${COR_SCORE}">SCORE</td>
+          <td class="num">${fmtNum(tS.campanhas)}</td>
+          <td class="num">${fmtBRL(tS.investimento)}</td>
+          <td class="num">${fmtNum(tS.leads)}</td>
+          <td class="num">${fmtNum(tS.mqls)}</td>
+          <td class="num">${cpl(tS) === null ? '—' : fmtBRL(cpl(tS))}</td>
+          <td class="num">${cpmql(tS) === null ? '—' : fmtBRL(cpmql(tS))}</td>
+        </tr>
+        <tr>
+          <td style="color:${COR_MQL}">MQL</td>
+          <td class="num">${fmtNum(tM.campanhas)}</td>
+          <td class="num">${fmtBRL(tM.investimento)}</td>
+          <td class="num">${fmtNum(tM.leads)}</td>
+          <td class="num">${fmtNum(tM.mqls)}</td>
+          <td class="num">${cpl(tM) === null ? '—' : fmtBRL(cpl(tM))}</td>
+          <td class="num">${cpmql(tM) === null ? '—' : fmtBRL(cpmql(tM))}</td>
+        </tr>
+        <tr style="border-top:2px solid var(--blue)">
+          <td style="color:var(--gray-light)"
+              title="Quanto a campanha de score custa a mais que a de MQL">
+            SCORE vs MQL</td>
+          <td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td>
+          <td class="num">${diferenca(cpl(tS), cpl(tM))}</td>
+          <td class="num">${diferenca(cpmql(tS), cpmql(tM))}</td>
+        </tr>
+      </tbody>
+    </table>`;
+
+  // Avisos: numero que ficou de fora precisa aparecer, ou alguem soma as
+  // duas linhas, compara com o card de investimento e acha que quebrou.
+  const avisos = [];
+  if (semNome.campanhas) {
+    avisos.push(`${fmtNum(semNome.campanhas)} campanha${
+      semNome.campanhas === 1 ? '' : 's'} identificada${
+      semNome.campanhas === 1 ? '' : 's'} só por ID (${fmtBRL(semNome.investimento)},
+      ${fmtNum(semNome.leads)} leads) — sem o nome na planilha não dá para
+      dizer se é score ou MQL, então ficaram fora das duas linhas.`);
+  }
+  if (foraDeRede.leads || foraDeRede.investimento) {
+    avisos.push(`${fmtNum(foraDeRede.leads)} leads fora de Meta, LinkedIn e
+      Google (orgânico, workshop, utm que não casou) também ficaram de fora.`);
+  }
+
+  // Os blocos vao num redes-grid proprio e a tabela FORA dele: dentro, ela
+  // viraria mais um item da grade e sairia espremida numa coluna.
+  return `<div class="redes-grid" style="margin-bottom:0">${blocos}</div>`
+    + linhaTotal
+    + (avisos.length
+        ? `<div class="texto-aviso">⚠ ${avisos.join('<br>')}</div>`
+        : '');
+}
+
 function cardObjetivos(v) {
   const nomes = produtoAtivo === CONSOLIDADO ? PRODUTOS_REAIS : [produtoAtivo];
   const rotulos = [...OBJETIVOS.map(o => o[0]), SEM_OBJETIVO];
