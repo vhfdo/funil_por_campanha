@@ -160,6 +160,37 @@
     color:var(--white);white-space:nowrap;}
   .perfil-val span{color:var(--gray);}
 
+  /* ── Ponteiro laser ── */
+  /* O ponto e o rastro sao position:fixed e pointer-events:none: fixed pra
+     acompanhar a rolagem sem recalcular nada, e none pra o clique passar
+     direto. Com o laser ligado voce continua filtrando e trocando de aba —
+     ele e' so' um apontador, nao um modo que trava a tela. */
+  .laser-ponto, .laser-rastro{
+    position:fixed; top:0; left:0; border-radius:50%;
+    pointer-events:none; transform:translate(-50%,-50%);
+    opacity:0; transition:opacity .12s;}
+  .laser-ponto{width:18px; height:18px; z-index:99999;
+    background:radial-gradient(circle,#fff 0%,#ff4b3e 42%,rgba(255,75,62,0) 72%);
+    box-shadow:0 0 14px 5px rgba(255,75,62,.5);}
+  .laser-rastro{z-index:99998; background:#ff4b3e;}
+  .laser-ponto.on, .laser-rastro.on{opacity:1;}
+
+  /* Esconde o cursor nativo — o pedido e' que o mouse VIRE o laser, nao
+     que ganhe um enfeite ao lado. O !important cobre os elementos que tem
+     cursor proprio (botoes, links, cards clicaveis). */
+  body.laser-on, body.laser-on *{cursor:none !important;}
+
+  .laser-aviso{position:fixed; bottom:18px; left:50%; transform:translateX(-50%);
+    z-index:99999; pointer-events:none;
+    background:rgba(10,10,10,.88); border:1px solid #ff4b3e;
+    color:var(--white); font-family:'DM Mono',monospace; font-size:11px;
+    letter-spacing:.06em; padding:7px 14px; border-radius:3px;
+    opacity:0; transition:opacity .25s;}
+  .laser-aviso.on{opacity:1;}
+
+  /* Na impressao e no PDF o laser nao existe */
+  @media print{.laser-ponto,.laser-rastro,.laser-aviso{display:none !important;}}
+
   /* ── Aba Texto ── */
   .texto-barra{display:flex;justify-content:space-between;align-items:center;
     gap:12px;flex-wrap:wrap;margin:14px 0 10px;}
@@ -575,6 +606,8 @@
       <button class="btn" id="btnReport" onclick="alternarReport()">Report</button>
       <button class="btn" id="btnTexto" onclick="alternarTexto()"
               title="Resumo diário de PFCC Brasil em texto, pronto para copiar">Texto</button>
+      <button class="btn" id="btnLaser" onclick="alternarLaser()"
+              title="Transforma o cursor num ponteiro laser para apresentar. Esc desliga.">◉ Laser</button>
       <button class="btn" onclick="exportarPDF()">↓ PDF</button>
       <span class="user-info" id="userInfo"></span>
       <span id="statusAtualizacao"></span>
@@ -1788,6 +1821,140 @@ function renderTexto() {
         independente da data de início que você escolheu.
       </div>
     </div>`;
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// PONTEIRO LASER
+// ════════════════════════════════════════════════════════════════════════
+// Liga e o cursor vira um ponto vermelho com rastro, pra apontar numero na
+// tela enquanto apresenta. Esc desliga.
+//
+// Por que o rastro: numa chamada de video o compartilhamento de tela perde
+// quadros, e um ponto sozinho "teleporta" de um canto pro outro — quem
+// assiste nao acompanha o movimento. O rastro deixa a trajetoria visivel
+// mesmo com metade dos quadros descartados.
+//
+// Os elementos vivem no body, nao dentro do #conteudo: o render() reescreve
+// o #conteudo inteiro a cada filtro, e o laser sumiria no primeiro clique.
+
+let laserLigado = false;
+
+const LASER_RASTRO = 7;      // pontos de rastro
+const LASER_ATRASO = 0.42;   // o quanto cada ponto persegue o anterior
+
+let _laserPonto  = null;
+let _laserPontas = [];       // os divs do rastro
+let _laserPos    = [];       // {x, y} de cada ponto, seguindo o anterior
+let _laserAnim   = null;
+let _laserMouse  = { x: -200, y: -200 };
+let _laserDentro = false;
+
+function _laserCria() {
+  if (_laserPonto) return;
+
+  _laserPonto = document.createElement('div');
+  _laserPonto.className = 'laser-ponto';
+  document.body.appendChild(_laserPonto);
+
+  for (let i = 0; i < LASER_RASTRO; i++) {
+    const d = document.createElement('div');
+    d.className = 'laser-rastro';
+    // Cada ponto do rastro e' menor e mais apagado que o anterior: e' o
+    // que faz a cauda parecer cauda em vez de fila de bolinhas iguais.
+    const t = 1 - i / LASER_RASTRO;
+    d.style.width = d.style.height = (11 * t).toFixed(1) + 'px';
+    d.dataset.alpha = (0.42 * t * t).toFixed(3);
+    document.body.appendChild(d);
+    _laserPontas.push(d);
+    _laserPos.push({ x: -200, y: -200 });
+  }
+
+  const aviso = document.createElement('div');
+  aviso.className = 'laser-aviso';
+  aviso.id = 'laserAviso';
+  aviso.textContent = 'LASER LIGADO · Esc para sair';
+  document.body.appendChild(aviso);
+}
+
+function _laserMove(e) {
+  _laserMouse = { x: e.clientX, y: e.clientY };
+  if (!_laserDentro) {
+    _laserDentro = true;
+    // Ao voltar pra janela, o rastro inteiro salta pro cursor. Sem isso
+    // ele atravessaria a tela desenhando um risco que nao houve.
+    for (const p of _laserPos) { p.x = e.clientX; p.y = e.clientY; }
+    _laserPinta(true);
+  }
+}
+
+function _laserSai() {
+  _laserDentro = false;
+  _laserPinta(false);
+}
+
+function _laserPinta(visivel) {
+  if (_laserPonto) _laserPonto.classList.toggle('on', visivel);
+  for (const d of _laserPontas) d.classList.toggle('on', visivel);
+}
+
+function _laserQuadro() {
+  if (!laserLigado) return;
+
+  _laserPonto.style.transform =
+    `translate(${_laserMouse.x}px, ${_laserMouse.y}px) translate(-50%,-50%)`;
+
+  // Cada ponto persegue o anterior — o primeiro persegue o mouse. E' o
+  // suficiente pra cauda curvar junto com o movimento, sem guardar
+  // historico de posicoes.
+  let alvo = _laserMouse;
+  for (let i = 0; i < _laserPontas.length; i++) {
+    const p = _laserPos[i];
+    p.x += (alvo.x - p.x) * LASER_ATRASO;
+    p.y += (alvo.y - p.y) * LASER_ATRASO;
+    const d = _laserPontas[i];
+    d.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%,-50%)`;
+    d.style.opacity = _laserDentro ? d.dataset.alpha : 0;
+    alvo = p;
+  }
+
+  _laserAnim = requestAnimationFrame(_laserQuadro);
+}
+
+function _laserTecla(e) {
+  if (e.key === 'Escape' && laserLigado) alternarLaser();
+}
+
+function alternarLaser() {
+  laserLigado = !laserLigado;
+  rastrear('laser', laserLigado ? 'ligar' : 'desligar');
+
+  const btn = document.getElementById('btnLaser');
+  if (btn) btn.classList.toggle('ativo', laserLigado);
+  document.body.classList.toggle('laser-on', laserLigado);
+
+  if (laserLigado) {
+    _laserCria();
+    document.addEventListener('mousemove', _laserMove);
+    document.addEventListener('mouseleave', _laserSai);
+    document.addEventListener('keydown', _laserTecla);
+    _laserAnim = requestAnimationFrame(_laserQuadro);
+    const aviso = document.getElementById('laserAviso');
+    if (aviso) {
+      aviso.classList.add('on');
+      // O aviso some sozinho: ele serve pra dizer como sair, nao pra ficar
+      // na tela durante a apresentacao inteira.
+      setTimeout(() => aviso.classList.remove('on'), 2600);
+    }
+  } else {
+    document.removeEventListener('mousemove', _laserMove);
+    document.removeEventListener('mouseleave', _laserSai);
+    document.removeEventListener('keydown', _laserTecla);
+    if (_laserAnim) cancelAnimationFrame(_laserAnim);
+    _laserAnim = null;
+    _laserPinta(false);
+    const aviso = document.getElementById('laserAviso');
+    if (aviso) aviso.classList.remove('on');
+  }
 }
 
 function alternarTexto() {
