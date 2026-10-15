@@ -173,7 +173,13 @@
     background:radial-gradient(circle,#fff 0%,#ff4b3e 42%,rgba(255,75,62,0) 72%);
     box-shadow:0 0 14px 5px rgba(255,75,62,.5);}
   .laser-rastro{z-index:99998; background:#ff4b3e;}
-  .laser-ponto.on, .laser-rastro.on{opacity:1;}
+  .laser-ponto.on{opacity:1;}
+  /* A opacidade de cada ponto do rastro vem de uma variavel, nao de estilo
+     inline posto a cada quadro. Inline ganharia da classe, e ao desligar o
+     laser o ponto continuava na tela com a opacidade do ultimo quadro —
+     a classe saia e nao adiantava nada. Com a variavel, quem manda na
+     visibilidade e' so' a classe .on. */
+  .laser-rastro.on{opacity:var(--laser-a, .3);}
 
   /* Esconde o cursor nativo — o pedido e' que o mouse VIRE o laser, nao
      que ganhe um enfeite ao lado. O !important cobre os elementos que tem
@@ -1863,7 +1869,7 @@ function _laserCria() {
     // que faz a cauda parecer cauda em vez de fila de bolinhas iguais.
     const t = 1 - i / LASER_RASTRO;
     d.style.width = d.style.height = (11 * t).toFixed(1) + 'px';
-    d.dataset.alpha = (0.42 * t * t).toFixed(3);
+    d.style.setProperty('--laser-a', (0.42 * t * t).toFixed(3));
     document.body.appendChild(d);
     _laserPontas.push(d);
     _laserPos.push({ x: -200, y: -200 });
@@ -1913,7 +1919,6 @@ function _laserQuadro() {
     p.y += (alvo.y - p.y) * LASER_ATRASO;
     const d = _laserPontas[i];
     d.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%,-50%)`;
-    d.style.opacity = _laserDentro ? d.dataset.alpha : 0;
     alvo = p;
   }
 
@@ -1952,6 +1957,9 @@ function alternarLaser() {
     if (_laserAnim) cancelAnimationFrame(_laserAnim);
     _laserAnim = null;
     _laserPinta(false);
+    // Zera o "ja esta na tela": sem isso, ao religar o laser o rastro
+    // partiria da ultima posicao e riscaria a tela ate alcancar o cursor.
+    _laserDentro = false;
     const aviso = document.getElementById('laserAviso');
     if (aviso) aviso.classList.remove('on');
   }
