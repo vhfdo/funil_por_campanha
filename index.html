@@ -1509,10 +1509,10 @@ async function carregar() {
     if (!r.ok) throw new Error(json.error || 'Erro ao carregar');
 
     dados = json;
-    // O mapa campanha -> bloco e' memoizado por periodo/produto/rede, e
-    // dado novo nao mexe em nenhum dos tres. Sem zerar aqui, o filtro de
-    // bloco continuaria usando o mapa da carga anterior.
+    // Os dois mapas memoizados saem da carga anterior; sem zerar, o
+    // cruzamento continuaria usando o dado velho.
     _blocoCampCache = null;
+    _mapaNomeNormCache = null;
     rastrear('carregar_dados', `${json.backlog?.length || 0} leads`);
     renderTabs();
     render();
@@ -4514,6 +4514,12 @@ function exportarDescartesCSV() {
 //
 // Ele resolve so' o NOME. Quem decide se a campanha e' de score ou de MQL
 // continua sendo o nome, pela regra de sempre.
+// Tira acento, caixa e tudo que nao e' letra ou numero. E' a regua pra
+// comparar nome de campanha digitado a mao com o nome da planilha.
+const soLetrasNum = s => (s || '').toString().toLowerCase()
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .replace(/[^a-z0-9]/g, '');
+
 const GOOGLE_NOME_POR_ID = {
   '24146388405': '[TD][PFCC][GA][BR][PMAX][LEADS][LP][MQL] - [19.08] - TYPEBOT',
   '22675029313': '[TD][PL][GA][BR][PFCC][LEAD][PMAX][STORIE VISITS][27.05] - TYPEBOT',
@@ -4535,8 +4541,49 @@ function chaveCampanhaUtm(rotulo, nivel = 'campanha') {
   if (!r) return '';
   if (nivel !== 'campanha') return chaveCamp(r);
   const nome = GOOGLE_NOME_POR_ID[r];
-  if (nome) return chaveCamp(nome);
+  if (nome) return chaveCampanhaPorNome(nome);
   return soDigitos(r) ? r : chaveCamp(r);
+}
+
+// Acha a chave da campanha de investimento a partir de um nome digitado
+// a mao, tolerando diferenca de espaco e pontuacao.
+//
+// Por que nao basta chaveCamp: o nome do de-para e' copiado do Google Ads
+// pra ca por uma pessoa, e "[TD] [PL][GA]" e "[TD][PL][GA]" sao a mesma
+// campanha com um espaco de diferenca. O chaveCamp normaliza acento e
+// caixa mas preserva o espaco, entao as duas grafias viram chaves
+// diferentes — o lead cria uma campanha nova em vez de casar com a que ja
+// existe. Era isso que fazia a contagem de campanhas SUBIR depois do
+// de-para, em vez de so' preencher os leads.
+//
+// Aqui a comparacao ignora tudo que nao e' letra ou numero. Se nenhum
+// nome da planilha casar, devolve a chave normal — a campanha aparece
+// sozinha, que e' melhor que sumir.
+function chaveCampanhaPorNome(nome) {
+  const alvo = soLetrasNum(nome);
+  for (const [bruto, chave] of Object.entries(_chavePorNomeNorm())) {
+    if (bruto === alvo) return chave;
+  }
+  return chaveCamp(nome);
+}
+
+// {nome normalizado -> chave} das campanhas que tem investimento. Montado
+// uma vez por carga de dados: percorrer investLinhas a cada lead seria
+// caro, e a lista so' muda quando chega planilha nova.
+let _mapaNomeNormCache = null;
+
+function _chavePorNomeNorm() {
+  if (_mapaNomeNormCache) return _mapaNomeNormCache;
+  const m = {};
+  for (const p of Object.values(dados?.produtos || {})) {
+    for (const l of (p.investLinhas || [])) {
+      const nome = (l.campanha || '').trim();
+      if (!nome) continue;
+      m[soLetrasNum(nome)] = l.idCampanha || chaveCamp(nome);
+    }
+  }
+  _mapaNomeNormCache = m;
+  return m;
 }
 
 const chaveCamp = s => (s || '').toString().toLowerCase().trim()
@@ -4617,25 +4664,25 @@ function dadosCampanhas(v) {
   if (filtros.rede) base = base.filter(b => redeDoLead(b) === filtros.rede);
 
   for (const b of base) {
-    let rotulo = (b[campoUtm] || '').trim();
-    if (!rotulo) { leadsSemCasar++; continue; }
+    const utm = (b[campoUtm] || '').trim();
+    if (!utm) { leadsSemCasar++; continue; }
 
     // ── Google: utm numerica ──
     // O lead do Google chega com o ID da campanha na utm, nunca com o
     // nome. O cruzamento deveria ser pelo ID da coluna da planilha, mas
     // quando essa coluna nao vem, o investimento fica indexado pelo NOME
     // e o lead pelo ID — os dois lados nunca se encontram. Era isso que
-    // deixava o Google com 32 campanhas, R$ 11.939 e ZERO lead no card de
-    // Score x MQL, enquanto o card de rede mostrava 404 leads.
+    // deixava o Google com campanha e verba mas ZERO lead no card de
+    // Score x MQL, enquanto o card de rede mostrava 404.
     //
-    // O de-para abaixo resolve o ID para o nome da campanha, e com isso o
-    // lead cai na mesma chave do investimento. NAO muda classificacao
-    // nenhuma: o tipo (score ou MQL) continua saindo do nome, como antes.
-    if (nivelCampanha === 'campanha' && GOOGLE_NOME_POR_ID[rotulo]) {
-      rotulo = GOOGLE_NOME_POR_ID[rotulo];
-    }
-
-    const k = chaveCampanhaUtm(rotulo, nivelCampanha);
+    // A CHAVE sai da utm original, nao do nome ja' resolvido: e' dentro
+    // da chaveCampanhaUtm que o ID vira a chave da campanha certa. Trocar
+    // o rotulo antes fazia a funcao receber um nome e perder o ID, e o
+    // lead criava uma campanha fantasma em vez de casar com a existente.
+    const k = chaveCampanhaUtm(utm, nivelCampanha);
+    // O rotulo e' so' pra exibir: nome legivel no lugar do ID na tabela.
+    const rotulo = (nivelCampanha === 'campanha' && GOOGLE_NOME_POR_ID[utm])
+      || utm;
     // Linha sem investimento tambem entra: campanha organica ou utm que
     // nao bate com o nome da plataforma precisa aparecer, nem que seja
     // com investimento zero
@@ -4659,12 +4706,11 @@ function dadosCampanhas(v) {
     for (const g of p.ganhos) {
       if (g.vale !== 'sim' || !dentroDoPeriodo(g.data)) continue;
       if (filtros.rede && redeDoLead(g) !== filtros.rede) continue;
-      let rotulo = (g[campoGanho] || '').trim();
-      if (!rotulo) continue;
-      if (nivelCampanha === 'campanha' && GOOGLE_NOME_POR_ID[rotulo]) {
-        rotulo = GOOGLE_NOME_POR_ID[rotulo];
-      }
-      const k = chaveCampanhaUtm(rotulo, nivelCampanha);
+      const utmG = (g[campoGanho] || '').trim();
+      if (!utmG) continue;
+      const k = chaveCampanhaUtm(utmG, nivelCampanha);
+      const rotulo = (nivelCampanha === 'campanha' && GOOGLE_NOME_POR_ID[utmG])
+        || utmG;
       const d = pega(k, rotulo, redeDoLead(g));
       d.ganhos++;
       d.faturamento += g.valor;
@@ -6249,6 +6295,7 @@ function dadosScoreMql(v) {
   const porRede = {};
   let foraDeRede = vazio();        // rede que nao e' paga (organico etc)
   let semNome    = vazio();        // rotulo que e' so' ID: nome nao da pra ler
+  const idsSemNome = new Set();    // quais IDs, pra listar no aviso
 
   // Uma entrada por campanha, guardada: e' o que o drill-down abre quando
   // alguem clica num bloco. Agregar direto pro bloco jogaria fora o
@@ -6271,6 +6318,7 @@ function dadosScoreMql(v) {
       // o lead e o MQL podem sair da propria linha, ja' que nao ha regra
       // de score a aplicar num grupo que nem tipo tem.
       const alvo = !naRede ? foraDeRede : semNome;
+      if (naRede && soDigitos(l.rotulo)) idsSemNome.add(l.rotulo);
       alvo.campanhas++;
       alvo.investimento += l.investimento;
       alvo.leads += l.leads;
@@ -6323,7 +6371,7 @@ function dadosScoreMql(v) {
     (d.camps ||= []).push(c);
   }
 
-  return { porRede, foraDeRede, semNome };
+  return { porRede, foraDeRede, semNome, idsSemNome: [...idsSemNome] };
 }
 
 // Quem conta como MQL depende do tipo da campanha que trouxe o lead:
@@ -6459,7 +6507,7 @@ function tabelaCampanhasBloco(rede, tipo, d) {
 }
 
 function cardScoreMql(v) {
-  const { porRede, foraDeRede, semNome } = dadosScoreMql(v);
+  const { porRede, foraDeRede, semNome, idsSemNome } = dadosScoreMql(v);
   const redes = REDES_PAGAS_SCORE.filter(r => porRede[r]);
 
   if (!redes.length) {
@@ -6547,11 +6595,16 @@ function cardScoreMql(v) {
   // duas linhas, compara com o card de investimento e acha que quebrou.
   const avisos = [];
   if (semNome.campanhas) {
+    // Os IDs vao na tela de proposito: sem eles o aviso diz que falta
+    // algo mas nao diz O QUE, e a unica saida e' abrir o Google Ads e
+    // caçar. Com o ID na mao da' pra completar o de-para em um minuto.
     avisos.push(`${fmtNum(semNome.campanhas)} campanha${
       semNome.campanhas === 1 ? '' : 's'} identificada${
       semNome.campanhas === 1 ? '' : 's'} só por ID (${fmtBRL(semNome.investimento)},
-      ${fmtNum(semNome.leads)} leads) — sem o nome na planilha não dá para
-      dizer se é score ou MQL, então ficaram fora das duas linhas.`);
+      ${fmtNum(semNome.leads)} leads) — sem o nome não dá para dizer se é
+      score ou MQL, então ficaram fora das duas linhas.${
+      idsSemNome.length ? `<br><span style="color:var(--gray-light)">IDs: ${
+        idsSemNome.join(' · ')}</span>` : ''}`);
   }
   if (foraDeRede.leads || foraDeRede.investimento) {
     avisos.push(`${fmtNum(foraDeRede.leads)} leads fora de Meta, LinkedIn e
