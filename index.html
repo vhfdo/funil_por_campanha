@@ -951,8 +951,18 @@ const METAS_POR_MES = {
   '2026-10': {
     [CONSOLIDADO]:   { leads: 7108, mqls: 4975, faturamento: 2821588, investimento: 496440,
                        vendas: 199, cpl: 70,  cpmql: 100, cac: 2495, roas: 5.68 },
+    // cpmql 135 e' o TETO do planejamento, nao a divisao — e' por isso que
+    // ele nao bate com investimento / mqls (396.440 / 3.700 = 107). A
+    // planilha de planejamento traz a coluna CMQL em 135 nas tres linhas
+    // que somam este produto (PFCC Brasil, DIST/NUT/RMKT e Vanguard),
+    // mesmo com verbas bem diferentes: e' limite aceitavel, nao previsao.
+    // O card exibe este campo como "Teto", entao 135 e' o numero certo.
+    //
+    // Nao "corrija" pra 107 achando que e' erro de digitacao. O resto do
+    // bloco confere com a planilha somada: 4.646+200+440 leads,
+    // 3.252+140+308 MQL, 348.440+15.000+33.000 de verba.
     'PFCC BRASIL':   { leads: 5286, mqls: 3700, faturamento: 2257512, investimento: 396440,
-                       vendas: 148, cpl: 75,  cpmql: 107, cac: 2679, roas: 5.69 },
+                       vendas: 148, cpl: 75,  cpmql: 135, cac: 2679, roas: 5.69 },
     'PFCC MÉXICO':   { leads: 625,  mqls: 438,  faturamento: 315000,  investimento: 50000,
                        vendas: 18,  cpl: 80,  cpmql: 114, cac: 2778, roas: 6.30 },
     'BOARD ADVISOR': { leads: 541,  mqls: 378,  faturamento: 75676,   investimento: 20000,
