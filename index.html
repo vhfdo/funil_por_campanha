@@ -6186,8 +6186,13 @@ function objetivoDaCampanha(...textos) {
 // um lado inflaria a contagem em silencio, que e' pior que ficar de fora
 // e aparecer no aviso do rodape.
 function tipoDaCampanha(rotulo) {
-  if (soDigitos(rotulo)) return null;
-  return chaveCamp(rotulo).includes('score') ? 'SCORE' : 'MQL';
+  const r = (rotulo || '').trim();
+  // Sem utm nao ha nome pra ler. Antes isto caia em MQL, porque string
+  // vazia "nao contem score" — o lead sem rastreio nenhum entrava no
+  // bloco de MQL como se fosse campanha de MQL.
+  if (!r) return null;
+  if (soDigitos(r)) return null;
+  return chaveCamp(r).includes('score') ? 'SCORE' : 'MQL';
 }
 
 // Redes onde a separacao faz sentido: as que tem campanha paga. Organico
@@ -6292,6 +6297,7 @@ function dadosScoreMql(v) {
   }
 
   const vazio = () => ({ campanhas: 0, investimento: 0, leads: 0, mqls: 0 });
+  const novaRede = () => ({ SCORE: vazio(), MQL: vazio() });
   const porRede = {};
   let foraDeRede = vazio();        // rede que nao e' paga (organico etc)
   let semNome    = vazio();        // rotulo que e' so' ID: nome nao da pra ler
@@ -6351,23 +6357,47 @@ function dadosScoreMql(v) {
   if (filtros.rede) base = base.filter(b => redeDoLead(b) === filtros.rede);
 
   for (const b of base) {
+    // A REDE sai do proprio lead, igual ao card de rede. Antes o lead so'
+    // era contado se casasse com uma campanha de investimento — e quem
+    // nao casava sumia, sem aparecer em lugar nenhum. Era isso que fazia
+    // o card de rede mostrar 404 leads no Google e este mostrar 280: duas
+    // fontes diferentes pro mesmo numero.
+    const rede = redeDoLead(b);
+    if (!REDES_PAGAS_SCORE.includes(rede)) { foraDeRede.leads++; continue; }
+
     const k = chaveCampanhaUtm(b.campanha);
     const c = k ? porChave.get(k) : null;
-    if (!c) continue;                          // ja' contado nos avisos
-    c.leads++;
-    if (ehMqlDoTipo(b, c.tipo)) c.mqls++;
+
+    if (c) {
+      // Casou com a campanha: conta nela (e' o que alimenta o drill-down)
+      c.leads++;
+      if (ehMqlDoTipo(b, c.tipo)) c.mqls++;
+    }
+
+    // E conta TAMBEM na rede, pelo tipo que a utm do proprio lead diz.
+    // Esta e' a contagem que aparece no bloco; a de cima e' o detalhe por
+    // campanha.
+    //
+    // Lead sem tipo legivel (ID do Google fora do de-para, utm vazia) cai
+    // em MQL. Nao e' que se saiba que ele e' de MQL — e' que ele precisa
+    // aparecer em algum lugar pra SCORE + MQL fechar com o card de rede,
+    // e MQL e' o lado grande, onde alguns leads a mais mudam menos a
+    // leitura. Quantos sao, e de quais campanhas, esta' no aviso do
+    // rodape do card.
+    const tipo = (c ? c.tipo : tipoDaCampanha(b.campanha)) || 'MQL';
+    const alvo = (porRede[rede] ||= novaRede())[tipo];
+    alvo.leads++;
+    if (ehMqlDoTipo(b, tipo || 'MQL')) alvo.mqls++;
   }
 
-  // ── Dos totais por campanha pros blocos ───────────────────────────────
-  // A rede do bloco e' a da CAMPANHA, nao a do lead: campanha vive numa
-  // rede so', e usar a do lead espalharia uma mesma campanha por dois
-  // blocos quando a classificacao do lead divergisse.
+  // ── Investimento e campanhas por bloco ────────────────────────────────
+  // Os LEADS ja foram contados acima, pela rede do lead. Aqui entram so' o
+  // investimento e a lista de campanhas, que sao da campanha por natureza
+  // — campanha vive numa rede so'.
   for (const c of porChave.values()) {
-    const d = (porRede[c.rede] ||= { SCORE: vazio(), MQL: vazio() })[c.tipo];
+    const d = (porRede[c.rede] ||= novaRede())[c.tipo];
     d.campanhas++;
     d.investimento += c.investimento;
-    d.leads += c.leads;
-    d.mqls  += c.mqls;
     (d.camps ||= []).push(c);
   }
 
@@ -6523,8 +6553,10 @@ function cardScoreMql(v) {
   // se quer medir, e a leitura natural e' "o caro contra o barato".
   const blocos = redes.flatMap(r => {
     const invRede = porRede[r].SCORE.investimento + porRede[r].MQL.investimento;
+    // Pelos LEADS tambem, nao so' por campanha: a rede pode ter lead que
+    // nao casou com campanha nenhuma, e o bloco precisa existir pra ele.
     return ['SCORE', 'MQL']
-      .filter(t => porRede[r][t].campanhas)
+      .filter(t => porRede[r][t].campanhas || porRede[r][t].leads)
       .map(t => blocoScoreMql(r, t, porRede[r][t], invRede));
   }).join('');
 
@@ -6600,9 +6632,10 @@ function cardScoreMql(v) {
     // caçar. Com o ID na mao da' pra completar o de-para em um minuto.
     avisos.push(`${fmtNum(semNome.campanhas)} campanha${
       semNome.campanhas === 1 ? '' : 's'} identificada${
-      semNome.campanhas === 1 ? '' : 's'} só por ID (${fmtBRL(semNome.investimento)},
-      ${fmtNum(semNome.leads)} leads) — sem o nome não dá para dizer se é
-      score ou MQL, então ficaram fora das duas linhas.${
+      semNome.campanhas === 1 ? '' : 's'} só por ID (${fmtBRL(semNome.investimento)})
+      — sem o nome não dá para dizer se é score ou MQL, então
+      <strong>os leads delas estão contados em MQL</strong>. Mande os nomes
+      para classificar certo.${
       idsSemNome.length ? `<br><span style="color:var(--gray-light)">IDs: ${
         idsSemNome.join(' · ')}</span>` : ''}`);
   }
