@@ -4520,6 +4520,25 @@ const GOOGLE_NOME_POR_ID = {
   '23869952762': '[TD][PFCC][GA][BR][PMAX][LEADS][LP][MQL] - [20.05] - TYPEBOT',
 };
 
+// A chave de cruzamento de uma utm de campanha, do lado do LEAD (e do
+// ganho). TODO lugar que cruza lead com campanha chama esta funcao.
+//
+// Ela existe porque o calculo estava copiado em cinco lugares, e bastou
+// um deles ficar sem o de-para do Google pra aparecer um card com 404
+// leads ao lado de outro com 0, os dois "certos" pela propria conta.
+// Regra em cinco copias e' regra que vai divergir.
+//
+// Nos niveis conjunto e anuncio o de-para nao se aplica: ele mapeia ID de
+// CAMPANHA, e nesses niveis a utm carrega outra coisa.
+function chaveCampanhaUtm(rotulo, nivel = 'campanha') {
+  const r = (rotulo || '').trim();
+  if (!r) return '';
+  if (nivel !== 'campanha') return chaveCamp(r);
+  const nome = GOOGLE_NOME_POR_ID[r];
+  if (nome) return chaveCamp(nome);
+  return soDigitos(r) ? r : chaveCamp(r);
+}
+
 const chaveCamp = s => (s || '').toString().toLowerCase().trim()
   .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
   .replace(/\s+/g, ' ');
@@ -4616,10 +4635,7 @@ function dadosCampanhas(v) {
       rotulo = GOOGLE_NOME_POR_ID[rotulo];
     }
 
-    // utm numerica que sobrou (ID fora do de-para) casa com o ID da
-    // planilha, quando ela traz a coluna de ID
-    const k = (nivelCampanha === 'campanha' && soDigitos(rotulo))
-      ? rotulo.trim() : chaveCamp(rotulo);
+    const k = chaveCampanhaUtm(rotulo, nivelCampanha);
     // Linha sem investimento tambem entra: campanha organica ou utm que
     // nao bate com o nome da plataforma precisa aparecer, nem que seja
     // com investimento zero
@@ -4643,10 +4659,12 @@ function dadosCampanhas(v) {
     for (const g of p.ganhos) {
       if (g.vale !== 'sim' || !dentroDoPeriodo(g.data)) continue;
       if (filtros.rede && redeDoLead(g) !== filtros.rede) continue;
-      const rotulo = (g[campoGanho] || '').trim();
+      let rotulo = (g[campoGanho] || '').trim();
       if (!rotulo) continue;
-      const k = (nivelCampanha === 'campanha' && soDigitos(rotulo))
-        ? rotulo.trim() : chaveCamp(rotulo);
+      if (nivelCampanha === 'campanha' && GOOGLE_NOME_POR_ID[rotulo]) {
+        rotulo = GOOGLE_NOME_POR_ID[rotulo];
+      }
+      const k = chaveCampanhaUtm(rotulo, nivelCampanha);
       const d = pega(k, rotulo, redeDoLead(g));
       d.ganhos++;
       d.faturamento += g.valor;
@@ -4790,10 +4808,7 @@ function leadsPorTipoCampanha(v) {
 
   const out = { SCORE: [], MQL: [], semTipo: [] };
   for (const b of base) {
-    const rotulo = (b.campanha || '').trim();
-    // Mesma regra de chave da dadosCampanhas: utm numerica e' campanha do
-    // Google e casa com o ID da planilha; o resto casa pelo nome.
-    const k = soDigitos(rotulo) ? rotulo : chaveCamp(rotulo);
+    const k = chaveCampanhaUtm(b.campanha);
     const tipo = k ? mapa.get(k) : null;
     (tipo ? out[tipo] : out.semTipo).push(b);
   }
@@ -6194,9 +6209,8 @@ function mapaBlocoCampanha() {
 // lados, nao e' jogado no maior deles.
 function passaTipoCampanha(b) {
   if (!filtros.tipoCampanha) return true;
-  const rotulo = (b.campanha || '').trim();
-  if (!rotulo) return false;
-  const k = soDigitos(rotulo) ? rotulo : chaveCamp(rotulo);
+  const k = chaveCampanhaUtm(b.campanha);
+  if (!k) return false;
   return mapaBlocoCampanha().get(k) === filtros.tipoCampanha;
 }
 
@@ -6289,8 +6303,7 @@ function dadosScoreMql(v) {
   if (filtros.rede) base = base.filter(b => redeDoLead(b) === filtros.rede);
 
   for (const b of base) {
-    const rotulo = (b.campanha || '').trim();
-    const k = soDigitos(rotulo) ? rotulo : chaveCamp(rotulo);
+    const k = chaveCampanhaUtm(b.campanha);
     const c = k ? porChave.get(k) : null;
     if (!c) continue;                          // ja' contado nos avisos
     c.leads++;
