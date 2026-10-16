@@ -4499,6 +4499,27 @@ function exportarDescartesCSV() {
 // porque a utm quase nunca sai identica ao nome cadastrado na plataforma.
 // Ainda assim sobra divergencia — por isso a tela mostra quanto do
 // investimento e quantos leads NAO casaram, em vez de esconder.
+// ── De-para dos IDs do Google ───────────────────────────────────────────
+// O lead do Google traz o ID da campanha na utm_campaign, nunca o nome.
+// O cruzamento certo seria pela coluna de ID da aba INVESTIMENTO GOOGLE —
+// quando ela vem, nada disto e' usado. Enquanto ela nao vem, o
+// investimento fica indexado pelo nome e o lead pelo ID, e o Google
+// aparece com campanha e verba mas zero lead.
+//
+// Este de-para e' REMENDO, nao solucao: so cobre os IDs listados aqui, e
+// cada campanha nova do Google precisa ser acrescentada na mao. A
+// correcao definitiva e' garantir a coluna de ID da campanha na planilha
+// (atencao: "Ad ID" e' o ID do anuncio, nao da campanha — a utm do lead
+// carrega o ID da CAMPANHA).
+//
+// Ele resolve so' o NOME. Quem decide se a campanha e' de score ou de MQL
+// continua sendo o nome, pela regra de sempre.
+const GOOGLE_NOME_POR_ID = {
+  '24146388405': '[TD][PFCC][GA][BR][PMAX][LEADS][LP][MQL] - [19.08] - TYPEBOT',
+  '22675029313': '[TD][PL][GA][BR][PFCC][LEAD][PMAX][STORIE VISITS][27.05] - TYPEBOT',
+  '23869952762': '[TD][PFCC][GA][BR][PMAX][LEADS][LP][MQL] - [20.05] - TYPEBOT',
+};
+
 const chaveCamp = s => (s || '').toString().toLowerCase().trim()
   .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
   .replace(/\s+/g, ' ');
@@ -4577,9 +4598,26 @@ function dadosCampanhas(v) {
   if (filtros.rede) base = base.filter(b => redeDoLead(b) === filtros.rede);
 
   for (const b of base) {
-    const rotulo = (b[campoUtm] || '').trim();
+    let rotulo = (b[campoUtm] || '').trim();
     if (!rotulo) { leadsSemCasar++; continue; }
-    // utm numerica = campanha do Google; casa com o ID da planilha
+
+    // ── Google: utm numerica ──
+    // O lead do Google chega com o ID da campanha na utm, nunca com o
+    // nome. O cruzamento deveria ser pelo ID da coluna da planilha, mas
+    // quando essa coluna nao vem, o investimento fica indexado pelo NOME
+    // e o lead pelo ID — os dois lados nunca se encontram. Era isso que
+    // deixava o Google com 32 campanhas, R$ 11.939 e ZERO lead no card de
+    // Score x MQL, enquanto o card de rede mostrava 404 leads.
+    //
+    // O de-para abaixo resolve o ID para o nome da campanha, e com isso o
+    // lead cai na mesma chave do investimento. NAO muda classificacao
+    // nenhuma: o tipo (score ou MQL) continua saindo do nome, como antes.
+    if (nivelCampanha === 'campanha' && GOOGLE_NOME_POR_ID[rotulo]) {
+      rotulo = GOOGLE_NOME_POR_ID[rotulo];
+    }
+
+    // utm numerica que sobrou (ID fora do de-para) casa com o ID da
+    // planilha, quando ela traz a coluna de ID
     const k = (nivelCampanha === 'campanha' && soDigitos(rotulo))
       ? rotulo.trim() : chaveCamp(rotulo);
     // Linha sem investimento tambem entra: campanha organica ou utm que
