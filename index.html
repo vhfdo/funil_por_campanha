@@ -2939,12 +2939,11 @@ function render() {
     cardReaplicacao(v, vComp),
     cardLTG(v, vComp),
     cardAtividades(v),
-    cardPrevisto(v, vComp),
   ].join('');
 
   document.getElementById('conteudo').innerHTML = `
     <div class="kpi-strip ${comparando ? 'comparando' : ''}"
-         style="grid-template-columns:repeat(${comparando ? 7 : 13},1fr)">${kpisHtml}</div>
+         style="grid-template-columns:repeat(${comparando ? 7 : 12},1fr)">${kpisHtml}</div>
 
     <div class="redes-grid">${cardsRedes(v, vComp)}</div>
 
@@ -3564,7 +3563,10 @@ function renderReport(v) {
         <div class="kpi-barra"><div style="width:${
           Math.min(bruto / meta * 100, 100)}%;background:${cor}"></div></div>`;
     } else if (meta) {
-      const alvo = metaAteHoje(meta);
+      // Mesmo previsto da tela principal. Sem isto, o Report dividia a
+      // meta linearmente pelos dias e mostrava um numero diferente do
+      // card de Investimento da home — mesmo conceito, duas respostas.
+      const alvo = metaAteHoje(meta, opts.previstoAteHoje);
       const dentro = gastoMenorMelhor ? bruto <= alvo : bruto >= alvo;
       const cor = dentro ? 'var(--green)' : 'var(--red)';
       const pct = Math.min(bruto / meta * 100, 100);
@@ -3592,7 +3594,11 @@ function renderReport(v) {
           { nota: `${pctReapl.toFixed(0)}% dos leads` })}
       ${card('Investimento', fmtBRL(k.investimento),
           { meta: metas.investimento, bruto: k.investimento,
-            fmt: fmtBRL, gastoMenorMelhor: true })}
+            fmt: fmtBRL, gastoMenorMelhor: true,
+            previstoAteHoje: (() => {
+              const pv = previstoNoPeriodo();
+              return pv.temDados ? pv.ateHoje : undefined;
+            })() })}
       ${card('CPL', fmtBRL(k.cpl))}
       ${card('CPMQL', fmtBRL(k.cpmql))}
       ${card('Vol. Ganhos', fmtNum(k.ganhos),
@@ -5588,71 +5594,6 @@ function cardTME(v, vComp) {
   </div>`;
 }
 
-// ── Descolamento do previsto ────────────────────────────────────────────────
-// Compara o gasto real com o planejado ATÉ HOJE, não com o do mês inteiro.
-// Contra o mês inteiro, no dia 5 pareceria que falta gastar 80% — o que é
-// verdade e não é informação nenhuma.
-function cardPrevisto(v, vComp) {
-  const p = previstoNoPeriodo();
-  if (!p.temDados) {
-    return `<div class="kpi-card">
-      <div class="kpi-label">Previsto</div>
-      <div class="kpi-val" style="color:var(--gray)">—</div>
-      <div class="kpi-linha"><span>aba PREVISTO vazia</span></div>
-    </div>`;
-  }
-
-  // A meta oficial e' a do METAS; a aba PREVISTO e' o detalhe diario dela
-  const metaMes = metasAtivas().investimento;
-
-  const real = v.kpis.investimento;
-  const dif = real - p.ateHoje;
-  const pct = p.ateHoje ? dif / p.ateHoje * 100 : 0;
-
-  // Gastar acima do previsto é o alerta: o orçamento acaba antes do mês.
-  // Abaixo não é vitória — é verba parada —, então fica neutro.
-  const acima = dif > 0;
-  const forte = Math.abs(pct) >= 10;
-  const cor = !forte ? 'var(--gray-light)'
-            : acima ? 'var(--red)' : 'var(--amber)';
-
-  // O realizado ganha selo; o previsto nao, porque ele e' o planejamento
-  // e nao um resultado que subiu ou caiu.
-  const dReal = vComp
-    ? badgeDelta(real, vComp.kpis.investimento,
-                 { fmt: fmtBRL, menorMelhor: true }) : '';
-
-  // A linha do mes so aparece quando ela diz algo novo. Em periodo ja
-  // encerrado o previsto ate hoje E o do mes sao o mesmo numero, e repetir
-  // o valor duas vezes so ocupa espaco.
-  const mostraMes = Math.abs(p.doMes - p.ateHoje) > 1;
-
-  return `<div class="kpi-card">
-    <div class="kpi-label">Previsto</div>
-    <div class="kpi-val">${fmtBRL(p.ateHoje)}</div>
-    <div class="kpi-linha"><span>realizado</span>
-      <span>${fmtBRL(real)}${dReal}</span></div>
-    <div class="kpi-linha" title="${
-      acima ? 'Gastando mais rápido que o planejado'
-            : 'Verba prevista ainda não gasta'}">
-      <span>${acima ? 'acima' : 'abaixo'}</span>
-      <span style="color:${cor}">${fmtBRL(Math.abs(dif))}<span
-        class="kpi-sub">${Math.abs(pct).toFixed(0)}%</span></span></div>
-    ${mostraMes ? `<div class="kpi-linha"><span>mês</span>
-      <span title="${(() => {
-        // A soma dos dias da aba PREVISTO pode diferir da meta em alguns
-        // reais, por arredondamento da divisao diaria. Mostramos a meta
-        // oficial pra bater com o card de Investimento, e a soma no
-        // tooltip pra quem for conferir a planilha.
-        const dif = Math.round(p.doMes - (metaMes || 0));
-        return metaMes && Math.abs(dif) >= 1
-          ? `soma dos dias: ${fmtBRL(p.doMes)} · diferença de ${
-              fmtBRL(Math.abs(dif))} por arredondamento`
-          : 'meta do mês';
-      })()}">${fmtBRL(metaMes || p.doMes)}</span></div>` : ''}
-  </div>`;
-}
-
 // ── Reaplicação ─────────────────────────────────────────────────────────────
 // Lead que ja tinha entrado antes e voltou. Vale acompanhar porque uma taxa
 // alta significa que boa parte do volume nao e' publico novo — a base esta
@@ -6401,7 +6342,43 @@ function dadosScoreMql(v) {
     (d.camps ||= []).push(c);
   }
 
-  return { porRede, foraDeRede, semNome, idsSemNome: [...idsSemNome] };
+  // ── Fecha o investimento com o card de rede ──────────────────────────
+  // Mesma regra dos leads: o total de cada rede e' o do CARD DE REDE, que
+  // e' a fonte oficial do dashboard — a mesma do CPL, do CPMQL do topo e
+  // da meta. A leitura por campanha serve pra DIVIDIR esse total entre
+  // score e MQL, nao pra produzir um total proprio.
+  //
+  // O que ela nao consegue atribuir (linha sem nome de campanha, campanha
+  // so' com ID, linha barrada por pais ou por nao ser de aquisicao) cai em
+  // MQL, pelo mesmo motivo dos leads: precisa estar em algum lugar pra
+  // SCORE + MQL fechar com a rede.
+  const ajuste = {};
+  for (const rede of REDES_PAGAS_SCORE) {
+    const oficial = (v.porRede[rede] || {}).investimento || 0;
+    if (!oficial && !porRede[rede]) continue;
+
+    const d = (porRede[rede] ||= novaRede());
+    const atribuido = d.SCORE.investimento + d.MQL.investimento;
+    const sobra = oficial - atribuido;
+
+    if (sobra >= 0) {
+      d.MQL.investimento += sobra;
+    } else {
+      // A leitura por campanha passou do total da rede. Nao deveria: ela
+      // so' tira linha, nunca inventa. Quando acontece, as duas leituras
+      // estao pegando colunas diferentes da mesma aba — e' o que o
+      // cDataDet/cValorDet do dashboard.js corrige. Enquanto a API nao
+      // sobe corrigida, a tela nao pode mostrar dois totais: mantem a
+      // PROPORCAO que a leitura por campanha achou, encaixa no total
+      // oficial e avisa no rodape.
+      const f = atribuido ? oficial / atribuido : 0;
+      d.SCORE.investimento *= f;
+      d.MQL.investimento   *= f;
+    }
+    if (Math.abs(sobra) > 1) ajuste[rede] = sobra;
+  }
+
+  return { porRede, foraDeRede, semNome, idsSemNome: [...idsSemNome], ajuste };
 }
 
 // Quem conta como MQL depende do tipo da campanha que trouxe o lead:
@@ -6537,7 +6514,7 @@ function tabelaCampanhasBloco(rede, tipo, d) {
 }
 
 function cardScoreMql(v) {
-  const { porRede, foraDeRede, semNome, idsSemNome } = dadosScoreMql(v);
+  const { porRede, foraDeRede, semNome, idsSemNome, ajuste } = dadosScoreMql(v);
   const redes = REDES_PAGAS_SCORE.filter(r => porRede[r]);
 
   if (!redes.length) {
@@ -6556,7 +6533,8 @@ function cardScoreMql(v) {
     // Pelos LEADS tambem, nao so' por campanha: a rede pode ter lead que
     // nao casou com campanha nenhuma, e o bloco precisa existir pra ele.
     return ['SCORE', 'MQL']
-      .filter(t => porRede[r][t].campanhas || porRede[r][t].leads)
+      .filter(t => porRede[r][t].campanhas || porRede[r][t].leads
+                || porRede[r][t].investimento)
       .map(t => blocoScoreMql(r, t, porRede[r][t], invRede));
   }).join('');
 
@@ -6642,6 +6620,29 @@ function cardScoreMql(v) {
   if (foraDeRede.leads || foraDeRede.investimento) {
     avisos.push(`${fmtNum(foraDeRede.leads)} leads fora de Meta, LinkedIn e
       Google (orgânico, workshop, utm que não casou) também ficaram de fora.`);
+  }
+
+  // O ajuste PRECISA aparecer. Encaixar os blocos no total da rede em
+  // silencio e' pior que a divergencia: some com o sintoma e o erro de
+  // leitura continua la', sem ninguem saber.
+  const comAjuste = Object.keys(ajuste || {});
+  if (comAjuste.length) {
+    const sobrando = comAjuste.filter(r => ajuste[r] > 0);
+    const faltando = comAjuste.filter(r => ajuste[r] < 0);
+    if (sobrando.length) {
+      avisos.push(`${sobrando.map(r => `${r}: ${fmtBRL(ajuste[r])}`).join(' · ')}
+        de investimento não casou com nenhuma campanha (linha sem nome,
+        campanha só com ID) e entrou em <strong>MQL</strong>, para o total
+        bater com o card de rede.`);
+    }
+    if (faltando.length) {
+      avisos.push(`A leitura por campanha deu
+        ${faltando.map(r => `${r}: ${fmtBRL(-ajuste[r])}`).join(' · ')}
+        <strong>a mais</strong> que o card de rede — as duas estão lendo
+        colunas diferentes da aba de INVESTIMENTO. Os blocos foram
+        encaixados no total do card de rede, que é a fonte oficial. Suba a
+        API corrigida para a diferença sumir.`);
+    }
   }
 
   // Os blocos vao num redes-grid proprio e a tabela FORA dele: dentro, ela
