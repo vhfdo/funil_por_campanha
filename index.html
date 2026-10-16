@@ -2611,9 +2611,22 @@ function reaplicacaoPorDiaRede() {
   const series = REDES_REAPL
     .map(rede => ({
       nome: rede,
-      dados: labels.map(d => reaplDia[rede][d] || 0),
-      total: Object.values(reaplDia[rede]).reduce((s, x) => s + x, 0),
+      // A linha e' a TAXA, nao a contagem. Com LinkedIn trazendo 14 leads
+      // por dia e o Organico 3, a contagem nao compara: 2 reaplicacoes
+      // pesam muito mais num lugar que no outro. A taxa poe as quatro
+      // redes na mesma regua.
+      //
+      // null, nao zero, quando a rede nao teve lead no dia: sem lead nao
+      // existe taxa. Zero ali afirmaria "0% de reaplicacao", que e'
+      // diferente de "nao houve o que medir".
+      dados: labels.map(d => {
+        const leads = leadDia[rede][d] || 0;
+        if (!leads) return null;
+        return Math.round((reaplDia[rede][d] || 0) / leads * 100);
+      }),
+      reaplDia: reaplDia[rede],
       leadDia: leadDia[rede],
+      total: Object.values(reaplDia[rede]).reduce((s, x) => s + x, 0),
     }))
     .filter(s => s.total > 0);
 
@@ -3087,7 +3100,7 @@ function render() {
     <div class="card" style="margin-bottom:16px">
       <div class="card-title">
         Reaplicações por dia
-        <span class="card-tag">por rede${
+        <span class="card-tag">% dos leads da rede${
           r.foraDasQuatro ? ` · ${fmtNum(r.foraDasQuatro)} fora das quatro redes`
                           : ''}</span>
       </div>
@@ -8146,17 +8159,27 @@ function desenharGraficos(v, vComp) {
           // contagem — nao existe menos que nenhuma, e o desenho nao pode
           // sugerir que existe. O monotone curva sem ultrapassar.
           cubicInterpolationMode: 'monotone',
+          // Dia sem lead na rede nao tem taxa — a linha pula o ponto em
+          // vez de descer a zero e inventar um dado que nao existe.
+          spanGaps: true,
           fill: false,
           datalabels: {
-            display: ctx => ctx.dataIndex === ctx.dataset.data.length - 1
-                          && ctx.dataset.data[ctx.dataIndex] > 0,
-            anchor: 'end', align: 'right', offset: 6,
+            // 'auto' em vez de true: com quatro linhas se cruzando, em
+            // varios dias dois rotulos caem no mesmo lugar e viram um
+            // borrao. O 'auto' do plugin esconde o que colidiria — some um
+            // numero, mas o que fica da' pra ler, e o tooltip continua
+            // mostrando as quatro redes do dia.
+            //
+            // O 0% fica de fora: encher a faixa de baixo de "0%" empilhado
+            // tampa justamente as linhas rentes ao zero.
+            display: ctx => ctx.dataset.data[ctx.dataIndex] > 0 ? 'auto' : false,
+            anchor: 'end', align: 'top', offset: 4,
             color: '#ffffff',
-            font: { family: 'DM Mono', size: 11, weight: 500 },
+            font: { family: 'DM Mono', size: 10, weight: 500 },
             backgroundColor: 'rgba(10,10,10,.82)',
             borderRadius: 3,
-            padding: { top: 3, bottom: 3, left: 6, right: 6 },
-            formatter: v => fmtNum(v),
+            padding: { top: 2, bottom: 2, left: 4, right: 4 },
+            formatter: v => v + '%',
           },
         })),
       },
@@ -8170,14 +8193,15 @@ function desenharGraficos(v, vComp) {
                      boxWidth:22, padding:14, usePointStyle:false } },
           tooltip: { ...opcoesBase().plugins.tooltip, callbacks: {
             label: ctx => {
+              if (ctx.raw === null) return null;   // rede sem lead no dia
               const s    = reapl.series[ctx.datasetIndex];
               const dia  = reapl.labels[ctx.dataIndex];
               const lead = s.leadDia[dia] || 0;
-              // A fatia explica o numero: 3 reaplicacoes em 5 leads e 3 em
-              // 80 sao coisas diferentes, e so' a contagem nao separa.
-              const pct = lead ? ` · ${(ctx.raw / lead * 100).toFixed(0)}% dos `
-                               + `${fmtNum(lead)} leads` : '';
-              return ` ${ctx.dataset.label}: ${fmtNum(ctx.raw)}${pct}`;
+              const qtd  = s.reaplDia[dia] || 0;
+              // A contagem vai junto: 50% de 2 leads e 50% de 40 sao a
+              // mesma taxa e decisoes muito diferentes.
+              return ` ${ctx.dataset.label}: ${ctx.raw}%`
+                   + `  (${fmtNum(qtd)} de ${fmtNum(lead)} leads)`;
             },
           } },
         },
@@ -8188,9 +8212,8 @@ function desenharGraficos(v, vComp) {
           y: { beginAtZero:true,
                grace: '12%',
                ticks:{ color:'#c8c8c8', font:{ family:'DM Mono', size:11 },
-                       // Reaplicacao e' contagem: meio lead nao existe
                        precision: 0,
-                       callback: val => fmtNum(val) },
+                       callback: val => val + '%' },
                grid:{ color:'#1c1c1c' } },
         },
       },
