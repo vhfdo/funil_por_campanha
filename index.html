@@ -1621,27 +1621,58 @@ const PRODUTO_TEXTO = 'PFCC BRASIL';
 let textoSoUltimo = false;
 
 // ── Metas ───────────────────────────────────────────────────────────────
-// A meta diaria e a do acumulado saem da meta MENSAL rateada por dia:
+// A meta diaria e a do acumulado saem da meta MENSAL repartida pela CURVA
+// DO PLANO (PLANO_DIARIO), a mesma que o card de Investimento usa:
 //
-//   meta do periodo = meta do mes x dias do periodo / dias do mes
+//   meta do periodo = meta do mes x (plano dos dias do periodo / plano do mes)
 //
-// Nao e' chute. Outubro de PFCC Brasil tem 5.286 leads e 3.700 MQL em 31
-// dias; o report manual do dia 13 trazia 2.217 e 1.552 de meta, e
-// 5286x13/31 = 2216,8 e 3700x13/31 = 1551,6. Bate nos dois.
+// Antes era rateio linear — meta x dias / dias do mes. Isso combinava com
+// o report manual do IC (dia 13 de outubro: 2.217 leads e 1.552 MQL, que
+// sao 5286x13/31 e 3700x13/31), mas brigava com o card da home: no dia 16
+// o card dizia 1.698 de MQL e este texto dizia 1.910, pro mesmo conceito.
 //
-// Um detalhe pra nao estranhar: na meta de UM dia o rateio da 171 leads
-// (5286/31 = 170,5) e o report manual escrevia 170 — a planilha truncava
-// onde aqui a gente arredonda. Diferenca de uma unidade, 0,6 ponto
-// percentual. Se o combinado com o IC for truncar, troque os dois
-// Math.round abaixo por Math.floor.
+// Duas respostas pra mesma pergunta e' pior que uma resposta que muda. A
+// verba nao e' gasta igual todo dia — escala por semana —, entao cobrar
+// lead em ritmo linear e' cobrar resultado de um dinheiro que ainda nao
+// foi gasto.
+//
+// ATENCAO: isto muda o numero que vai no grupo. Se o combinado com o IC
+// for manter o rateio linear, apague a chamada de fracaoPlanoJanela
+// abaixo — a divisao linear continua ali como fallback e volta sozinha.
 function diasNoMes(ymd) {
   const [a, m] = ymd.split('-').map(Number);
   return new Date(a, m, 0).getDate();   // dia 0 do mes seguinte = ultimo deste
 }
 
+// Quanto do plano do mes cabe na janela de `dias` que termina em ymd.
+// Devolve null quando o mes nao tem curva cadastrada — ai o rateio linear
+// assume e nada quebra.
+function fracaoPlanoJanela(ymd, dias) {
+  const plano = (PLANO_DIARIO[ymd.slice(0, 7)] || {})[PRODUTO_TEXTO];
+  if (!plano) return null;
+  const total = plano.reduce((s, v) => s + v, 0);
+  if (!total) return null;
+
+  const d = Number(ymd.slice(8, 10));          // dia do mes, 1 a 31
+  let janela = 0;
+  for (let i = Math.max(0, d - dias); i < d && i < plano.length; i++) {
+    janela += plano[i];
+  }
+  return janela / total;
+}
+
 function metaRateada(ymd, dias) {
   const meta = (METAS_POR_MES[ymd.slice(0, 7)] || {})[PRODUTO_TEXTO];
   if (!meta) return null;
+
+  const f = fracaoPlanoJanela(ymd, dias);
+  if (f !== null) {
+    return {
+      leads: Math.round((meta.leads || 0) * f),
+      mqls:  Math.round((meta.mqls  || 0) * f),
+    };
+  }
+
   const nd = diasNoMes(ymd);
   return {
     leads: Math.round((meta.leads || 0) * dias / nd),
