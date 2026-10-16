@@ -2551,6 +2551,75 @@ function dadosVisiveis() {
 // O filtro de rede entra nas duas pontas: so o investimento daquela rede e
 // so os leads que vieram dela. Dividir gasto de uma rede pelos MQL de todas
 // daria um CPMQL fantasia.
+// ── Reaplicacoes por dia, por rede ──────────────────────────────────────
+// As quatro redes de captacao numa serie temporal. Responde "de onde esta
+// vindo reaplicacao" ao longo do mes, que o card de Reaplicacao (um numero
+// so) nao mostra.
+//
+// Zero e' ZERO aqui, nao buraco. No CPMQL um dia sem MQL vira null porque
+// dividir por zero nao da numero — a ausencia e' falta de dado. Em
+// reaplicacao, dia sem nenhuma e' informacao: a linha encosta no zero e
+// isso se le. Usar null faria a linha pular o dia e parecer continua.
+const REDES_REAPL = ['LinkedIn', 'Meta', 'Google', 'Orgânico'];
+
+function reaplicacaoPorDiaRede() {
+  const nomes = produtoAtivo === CONSOLIDADO ? PRODUTOS_REAIS : [produtoAtivo];
+  const alvos = nomes.map(semAcento);
+
+  // Mesmo recorte das outras telas. O filtro de rede fica de fora de
+  // proposito: o grafico E' a quebra por rede, e aplicar o filtro deixaria
+  // uma linha so' — pra isso ja existe o card da rede.
+  let base = dados.backlog
+    .filter(b => alvos.includes(semAcento(b.produto)))
+    .filter(b => {
+      const dia = (b.aplicacao || '').trim().slice(0, 5);
+      return dia.includes('/') && dentroDoPeriodo(dia);
+    });
+  if (filtros.etapa)        base = base.filter(b => normalizarEtapa(b.etapa) === filtros.etapa);
+  if (filtros.proprietario) base = base.filter(b => b.proprietario === filtros.proprietario);
+  if (filtros.funil)        base = base.filter(b => b.funil === filtros.funil);
+  if (filtros.cargo)        base = base.filter(b => normalizarCargo(b.cargo) === filtros.cargo);
+  if (filtros.tipoCampanha) base = base.filter(passaTipoCampanha);
+  if (filtros.score)        base = base.filter(b =>
+    b.score !== null && b.score !== undefined
+    && String(Math.floor(b.score)) === filtros.score);
+
+  const dias     = new Set();
+  const reaplDia = {};   // rede -> dia -> qtd de reaplicacoes
+  const leadDia  = {};   // rede -> dia -> qtd de leads (pro % no tooltip)
+  let foraDasQuatro = 0; // reaplicacao em rede que nao esta no grafico
+
+  for (const r of REDES_REAPL) { reaplDia[r] = {}; leadDia[r] = {}; }
+
+  for (const b of base) {
+    const dia = (b.aplicacao || '').trim().slice(0, 5);
+    dias.add(dia);
+    const rede = redeDoLead(b);
+    if (!REDES_REAPL.includes(rede)) {
+      // Nao some calado: vira aviso no titulo do card.
+      if (b.reaplicacao) foraDasQuatro++;
+      continue;
+    }
+    leadDia[rede][dia] = (leadDia[rede][dia] || 0) + 1;
+    if (b.reaplicacao) reaplDia[rede][dia] = (reaplDia[rede][dia] || 0) + 1;
+  }
+
+  const labels = [...dias].sort((a, b) => paraData(a) - paraData(b));
+
+  // Rede sem nenhuma reaplicacao no periodo sai do grafico: uma reta em
+  // zero nao informa nada e rouba uma cor da legenda.
+  const series = REDES_REAPL
+    .map(rede => ({
+      nome: rede,
+      dados: labels.map(d => reaplDia[rede][d] || 0),
+      total: Object.values(reaplDia[rede]).reduce((s, x) => s + x, 0),
+      leadDia: leadDia[rede],
+    }))
+    .filter(s => s.total > 0);
+
+  return { labels, series, foraDasQuatro };
+}
+
 function cpmqlPorDiaProduto() {
   const nomes = produtoAtivo === CONSOLIDADO ? PRODUTOS_REAIS : [produtoAtivo];
   const dias = new Set();
@@ -3008,6 +3077,23 @@ function render() {
       </div>
       <div class="chart-box" style="height:360px"><canvas id="chartCpmqlProdutos"></canvas></div>
     </div>
+
+    ${(() => {
+      // So aparece quando ha reaplicacao no periodo: sem nenhuma, seriam
+      // quatro retas em zero ocupando 360px de tela.
+      const r = reaplicacaoPorDiaRede();
+      if (!r.series.length) return '';
+      return `
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-title">
+        Reaplicações por dia
+        <span class="card-tag">por rede${
+          r.foraDasQuatro ? ` · ${fmtNum(r.foraDasQuatro)} fora das quatro redes`
+                          : ''}</span>
+      </div>
+      <div class="chart-box" style="height:360px"><canvas id="chartReaplRede"></canvas></div>
+    </div>`;
+    })()}
 
     ${(() => {
       // Card de largura cheia, abaixo do CPMQL. So aparece quando ha lead
@@ -8017,6 +8103,99 @@ function desenharGraficos(v, vComp) {
       },
     },
   }));
+
+  // ── Reaplicacoes por dia, por rede ───────────────────────────────────
+  // Quatro linhas. Duas diferencas em relacao ao CPMQL, as duas por causa
+  // do numero de series:
+  //
+  // 1. Sem rotulo em todo ponto. Quatro linhas x ~16 dias dariam 64
+  //    etiquetas empilhadas e ilegiveis. O rotulo fica so' no ultimo ponto
+  //    de cada linha, pra leitura rapida do nivel atual; o resto sai no
+  //    tooltip, que mostra as quatro redes do dia de uma vez.
+  //
+  // 2. Tracejado diferente por rede. Meta, Google e LinkedIn tem cores
+  //    vizinhas no CORES_REDE (tres tons de azul) — bonito nos cards,
+  //    indistinguivel em linha fina. Mantive as cores pra nao criar uma
+  //    segunda gramatica de cor no dashboard, e separei pelo traco.
+  const reapl = reaplicacaoPorDiaRede();
+  const TRACO_REDE = {
+    'LinkedIn': [],         // continua
+    'Meta':     [7, 4],     // tracejado
+    'Google':   [2, 3],     // pontilhado
+    'Orgânico': [10, 3, 2, 3],
+  };
+
+  if (reapl.series.length) {
+    charts.reaplRede = comCanvas('chartReaplRede', el => new Chart(el, {
+      data: {
+        labels: reapl.labels,
+        datasets: reapl.series.map(s => ({
+          type: 'line',
+          label: s.nome,
+          data: s.dados,
+          borderColor: CORES_REDE[s.nome] || '#4a9eed',
+          backgroundColor: CORES_REDE[s.nome] || '#4a9eed',
+          pointBackgroundColor: CORES_REDE[s.nome] || '#4a9eed',
+          borderDash: TRACO_REDE[s.nome] || [],
+          borderWidth: 2.5,
+          pointRadius: 3,
+          pointHoverRadius: 6,
+          // monotone em vez de tension: a curva suave normal do Chart.js
+          // ultrapassa os pontos pra fazer a volta, e entre um dia com 0 e
+          // outro com 3 ela mergulha ABAIXO de zero. Reaplicacao e'
+          // contagem — nao existe menos que nenhuma, e o desenho nao pode
+          // sugerir que existe. O monotone curva sem ultrapassar.
+          cubicInterpolationMode: 'monotone',
+          fill: false,
+          datalabels: {
+            display: ctx => ctx.dataIndex === ctx.dataset.data.length - 1
+                          && ctx.dataset.data[ctx.dataIndex] > 0,
+            anchor: 'end', align: 'right', offset: 6,
+            color: '#ffffff',
+            font: { family: 'DM Mono', size: 11, weight: 500 },
+            backgroundColor: 'rgba(10,10,10,.82)',
+            borderRadius: 3,
+            padding: { top: 3, bottom: 3, left: 6, right: 6 },
+            formatter: v => fmtNum(v),
+          },
+        })),
+      },
+      options: {
+        ...opcoesBase(),
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          ...opcoesBase().plugins,
+          legend: { display: true,
+            labels:{ color:'#e8e8e8', font:{ family:'DM Mono', size:11 },
+                     boxWidth:22, padding:14, usePointStyle:false } },
+          tooltip: { ...opcoesBase().plugins.tooltip, callbacks: {
+            label: ctx => {
+              const s    = reapl.series[ctx.datasetIndex];
+              const dia  = reapl.labels[ctx.dataIndex];
+              const lead = s.leadDia[dia] || 0;
+              // A fatia explica o numero: 3 reaplicacoes em 5 leads e 3 em
+              // 80 sao coisas diferentes, e so' a contagem nao separa.
+              const pct = lead ? ` · ${(ctx.raw / lead * 100).toFixed(0)}% dos `
+                               + `${fmtNum(lead)} leads` : '';
+              return ` ${ctx.dataset.label}: ${fmtNum(ctx.raw)}${pct}`;
+            },
+          } },
+        },
+        scales: {
+          x: { ticks:{ color:'#e8e8e8', font:{ family:'DM Mono', size:11 },
+                       maxRotation: 45 },
+               grid:{ color:'#1a1a1a' } },
+          y: { beginAtZero:true,
+               grace: '12%',
+               ticks:{ color:'#c8c8c8', font:{ family:'DM Mono', size:11 },
+                       // Reaplicacao e' contagem: meio lead nao existe
+                       precision: 0,
+                       callback: val => fmtNum(val) },
+               grid:{ color:'#1c1c1c' } },
+        },
+      },
+    }));
+  }
 
   // Ganhos acumulados. Se ninguém marcou "sim" ainda, mostra todos os ganhos
   // pra tela não ficar vazia — o aviso fica no título do card.
