@@ -4728,7 +4728,7 @@ function mapaTipoCampanha(v) {
   for (const l of linhas) {
     // Campanha que so' tem ID (Google sem nome na planilha) fica sem tipo:
     // chutar MQL por omissao inflaria um dos lados em silencio.
-    const tipo = tipoDaCampanha(l.rotulo, l.chave);
+    const tipo = tipoDaCampanha(l.rotulo);
     if (!tipo) continue;
     mapa.set(l.chave, tipo);
   }
@@ -6080,31 +6080,13 @@ function objetivoDaCampanha(...textos) {
 // campanha de score, o resto e' de MQL. Vem do proprio planejamento de
 // midia — nao e' heuristica nossa. Por isso ela mora numa funcao so': se
 // um dia a nomenclatura mudar, muda aqui e vale pro card inteiro.
-// ── Excecoes do Google ──────────────────────────────────────────────────
-// Tres campanhas de PMAX sao de SCORE mas tem "[MQL]" no nome, entao a
-// regra por nome as classificaria ao contrario. A lista abaixo e' o
-// de-para por ID, e ela manda sobre o nome.
-//
-// Isso tambem resgata o lead que chega com a utm so' com o ID numerico:
-// antes ele caia no balde "nao da pra classificar" e ficava fora dos dois
-// lados. Com o ID conhecido, da' pra dizer de que tipo e'.
-//
-// Pra acrescentar outra: cole o ID aqui com o nome ao lado, so' pra quem
-// ler depois saber de que campanha se trata.
-const CAMPANHAS_SCORE_POR_ID = {
-  '24146388405': '[TD][PFCC][GA][BR][PMAX][LEADS][LP][MQL] - [19.08] - TYPEBOT',
-  '22675029313': '[TD][PL][GA][BR][PFCC][LEAD][PMAX][STORIE VISITS][27.05] - TYPEBOT',
-  '23869952762': '[TD][PFCC][GA][BR][PMAX][LEADS][LP][MQL] - [20.05] - TYPEBOT',
-};
-
 // Devolve 'SCORE', 'MQL' ou null (quando nao da' pra saber).
 //
-// A ordem importa: o ID conhecido vence o nome, e o nome so' e' lido
-// quando existe. Campanha identificada apenas por um ID que nao esta na
-// lista continua sem tipo — chutar um lado inflaria a contagem em
-// silencio, que e' pior que ficar de fora e aparecer no aviso.
-function tipoDaCampanha(rotulo, chave) {
-  if (CAMPANHAS_SCORE_POR_ID[chave] || CAMPANHAS_SCORE_POR_ID[rotulo]) return 'SCORE';
+// A regra e' o NOME: "score" no nome e' campanha de score, o resto e' de
+// MQL. Campanha identificada so' por ID numerico fica sem tipo — chutar
+// um lado inflaria a contagem em silencio, que e' pior que ficar de fora
+// e aparecer no aviso do rodape.
+function tipoDaCampanha(rotulo) {
   if (soDigitos(rotulo)) return null;
   return chaveCamp(rotulo).includes('score') ? 'SCORE' : 'MQL';
 }
@@ -6156,7 +6138,7 @@ function mapaBlocoCampanha() {
   const mapa = new Map();
   for (const l of linhas) {
     if (!REDES_PAGAS_SCORE.includes(l.rede)) continue;
-    const tipo = tipoDaCampanha(l.rotulo, l.chave);
+    const tipo = tipoDaCampanha(l.rotulo);
     if (!tipo) continue;
     mapa.set(l.chave, l.rede + '|' + tipo);
   }
@@ -6226,11 +6208,11 @@ function dadosScoreMql(v) {
     const rede = l.rede || '';
     const naRede = REDES_PAGAS_SCORE.includes(rede);
 
-    // null quando nao da' pra dizer o tipo — caso tipico do Google com a
-    // utm so' no ID e o ID fora do de-para. Entra num balde separado em
-    // vez de virar "MQL" por omissao: seria classificar no escuro e
-    // inflar um dos lados.
-    const tipo = tipoDaCampanha(l.rotulo, l.chave);
+    // null quando nao da' pra dizer o tipo — caso tipico do Google, que
+    // manda a utm so' com o ID numerico. Entra num balde separado em vez
+    // de virar "MQL" por omissao: seria classificar no escuro e inflar
+    // um dos lados.
+    const tipo = tipoDaCampanha(l.rotulo);
 
     if (!naRede || !tipo) {
       // Baldes de aviso: viram texto no rodape, nao bloco clicavel. Aqui
