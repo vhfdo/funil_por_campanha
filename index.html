@@ -2725,6 +2725,75 @@ function cpmqlPorDiaProduto() {
 // gasta mais por dia que a quarta. Dividir a meta linearmente daria um
 // numero diferente do card de Previsto, e os dois apareceriam lado a lado
 // se contradizendo.
+// ── Plano diario de investimento ────────────────────────────────────────
+// A meta e' MENSAL, mas o gasto planejado nao e' igual todo dia: a verba
+// escala por semana. Dividir 396.440 por 31 dava 204.614 no dia 16 — um
+// numero que nao existe em plano nenhum, e que fazia o card dizer que
+// sobrava verba quando nao sobrava.
+//
+// Os seis blocos sao as semanas do orcamento. 01-04, 05-12 e 13-15 sao o
+// plano original; 16-18, 19-25 e 26-31 foram recalculados pra fechar o mes
+// no alvo MANTENDO a escalada. Sao os mesmos numeros da aba PLANO da
+// planilha CONTROLE DE MÍDIA — mexeu la, mexe aqui.
+//
+// Mora no codigo, nao numa aba, de proposito: a aba PREVISTO existia pra
+// isso e viver vazia, e um plano que depende de alguem lembrar de colar
+// nao e' plano.
+const _rep = (v, n) => Array(n).fill(v);
+const _curva = (a, b, c, d, e, f) => [
+  ..._rep(a, 4),   // 01 a 04
+  ..._rep(b, 8),   // 05 a 12
+  ..._rep(c, 3),   // 13 a 15
+  ..._rep(d, 3),   // 16 a 18
+  ..._rep(e, 7),   // 19 a 25
+  ..._rep(f, 6),   // 26 a 31
+];
+
+// Nomes dos PRODUTOS do dashboard, nao as linhas do orcamento:
+// PFCC BRASIL ja inclui DIST/NUT/RMKT e VANGUARD. LINKEDIN PROGRAM fica
+// de fora porque nao existe como produto aqui, e PFCC CHILE nao tem linha
+// no orcamento de outubro — produto sem plano nao entra na conta em vez
+// de entrar como zero.
+const PLANO_DIARIO = {
+  '2026-10': {
+    'PFCC BRASIL':   _curva(9408.92, 11761.15, 12545.23, 12615.52, 13516.63, 15769.41),
+    'PFCC MÉXICO':   _curva(1192.68,  1490.85,  1590.24,  1585.10,  1698.32,  1981.37),
+    'BOARD ADVISOR': _curva( 530.08,   662.60,   706.77,   581.03,   622.53,   726.29),
+    'IA NA PRÁTICA': _curva( 265.04,   331.30,   353.39,   290.52,   311.27,   363.14),
+    'CES':           _curva( 265.04,   331.30,   353.39,   290.52,   311.27,   363.14),
+    'LEAN':          _curva( 265.04,   331.30,   353.39,   290.52,   311.27,   363.14),
+  },
+};
+
+// Que FRACAO do mes o plano diz que ja passou, de 0 a 1.
+//
+// Fracao e nao valor em reais: assim a mesma curva serve pra investimento,
+// lead, MQL, venda e faturamento. Devolver reais so' funcionaria no card
+// de investimento e colocaria dinheiro no lugar de lead nos outros.
+//
+// No investimento o resultado e' exato, porque a soma do plano E' a meta:
+// meta x fracao devolve a propria soma dos dias ate hoje.
+function fracaoDoPlano(ref) {
+  const mes = ref.getFullYear() + '-'
+            + String(ref.getMonth() + 1).padStart(2, '0');
+  const plano = PLANO_DIARIO[mes];
+  if (!plano) return null;
+
+  const nomes = produtoAtivo === CONSOLIDADO ? PRODUTOS_REAIS : [produtoAtivo];
+  const series = nomes.map(n => plano[n]).filter(Boolean);
+  if (!series.length) return null;
+
+  const dia = ref.getDate();
+  let ate = 0, total = 0;
+  for (const s of series) {
+    for (let i = 0; i < s.length; i++) {
+      total += s[i];
+      if (i < dia) ate += s[i];
+    }
+  }
+  return total ? ate / total : null;
+}
+
 function metaAteHoje(meta, previsto) {
   if (previsto !== null && previsto !== undefined) return Math.round(previsto);
   if (!meta) return null;
@@ -2734,6 +2803,11 @@ function metaAteHoje(meta, previsto) {
   const fimSel = document.getElementById('dataFim').value;
   let ref = fimSel ? new Date(fimSel + 'T00:00:00') : hoje;
   if (ref > hoje) ref = hoje;
+
+  // O plano manda quando existe pro mes; sem ele, a divisao linear de
+  // sempre — mes novo sem plano cadastrado continua funcionando.
+  const f = fracaoDoPlano(ref);
+  if (f !== null) return Math.round(meta * f);
 
   const dia = ref.getDate();
   const diasNoMes = new Date(ref.getFullYear(), ref.getMonth() + 1, 0).getDate();
