@@ -4728,8 +4728,9 @@ function mapaTipoCampanha(v) {
   for (const l of linhas) {
     // Campanha que so' tem ID (Google sem nome na planilha) fica sem tipo:
     // chutar MQL por omissao inflaria um dos lados em silencio.
-    if (soDigitos(l.rotulo)) continue;
-    mapa.set(l.chave, ehCampanhaScore(l.rotulo) ? 'SCORE' : 'MQL');
+    const tipo = tipoDaCampanha(l.rotulo, l.chave);
+    if (!tipo) continue;
+    mapa.set(l.chave, tipo);
   }
   return mapa;
 }
@@ -6079,12 +6080,40 @@ function objetivoDaCampanha(...textos) {
 // campanha de score, o resto e' de MQL. Vem do proprio planejamento de
 // midia — nao e' heuristica nossa. Por isso ela mora numa funcao so': se
 // um dia a nomenclatura mudar, muda aqui e vale pro card inteiro.
-const ehCampanhaScore = rotulo => chaveCamp(rotulo).includes('score');
+// ── Excecoes do Google ──────────────────────────────────────────────────
+// Tres campanhas de PMAX sao de SCORE mas tem "[MQL]" no nome, entao a
+// regra por nome as classificaria ao contrario. A lista abaixo e' o
+// de-para por ID, e ela manda sobre o nome.
+//
+// Isso tambem resgata o lead que chega com a utm so' com o ID numerico:
+// antes ele caia no balde "nao da pra classificar" e ficava fora dos dois
+// lados. Com o ID conhecido, da' pra dizer de que tipo e'.
+//
+// Pra acrescentar outra: cole o ID aqui com o nome ao lado, so' pra quem
+// ler depois saber de que campanha se trata.
+const CAMPANHAS_SCORE_POR_ID = {
+  '24146388405': '[TD][PFCC][GA][BR][PMAX][LEADS][LP][MQL] - [19.08] - TYPEBOT',
+  '22675029313': '[TD][PL][GA][BR][PFCC][LEAD][PMAX][STORIE VISITS][27.05] - TYPEBOT',
+  '23869952762': '[TD][PFCC][GA][BR][PMAX][LEADS][LP][MQL] - [20.05] - TYPEBOT',
+};
+
+// Devolve 'SCORE', 'MQL' ou null (quando nao da' pra saber).
+//
+// A ordem importa: o ID conhecido vence o nome, e o nome so' e' lido
+// quando existe. Campanha identificada apenas por um ID que nao esta na
+// lista continua sem tipo — chutar um lado inflaria a contagem em
+// silencio, que e' pior que ficar de fora e aparecer no aviso.
+function tipoDaCampanha(rotulo, chave) {
+  if (CAMPANHAS_SCORE_POR_ID[chave] || CAMPANHAS_SCORE_POR_ID[rotulo]) return 'SCORE';
+  if (soDigitos(rotulo)) return null;
+  return chaveCamp(rotulo).includes('score') ? 'SCORE' : 'MQL';
+}
 
 // Redes onde a separacao faz sentido: as que tem campanha paga. Organico
 // e Workshop entram no dashboard como classificacao de LEAD, nao tem
 // campanha nem investimento — apareceriam como uma coluna de CPL vazio.
-const REDES_PAGAS_SCORE = ['Meta', 'LinkedIn', 'Google'];
+// A ordem aqui e' a ordem dos blocos na tela: LinkedIn, Google, Meta.
+const REDES_PAGAS_SCORE = ['LinkedIn', 'Google', 'Meta'];
 
 const COR_SCORE = '#4ade80';
 const COR_MQL   = '#4a9eff';
@@ -6126,9 +6155,10 @@ function mapaBlocoCampanha() {
 
   const mapa = new Map();
   for (const l of linhas) {
-    if (soDigitos(l.rotulo)) continue;
     if (!REDES_PAGAS_SCORE.includes(l.rede)) continue;
-    mapa.set(l.chave, l.rede + '|' + (ehCampanhaScore(l.rotulo) ? 'SCORE' : 'MQL'));
+    const tipo = tipoDaCampanha(l.rotulo, l.chave);
+    if (!tipo) continue;
+    mapa.set(l.chave, l.rede + '|' + tipo);
   }
   _blocoCampCache = { assinatura, mapa };
   return mapa;
@@ -6196,13 +6226,13 @@ function dadosScoreMql(v) {
     const rede = l.rede || '';
     const naRede = REDES_PAGAS_SCORE.includes(rede);
 
-    // Campanha identificada so' pelo ID (caso tipico do Google quando a
-    // planilha nao trouxe o nome): nao da pra dizer se tem SCORE no nome.
-    // Entra num balde separado em vez de virar "MQL" por omissao — seria
-    // classificar no escuro e inflar um dos lados.
-    const semRotulo = soDigitos(l.rotulo);
+    // null quando nao da' pra dizer o tipo — caso tipico do Google com a
+    // utm so' no ID e o ID fora do de-para. Entra num balde separado em
+    // vez de virar "MQL" por omissao: seria classificar no escuro e
+    // inflar um dos lados.
+    const tipo = tipoDaCampanha(l.rotulo, l.chave);
 
-    if (!naRede || semRotulo) {
+    if (!naRede || !tipo) {
       // Baldes de aviso: viram texto no rodape, nao bloco clicavel. Aqui
       // o lead e o MQL podem sair da propria linha, ja' que nao ha regra
       // de score a aplicar num grupo que nem tipo tem.
@@ -6215,8 +6245,7 @@ function dadosScoreMql(v) {
     }
 
     porChave.set(l.chave, {
-      chave: l.chave, rotulo: l.rotulo, rede,
-      tipo: ehCampanhaScore(l.rotulo) ? 'SCORE' : 'MQL',
+      chave: l.chave, rotulo: l.rotulo, rede, tipo,
       investimento: l.investimento, leads: 0, mqls: 0,
     });
   }
