@@ -2674,6 +2674,50 @@ function reaplicacaoPorDiaRede() {
   return { labels, series, foraDasQuatro };
 }
 
+// ── % da meta, acumulado dia a dia (MTD) ────────────────────────────────
+// Uma linha so'. Cada ponto responde "no fim daquele dia, eu estava com
+// quantos % da meta que ja' deveria ter cumprido".
+//
+// O denominador NAO e' a meta do mes: e' a meta ja' devida naquele dia,
+// pela curva do plano (a mesma do card de Investimento e do texto
+// diario). Contra a meta cheia a linha so' subiria de 0 a 100 ao longo do
+// mes e nao diria nada — qualquer mes pareceria igual. Contra a meta
+// devida, 100% e' "em dia" e a linha mostra quando voce descolou.
+function pctMetaMtd(v) {
+  const metaMes = metasAtivas().mqls || 0;
+  if (!metaMes) return null;
+
+  const porDia = {};
+  for (const b of v.backlog) {
+    const dia = (b.aplicacao || '').trim().slice(0, 5);
+    if (!dia.includes('/')) continue;
+    if (porDia[dia] === undefined) porDia[dia] = 0;   // dia sem MQL existe
+    if (b.mql) porDia[dia]++;
+  }
+
+  const labels = Object.keys(porDia).sort((a, b) => paraData(a) - paraData(b));
+  if (!labels.length) return null;
+
+  let acum = 0;
+  const dados = [], detalhe = {};
+  for (const d of labels) {
+    acum += porDia[d];
+    const ref = paraData(d);
+    // Sem curva cadastrada pro mes, rateio linear — o mesmo fallback do
+    // resto da tela.
+    let f = fracaoDoPlano(ref);
+    if (f === null) {
+      const nd = new Date(ref.getFullYear(), ref.getMonth() + 1, 0).getDate();
+      f = ref.getDate() / nd;
+    }
+    const alvo = metaMes * f;
+    detalhe[d] = { acum, alvo };
+    dados.push(alvo ? Math.round(acum / alvo * 100) : null);
+  }
+
+  return { labels, dados, detalhe, metaMes };
+}
+
 function cpmqlPorDiaProduto() {
   const nomes = produtoAtivo === CONSOLIDADO ? PRODUTOS_REAIS : [produtoAtivo];
   const dias = new Set();
@@ -3219,6 +3263,20 @@ function render() {
                           : ''}</span>
       </div>
       <div class="chart-box" style="height:360px"><canvas id="chartReaplRede"></canvas></div>
+    </div>`;
+    })()}
+
+    ${(() => {
+      // Sem meta cadastrada no mes nao ha percentual nenhum pra mostrar.
+      const m = pctMetaMtd(v);
+      if (!m) return '';
+      return `
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-title">
+        <span>% da meta (MTD)</span>
+        <span class="card-tag">MQL acumulado ÷ meta devida no dia · 100% = em dia</span>
+      </div>
+      <div class="chart-box" style="height:360px"><canvas id="chartMetaMtd"></canvas></div>
     </div>`;
     })()}
 
@@ -8475,6 +8533,78 @@ function desenharGraficos(v, vComp) {
                grid:{ color:'#1a1a1a' } },
           y: { beginAtZero:true,
                grace: '12%',
+               ticks:{ color:'#c8c8c8', font:{ family:'DM Mono', size:11 },
+                       precision: 0,
+                       callback: val => val + '%' },
+               grid:{ color:'#1c1c1c' } },
+        },
+      },
+    }));
+  }
+
+  // ── % da meta (MTD) ──────────────────────────────────────────────────
+  // Uma linha, rotulo em todo ponto. Com uma serie so' nao ha colisao
+  // possivel, entao aqui o rotulo e' 'true' e nao 'auto' — nenhum numero
+  // some.
+  //
+  // A cor segue o valor: verde em dia, vermelho atrasado. Com uma linha
+  // so' a cor fica livre pra carregar significado, o que nao da' pra
+  // fazer nos graficos por rede, onde ela ja' identifica a rede.
+  const mtd = pctMetaMtd(v);
+  if (mtd) {
+    const corDe = p => p === null ? '#4a9eed'
+                     : p >= 100 ? '#4ade80' : p >= 85 ? '#d9a441' : '#e05260';
+    charts.metaMtd = comCanvas('chartMetaMtd', el => new Chart(el, {
+      data: {
+        labels: mtd.labels,
+        datasets: [{
+          type: 'line',
+          label: '% da meta',
+          data: mtd.dados,
+          borderColor: '#4a9eed',
+          backgroundColor: 'rgba(74,158,237,.12)',
+          pointBackgroundColor: ctx => corDe(ctx.raw),
+          pointBorderColor: ctx => corDe(ctx.raw),
+          borderWidth: 2.5,
+          pointRadius: 4,
+          pointHoverRadius: 7,
+          cubicInterpolationMode: 'monotone',
+          fill: true,
+          datalabels: {
+            display: true,
+            anchor: 'end', align: 'top', offset: 5,
+            color: ctx => corDe(ctx.dataset.data[ctx.dataIndex]),
+            font: { family: 'DM Mono', size: 11, weight: 500 },
+            backgroundColor: 'rgba(10,10,10,.85)',
+            borderRadius: 3,
+            padding: { top: 2, bottom: 2, left: 5, right: 5 },
+            formatter: val => val + '%',
+          },
+        }],
+      },
+      options: {
+        ...opcoesBase(),
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          ...opcoesBase().plugins,
+          legend: { display: false },
+          tooltip: { ...opcoesBase().plugins.tooltip, callbacks: {
+            label: ctx => {
+              const d = mtd.detalhe[mtd.labels[ctx.dataIndex]];
+              // Os dois numeros por tras da conta: so' o percentual nao
+              // diz se faltam 3 MQL ou 300.
+              return [` ${ctx.raw}% da meta do dia`,
+                      ` ${fmtNum(d.acum)} MQL de ${fmtNum(Math.round(d.alvo))} devidos`,
+                      ` meta do mês: ${fmtNum(mtd.metaMes)}`];
+            },
+          } },
+        },
+        scales: {
+          x: { ticks:{ color:'#e8e8e8', font:{ family:'DM Mono', size:11 },
+                       maxRotation: 45 },
+               grid:{ color:'#1a1a1a' } },
+          y: { beginAtZero:true,
+               grace: '15%',
                ticks:{ color:'#c8c8c8', font:{ family:'DM Mono', size:11 },
                        precision: 0,
                        callback: val => val + '%' },
