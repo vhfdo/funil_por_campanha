@@ -2698,8 +2698,13 @@ function pctMetaMtd(v) {
   const labels = Object.keys(porDia).sort((a, b) => paraData(a) - paraData(b));
   if (!labels.length) return null;
 
-  let acum = 0;
-  const dados = [], detalhe = {};
+  // alvoAcumR e' o acumulado JA ARREDONDADO. A meta do dia sai da
+  // diferenca entre dois acumulados arredondados, nao do arredondamento
+  // de cada dia: assim a soma das barras bate exatamente com o acumulado
+  // do ultimo ponto. Arredondando dia a dia sobrava meia unidade por dia
+  // e no fim do mes as barras somavam 3 a mais que a linha.
+  let acum = 0, alvoAcumR = 0;
+  const dados = [], mqlDia = [], metaDia = [], detalhe = {};
   for (const d of labels) {
     acum += porDia[d];
     const ref = paraData(d);
@@ -2710,12 +2715,18 @@ function pctMetaMtd(v) {
       const nd = new Date(ref.getFullYear(), ref.getMonth() + 1, 0).getDate();
       f = ref.getDate() / nd;
     }
-    const alvo = metaMes * f;
-    detalhe[d] = { acum, alvo };
+    const alvo  = metaMes * f;
+    const alvoR = Math.round(alvo);
+    const alvoDia = alvoR - alvoAcumR;
+    alvoAcumR = alvoR;
+
+    metaDia.push(alvoDia);
+    mqlDia.push(porDia[d]);
+    detalhe[d] = { acum, alvo, alvoDia, mql: porDia[d] };
     dados.push(alvo ? Math.round(acum / alvo * 100) : null);
   }
 
-  return { labels, dados, detalhe, metaMes };
+  return { labels, dados, mqlDia, metaDia, detalhe, metaMes };
 }
 
 function cpmqlPorDiaProduto() {
@@ -3274,7 +3285,7 @@ function render() {
     <div class="card" style="margin-bottom:16px">
       <div class="card-title">
         <span>% da meta (MTD)</span>
-        <span class="card-tag">MQL acumulado ÷ meta devida no dia · 100% = em dia</span>
+        <span class="card-tag">barras: MQL do dia vs meta do dia · linha: acumulado, 100% = em dia</span>
       </div>
       <div class="chart-box" style="height:360px"><canvas id="chartMetaMtd"></canvas></div>
     </div>`;
@@ -8577,18 +8588,49 @@ function desenharGraficos(v, vComp) {
       data: {
         labels: mtd.labels,
         datasets: [{
+          // Barras primeiro no array, mas `order` maior: no Chart.js o
+          // order alto desenha ANTES, entao elas ficam atras da linha.
+          type: 'bar',
+          label: 'Meta do dia',
+          data: mtd.metaDia,
+          backgroundColor: 'rgba(138,138,138,.30)',
+          borderColor: 'rgba(138,138,138,.55)',
+          borderWidth: 1,
+          yAxisID: 'y1',
+          order: 3,
+          // Barra sem rotulo de proposito: 19 dias x 2 barras dariam 38
+          // numeros espremidos e tapariam a linha, que e' a leitura
+          // principal. Os dois valores saem no tooltip do dia.
+          datalabels: { display: false },
+        }, {
+          type: 'bar',
+          label: 'MQL entregue',
+          data: mtd.mqlDia,
+          backgroundColor: '#2980b9',
+          borderColor: '#2980b9',
+          borderWidth: 1,
+          yAxisID: 'y1',
+          order: 2,
+          datalabels: { display: false },
+        }, {
           type: 'line',
-          label: '% da meta',
+          label: '% da meta (acumulado)',
           data: mtd.dados,
-          borderColor: '#4a9eed',
-          backgroundColor: 'rgba(74,158,237,.12)',
+          yAxisID: 'y',
+          order: 1,
+          // Linha clara, nao azul: o azul agora e' das barras de MQL, e
+          // duas coisas azuis no mesmo grafico se confundem. A cor que
+          // importa aqui esta nos PONTOS, que seguem o status.
+          borderColor: '#e8e8e8',
+          backgroundColor: 'transparent',
           pointBackgroundColor: ctx => corDe(ctx.raw),
           pointBorderColor: ctx => corDe(ctx.raw),
           borderWidth: 2.5,
           pointRadius: 4,
           pointHoverRadius: 7,
           cubicInterpolationMode: 'monotone',
-          fill: true,
+          // Sem area preenchida: ela tapava as barras que agora estao atras.
+          fill: false,
           datalabels: {
             display: true,
             anchor: 'end', align: 'top', offset: 5,
@@ -8606,15 +8648,23 @@ function desenharGraficos(v, vComp) {
         interaction: { mode: 'index', intersect: false },
         plugins: {
           ...opcoesBase().plugins,
-          legend: { display: false },
+          legend: { display: true,
+            labels:{ color:'#e8e8e8', font:{ family:'DM Mono', size:11 },
+                     boxWidth:22, padding:14, usePointStyle:false } },
           tooltip: { ...opcoesBase().plugins.tooltip, callbacks: {
+            // Um bloco so' por dia, no dataset da linha. Sem isto o
+            // tooltip repetiria o dia tres vezes, uma por serie.
             label: ctx => {
+              if (ctx.dataset.type === 'bar') return null;
               const d = mtd.detalhe[mtd.labels[ctx.dataIndex]];
-              // Os dois numeros por tras da conta: so' o percentual nao
-              // diz se faltam 3 MQL ou 300.
-              return [` ${ctx.raw}% da meta do dia`,
-                      ` ${fmtNum(d.acum)} MQL de ${fmtNum(Math.round(d.alvo))} devidos`,
-                      ` meta do mês: ${fmtNum(mtd.metaMes)}`];
+              const dif = d.mql - d.alvoDia;
+              return [
+                ` dia: ${fmtNum(d.mql)} MQL de ${fmtNum(d.alvoDia)}`
+                  + ` (${dif >= 0 ? '+' : ''}${fmtNum(dif)})`,
+                ` acumulado: ${fmtNum(d.acum)} de ${fmtNum(Math.round(d.alvo))}`
+                  + ` = ${ctx.raw}%`,
+                ` meta do mês: ${fmtNum(mtd.metaMes)}`,
+              ];
             },
           } },
         },
@@ -8624,10 +8674,20 @@ function desenharGraficos(v, vComp) {
                grid:{ color:'#1a1a1a' } },
           y: { beginAtZero:true,
                grace: '15%',
+               position: 'left',
                ticks:{ color:'#c8c8c8', font:{ family:'DM Mono', size:11 },
                        precision: 0,
                        callback: val => val + '%' },
                grid:{ color:'#1c1c1c' } },
+          // Eixo proprio pras barras: percentual e contagem de MQL nao
+          // cabem na mesma regua. Sem grade, pra nao cruzar duas malhas
+          // de linha no mesmo fundo.
+          y1: { beginAtZero:true,
+                position: 'right',
+                grace: '20%',
+                ticks:{ color:'#8a8a8a', font:{ family:'DM Mono', size:11 },
+                        precision: 0 },
+                grid:{ drawOnChartArea: false } },
         },
       },
     }));
