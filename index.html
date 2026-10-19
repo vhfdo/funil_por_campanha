@@ -3284,8 +3284,7 @@ function render() {
       // Card de largura cheia, abaixo do CPMQL. So aparece quando ha lead
       // com pontuacao: sem dado, uma linha reta em zero nao diz nada e so
       // ocupa a tela.
-      const comScore = v.backlog.filter(
-        b => b.score !== null && b.score !== undefined).length;
+      const comScore = v.backlog.filter(comScoreValido).length;
       if (!comScore) return '';
       return `
       <div class="card" style="margin-bottom:16px">
@@ -5045,7 +5044,7 @@ function linhaPerfil(rotulo, qtd, pct, cor, maior, extra, titulo) {
 
 // ── Painel do score ─────────────────────────────────────────────────────
 function painelScoreCampanha(leads) {
-  const comScore = leads.filter(b => b.score !== null && b.score !== undefined);
+  const comScore = leads.filter(comScoreValido);
   if (!comScore.length) {
     return `<div class="perfil-sub">Nenhum lead com score preenchido vindo de
       campanha de score neste período.</div>`;
@@ -7552,6 +7551,26 @@ function somaMeta(de, ate) {
                      .reduce((s, f) => s + metaDaFaixa(f), 0);
 }
 
+// Lead que entra na leitura de pontuacao.
+//
+// Duas condicoes, e a segunda e' o motivo deste helper existir:
+//
+//   1. tem score preenchido
+//   2. respondeu as QUATRO perguntas (idade, escolaridade, renda, cargo)
+//
+// Em PFCC a (2) ja' estava implicita na (1): o script zera o score quando
+// falta resposta. Em Lean e CES nao — la' o score E' a regua de MQL e nao
+// passa por essa trava. Resultado: no Consolidado o grafico misturava
+// nota calculada sobre quatro respostas com nota calculada sobre duas, e
+// a distribuicao inteira ficava sem significado.
+//
+// cadastroCompleto === null significa "a planilha ainda nao tem a coluna"
+// (entre subir o codigo e a primeira rodada do script). Nesse caso o lead
+// PASSA: filtrar por um dado que ainda nao existe esvaziaria o grafico e
+// pareceria bug.
+const comScoreValido = b =>
+  b.score !== null && b.score !== undefined && b.cadastroCompleto !== false;
+
 // Distribuicao por faixa. Score fora da escala e' puxado pra ponta mais
 // proxima, senao o lead sumiria da conta sem ninguem notar.
 function distribuicaoScore(lista) {
@@ -7560,7 +7579,7 @@ function distribuicaoScore(lista) {
 
   let total = 0;
   for (const b of lista) {
-    if (b.score === null || b.score === undefined) continue;
+    if (!comScoreValido(b)) continue;
     const f = Math.min(9, Math.max(2, Math.floor(b.score)));
     qtd[f]++;
     if (b.mql) mqls[f]++;
