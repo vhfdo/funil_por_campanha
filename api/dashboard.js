@@ -569,8 +569,23 @@ export default async function handler(req, res) {
 
         // ── Leitura 2: detalhe por campanha ───────────────────────────
         const cols = acharColunas(aba[0] || []);
-        const cDataDet  = cols.data  >= 0 ? cols.data  : inv.colData;
-        const cValorDet = cols.valor >= 0 ? cols.valor : inv.colValor;
+
+        // DATA e VALOR saem do CONFIG — as mesmas colunas da leitura 1,
+        // nao as achadas pelo cabecalho. Achar pelo nome e' o unico jeito
+        // de pegar campanha, conjunto, anuncio e ID, que o config nao tem;
+        // pra dinheiro e' risco puro: basta a aba ter duas colunas
+        // parecidas (um "Cost" e um "Custo", uma data de importacao alem
+        // do "Day") pra cada leitura cair numa coluna e as duas nunca mais
+        // baterem. Era isso no Google do PFCC Brasil: R$ 9.171 no card de
+        // rede contra R$ 12.053 na leitura por campanha.
+        //
+        // Com o config dos dois lados, o detalhe por campanha e' sempre um
+        // SUBCONJUNTO do total da rede — as unicas linhas que ele perde
+        // sao as que ele descarta de proposito (outro pais, campanha fora
+        // de aquisicao). Se um dia ele der MAIS que o card de rede, e' bug,
+        // nao diferenca de criterio.
+        const cDataDet  = Number.isInteger(inv.colData)  ? inv.colData  : cols.data;
+        const cValorDet = Number.isInteger(inv.colValor) ? inv.colValor : cols.valor;
 
         const marca = MARCA_PAIS[nomeProduto];
         const filtraPais = !!(marca || nomeProduto === 'PFCC BRASIL');
@@ -746,6 +761,14 @@ export default async function handler(req, res) {
         // data deixa o front contar contra hoje e nunca ficar velha.
         proximaAtividade: linha[24] || '',
         ativAbertas:      Number(linha[25]) || 0,
+        // As quatro perguntas respondidas (coluna 27, depois do Telefone).
+        //
+        // TRES estados, nao dois: true, false e null. null e' "a planilha
+        // ainda nao tem essa coluna" — acontece entre subir o codigo novo
+        // e a primeira rodada do script. Se null virasse false, o grafico
+        // de pontuacao ficaria VAZIO nesse intervalo, e pareceria bug.
+        cadastroCompleto: linha[27] === undefined || linha[27] === null
+                            ? null : String(linha[27]).trim() !== '',
       });
     }
 
