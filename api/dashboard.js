@@ -127,6 +127,16 @@ const MARCA_LATAM = /\b(mx|mexico|cl|chile)\b/;
 // ja tiram os LEADS, em todas as redes — se o investimento nao tirasse os
 // mesmos, uma campanha de workshop entraria com gasto e sem lead nenhum, e
 // o CPL do produto subiria por um motivo que ninguem consegue rastrear.
+// Campanhas que carregam um termo do CAMPANHAS_FORA no nome mas trazem
+// lead de verdade. Conferido ANTES do bloqueio, senao o termo generico
+// vence primeiro.
+//
+// Esta lista e' o espelho do CAMPANHAS_EXCECAO do funil_denise.py. As duas
+// precisam andar juntas: se o lead entra e o investimento nao, a campanha
+// aparece com lead e sem custo, e o CPL dela vira zero.
+const CAMPANHAS_EXCECAO = ['stanton', 'pesquisa de mercado', 'book digital',
+                           'org-dir'];
+
 const CAMPANHAS_FORA = [
   'hotseat', 'summit', 'ppc', 'pesquisa', 'masterclass', 'coautoria',
   'workshop',
@@ -645,8 +655,10 @@ export default async function handler(req, res) {
             cols.grupo    >= 0 ? linha[cols.grupo]    : '',
           ].join(' '));
 
-          // Fora de aquisicao: vale pra toda rede e todo produto
-          if (CAMPANHAS_FORA.some(t => nomeCamp.includes(t))) continue;
+          // Fora de aquisicao: vale pra toda rede e todo produto.
+          // A excecao vem antes, pelo mesmo motivo do script Python.
+          if (!CAMPANHAS_EXCECAO.some(t => nomeCamp.includes(t))
+              && CAMPANHAS_FORA.some(t => nomeCamp.includes(t))) continue;
 
           if (filtraPais) {
             const doPais = marca
