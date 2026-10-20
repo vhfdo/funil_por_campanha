@@ -463,6 +463,12 @@ export default async function handler(req, res) {
     const { valores: resultados, faltando: abasFaltando,
             corrigidas: abasCorrigidas } = await lerAbas(tarefas);
 
+    // Colunas de investimento em que o config e o cabecalho discordaram.
+    // Vira selo na barra de status: config que envelhece nao pode falhar
+    // calado — foi assim que a aba do Meta passou a ler data da coluna
+    // errada e jogou o mes inteiro pra fora do periodo.
+    const colunasTrocadas = [];
+
     // ── Monta cada produto ────────────────────────────────────────────────
     const produtos = {};
 
@@ -553,8 +559,39 @@ export default async function handler(req, res) {
         // Os dois nao batem, e isso e' esperado: o (2) tira workshop e
         // manda campanha de outro pais pro produto certo. A aba Campanhas
         // mostra essa diferenca na tela pra ninguem achar que e' erro.
-        const cData  = inv.colData;
-        const cValor = inv.colValor;
+        // ── Qual coluna e' a data e qual e' o valor ───────────────────
+        // O config manda, MAS so' enquanto o cabecalho confirmar. Config
+        // e' posicao fixa: basta alguem inserir uma coluna no meio da aba
+        // e ele passa a apontar pro vizinho, sem erro nenhum. Foi o que
+        // aconteceu na aba do Meta — a leitura caiu numa coluna de data
+        // diferente, as linhas sairam do periodo e o card de objetivo
+        // ficou com uma campanha so'.
+        //
+        // Quando os dois discordam, ganha quem o CABECALHO confirma, e a
+        // troca vira aviso na tela. As duas leituras usam o mesmo par, pra
+        // nunca voltarem a divergir entre si.
+        const cols = acharColunas(aba[0] || []);
+        const cab  = (aba[0] || []).map(chave);
+        const confirma = (i, nomes) =>
+          Number.isInteger(i) && i >= 0 && i < cab.length && !!cab[i]
+          && nomes.some(n => cab[i].includes(chave(n)));
+
+        const cData = confirma(inv.colData, ROTULOS.data) ? inv.colData
+                    : (cols.data >= 0 ? cols.data : inv.colData);
+        const cValor = confirma(inv.colValor, ROTULOS.valor) ? inv.colValor
+                     : (cols.valor >= 0 ? cols.valor : inv.colValor);
+
+        for (const [campo, doConfig, usado] of [['data', inv.colData, cData],
+                                                ['valor', inv.colValor, cValor]]) {
+          if (doConfig === usado) continue;
+          colunasTrocadas.push({
+            aba: inv.aba, campo,
+            config: doConfig, usado,
+            cabecalho: (aba[0] || [])[usado] || '(sem cabeçalho)',
+          });
+          console.warn(`[${inv.aba}] ${campo}: config diz coluna ${doConfig}, `
+            + `cabecalho diz ${usado} ("${(aba[0] || [])[usado]}") — usando o cabecalho`);
+        }
 
         for (const linha of aba.slice(1)) {
           const data = normalizarData(linha[cData]);
@@ -568,24 +605,17 @@ export default async function handler(req, res) {
         investPorRede[inv.rede] = totalRede;
 
         // ── Leitura 2: detalhe por campanha ───────────────────────────
-        const cols = acharColunas(aba[0] || []);
-
-        // DATA e VALOR saem do CONFIG — as mesmas colunas da leitura 1,
-        // nao as achadas pelo cabecalho. Achar pelo nome e' o unico jeito
-        // de pegar campanha, conjunto, anuncio e ID, que o config nao tem;
-        // pra dinheiro e' risco puro: basta a aba ter duas colunas
-        // parecidas (um "Cost" e um "Custo", uma data de importacao alem
-        // do "Day") pra cada leitura cair numa coluna e as duas nunca mais
-        // baterem. Era isso no Google do PFCC Brasil: R$ 9.171 no card de
-        // rede contra R$ 12.053 na leitura por campanha.
+        // DATA e VALOR sao os MESMOS da leitura 1 — o par ja' validado
+        // contra o cabecalho la' em cima. O `cols` continua servindo pra
+        // campanha, conjunto, anuncio e ID, que o config nao tem.
         //
-        // Com o config dos dois lados, o detalhe por campanha e' sempre um
-        // SUBCONJUNTO do total da rede — as unicas linhas que ele perde
-        // sao as que ele descarta de proposito (outro pais, campanha fora
-        // de aquisicao). Se um dia ele der MAIS que o card de rede, e' bug,
-        // nao diferenca de criterio.
-        const cDataDet  = Number.isInteger(inv.colData)  ? inv.colData  : cols.data;
-        const cValorDet = Number.isInteger(inv.colValor) ? inv.colValor : cols.valor;
+        // Com o mesmo par nos dois lados, o detalhe por campanha e' sempre
+        // um SUBCONJUNTO do total da rede: as unicas linhas que ele perde
+        // sao as que descarta de proposito (outro pais, campanha fora de
+        // aquisicao). Se um dia der MAIS que o card de rede, e' bug, nao
+        // diferenca de criterio.
+        const cDataDet  = cData;
+        const cValorDet = cValor;
 
         const marca = MARCA_PAIS[nomeProduto];
         const filtraPais = !!(marca || nomeProduto === 'PFCC BRASIL');
@@ -957,6 +987,7 @@ export default async function handler(req, res) {
       // Diagnostico de leitura: o front mostra na tela em vez de desenhar
       // zero calado
       abasFaltando,
+      colunasTrocadas,
       abasCorrigidas,
     });
 
