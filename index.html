@@ -6886,6 +6886,9 @@ function cardObjetivos(v) {
   const agg = {};
   for (const r of rotulos) agg[r] = 0;
 
+  // Contadores pra checar a granularidade da aba logo abaixo
+  const linhasMeta = [], datasMeta = new Set(), nomesMeta = new Set();
+
   let temLinhas = false;
   for (const nome of nomes) {
     const p = dados.produtos[nome];
@@ -6894,6 +6897,9 @@ function cardObjetivos(v) {
     for (const l of p.investLinhas) {
       if (!dentroDoPeriodo(l.data)) continue;
       if (l.rede !== REDE_COM_OBJETIVO) continue;
+      linhasMeta.push(l);
+      datasMeta.add(l.data);
+      if (l.campanha) nomesMeta.add(l.campanha);
       agg[objetivoDaCampanha(l.campanha, l.conjunto, l.anuncio)] += l.valor;
     }
   }
@@ -6910,6 +6916,34 @@ function cardObjetivos(v) {
   const vivos = rotulos.filter(r => agg[r] > 0);
   if (!vivos.length) {
     return '<div class="empty">Sem investimento de Meta no período.</div>';
+  }
+
+  // ── A aba tem quebra por campanha, ou e' resumo diario? ──────────────
+  // Uma linha por DIA, com mais de um nome de campanha no periodo, nao e'
+  // detalhe por campanha: e' o total do dia com um nome carimbado junto.
+  // Uma campanha nao troca de identidade todo dia enquanto as outras
+  // somem — entao o nome ali nao representa o gasto da linha.
+  //
+  // Mostrar a divisao assim daria 100% pra uma campanha so', que foi
+  // exatamente o que aconteceu com o Meta em outubro: tres campanhas de
+  // VIDEOVIEW carimbadas nas linhas diarias levaram o mes inteiro pra
+  // Nutricao, inclusive o gasto de captacao.
+  //
+  // Antes de desconfiar da classificacao, desconfie da granularidade.
+  if (linhasMeta.length && datasMeta.size === linhasMeta.length
+      && nomesMeta.size > 1) {
+    return `<div class="empty">
+      Esta aba não tem quebra por campanha.<br><br>
+      <span style="font-size:11px">
+        São ${fmtNum(linhasMeta.length)} linhas para ${fmtNum(datasMeta.size)}
+        dias — uma por dia, com ${fmtNum(nomesMeta.size)} nomes de campanha
+        diferentes. O valor de cada linha é o total do dia, não o gasto
+        daquela campanha, então dividir por objetivo inventaria um número.<br><br>
+        O total de ${fmtBRL(total)} está certo; só a divisão não é possível.
+        Para o card voltar, a aba precisa vir do Adveronix com uma linha por
+        campanha por dia.
+      </span>
+    </div>`;
   }
 
   const blocos = vivos.map(r => {
