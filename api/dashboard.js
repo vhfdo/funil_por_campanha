@@ -605,17 +605,25 @@ export default async function handler(req, res) {
         investPorRede[inv.rede] = totalRede;
 
         // ── Leitura 2: detalhe por campanha ───────────────────────────
-        // DATA e VALOR sao os MESMOS da leitura 1 — o par ja' validado
-        // contra o cabecalho la' em cima. O `cols` continua servindo pra
-        // campanha, conjunto, anuncio e ID, que o config nao tem.
+        // ── Por que esta leitura NAO usa a coluna do config ──────────
+        // Uma aba pode ter DUAS colunas de dinheiro: o gasto por campanha,
+        // uma linha por campanha por dia, e um total do dia, preenchido
+        // so' numa linha de cada dia. O config aponta pro total (e' o que
+        // a leitura 1 quer); o cabecalho acha o detalhe.
         //
-        // Com o mesmo par nos dois lados, o detalhe por campanha e' sempre
-        // um SUBCONJUNTO do total da rede: as unicas linhas que ele perde
-        // sao as que descarta de proposito (outro pais, campanha fora de
-        // aquisicao). Se um dia der MAIS que o card de rede, e' bug, nao
-        // diferenca de criterio.
-        const cDataDet  = cData;
-        const cValorDet = cValor;
+        // Em 17/10/2026 eu forcei o config aqui tambem, pra acabar com a
+        // divergencia do Google. Resultado: a leitura por campanha passou
+        // a ler o total do dia, e como linha sem valor e' descartada,
+        // sobrou UMA linha por dia — 286 linhas pra 286 datas. O card de
+        // objetivo virou 100% numa campanha so', que era o nome carimbado
+        // naquela linha. Revertido.
+        //
+        // A licao: as duas leituras respondem perguntas diferentes e
+        // podem usar colunas diferentes. O que elas NAO podem e' divergir
+        // em silencio — por isso o card de Score x MQL ancora o total no
+        // card de rede e o de objetivo mostra a diferenca na tela.
+        const cDataDet  = cols.data  >= 0 ? cols.data  : cData;
+        const cValorDet = cols.valor >= 0 ? cols.valor : cValor;
 
         const marca = MARCA_PAIS[nomeProduto];
         const filtraPais = !!(marca || nomeProduto === 'PFCC BRASIL');
