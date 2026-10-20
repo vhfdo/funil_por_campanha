@@ -2920,6 +2920,18 @@ function avisoAbas() {
         corr.map(c => c.esperado + '  →  ' + c.encontrado).join('&#10;')}">${
         corr.length} aba${corr.length === 1 ? '' : 's'} com nome divergente</span>`;
   }
+
+  // Coluna de data ou valor que mudou de lugar na aba. O dashboard se
+  // vira sozinho lendo pelo cabecalho, mas o config ficou velho e precisa
+  // ser acertado — senao o proximo que mexer na aba volta a quebrar.
+  const colTroca = (dados && dados.colunasTrocadas) || [];
+  if (colTroca.length) {
+    html += `<span class="aviso-comp"
+      title="A coluna do config não é mais a certa nestas abas. O dashboard leu pelo cabeçalho e o número está certo, mas acerte o colData/colValor no dashboard.js:&#10;${
+        colTroca.map(c => `${c.aba}: ${c.campo} estava na ${c.config}, está na ${
+          c.usado} (${c.cabecalho})`).join('&#10;')}">⚠ ${colTroca.length} coluna${
+        colTroca.length === 1 ? '' : 's'} fora do lugar</span>`;
+  }
   return html;
 }
 
