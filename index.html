@@ -641,7 +641,19 @@
 
 <script>
 // ── Sessão ──────────────────────────────────────────────────────────────────
-const SESSION_TOKEN = sessionStorage.getItem('funil_token');
+// ── Duas portas de entrada ──────────────────────────────────────────────
+// Normal: entra pelo SSO, o login.html guarda o token na sessao.
+//
+// Com ?k= na URL: usa a chave do link como credencial e NAO manda pro
+// login. E' o acesso de quem nao passa pelo SSO da Microsoft — hoje o CEO.
+// A chave e' conferida do lado do servidor, no checkAuth do dashboard.js;
+// aqui ela so' viaja no Authorization, igual ao token normal.
+//
+// Pagina identica nos dois casos, de proposito: duplicar o arquivo faria
+// cada ajuste precisar ser feito duas vezes, e um dia as duas telas
+// mostrariam numeros diferentes.
+const CHAVE_LINK = new URLSearchParams(location.search).get('k');
+const SESSION_TOKEN = CHAVE_LINK || sessionStorage.getItem('funil_token');
 if (!SESSION_TOKEN) window.location.href = '/login.html';
 document.getElementById('userInfo').textContent = sessionStorage.getItem('funil_user') || '';
 
@@ -731,6 +743,8 @@ function descongelarGraficos(trocados) {
 function logout() {
   rastrear('logout');
   enviarFila();
+  // Entrou por link nao tem sessao: recarregar levaria pro mesmo lugar.
+  if (CHAVE_LINK) { location.href = '/login.html'; return; }
   sessionStorage.removeItem('funil_token');
   sessionStorage.removeItem('funil_user');
   window.location.href = '/login.html';
@@ -927,6 +941,20 @@ const ORDEM_PRODUTOS = [CONSOLIDADO, ...PRODUTOS_REAIS];
 // Produto ausente num mes = sem meta naquele mes. O card mostra so o
 // realizado, sem barra nem projecao. E' o caso do Chile em outubro, que
 // nao tem verba, e dos produtos novos em setembro, que nao existiam.
+
+
+// O mes do periodo selecionado, ou null quando ele atravessa mais de um.
+// Periodo de 25/09 a 05/10 nao tem meta: somar duas metas parciais daria
+// um alvo que nunca foi combinado com ninguem.
+function mesSelecionado() {
+  const ini = (document.getElementById('dataInicio') || {}).value || '';
+  const fim = (document.getElementById('dataFim')    || {}).value || '';
+  if (!ini || !fim) return null;
+  return ini.slice(0, 7) === fim.slice(0, 7) ? ini.slice(0, 7) : null;
+}
+
+// Metas do produto ativo no mes selecionado. {} quando nao ha meta — os
+// cards ja tratam isso mostrando so o realizado.
 const METAS_POR_MES = {
   '2026-09': {
     [CONSOLIDADO]:  { leads: 6068, mqls: 4247, faturamento: 2473718, investimento: 559850,
@@ -976,18 +1004,6 @@ const METAS_POR_MES = {
   },
 };
 
-// O mes do periodo selecionado, ou null quando ele atravessa mais de um.
-// Periodo de 25/09 a 05/10 nao tem meta: somar duas metas parciais daria
-// um alvo que nunca foi combinado com ninguem.
-function mesSelecionado() {
-  const ini = (document.getElementById('dataInicio') || {}).value || '';
-  const fim = (document.getElementById('dataFim')    || {}).value || '';
-  if (!ini || !fim) return null;
-  return ini.slice(0, 7) === fim.slice(0, 7) ? ini.slice(0, 7) : null;
-}
-
-// Metas do produto ativo no mes selecionado. {} quando nao ha meta — os
-// cards ja tratam isso mostrando so o realizado.
 function metasAtivas() {
   const m = mesSelecionado();
   return (m && METAS_POR_MES[m] && METAS_POR_MES[m][produtoAtivo]) || {};
@@ -1504,7 +1520,18 @@ async function carregar() {
 
   try {
     const r = await fetch('/api/dashboard', { headers: { Authorization: `Bearer ${SESSION_TOKEN}` } });
-    if (r.status === 401) { logout(); return; }
+    if (r.status === 401) {
+      // Com chave de link, mandar pro login nao resolve nada — a chave e'
+      // que foi revogada. Diz isso em vez de empurrar pro SSO.
+      if (CHAVE_LINK) {
+        document.getElementById('conteudo').innerHTML =
+          `<div class="empty">Este link não é mais válido.<br><br>
+           <span style="font-size:11px">Peça um novo ao time de
+           marketing.</span></div>`;
+        return;
+      }
+      logout(); return;
+    }
     const json = await r.json();
     if (!r.ok) throw new Error(json.error || 'Erro ao carregar');
 
@@ -2850,6 +2877,7 @@ const PLANO_DIARIO = {
     'LEAN':          _curva( 265.04,   331.30,   353.39,   290.52,   311.27,   363.14),
   },
 };
+
 
 // Que FRACAO do mes o plano diz que ja passou, de 0 a 1.
 //
