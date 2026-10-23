@@ -3,6 +3,7 @@
 // com os dados dos 5 produtos. O index carrega isso uma vez e filtra local.
 
 import { verifyToken } from '../lib/auth.js';
+import crypto from 'crypto';
 import { getSheetTitles, batchGetValues } from '../lib/sheets.js';
 
 const SPREADSHEET_ID = '1yw82Xywh0pTDj10Kwq7jfpezE14gyBGwFsbDLiAXjYY';
@@ -177,8 +178,22 @@ const JANELA_INSIDE = [{
 }];
 
 function checkAuth(req) {
-  const secret = process.env.SESSION_SECRET;
   const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+
+  // Chave de link: acesso de quem nao passa pelo SSO (hoje o CEO). E' um
+  // segredo fixo na env var, nao um token assinado — por isso nao expira
+  // e por isso revogar e' so' trocar a variavel na Vercel.
+  //
+  // timingSafeEqual em vez de ===: comparando com === da' pra descobrir a
+  // chave caractere por caractere medindo o tempo da resposta. Ataque
+  // conhecido, e evitar custa tres linhas.
+  const chave = process.env.CEO_KEY;
+  if (chave && token) {
+    const a = Buffer.from(token), b = Buffer.from(chave);
+    if (a.length === b.length && crypto.timingSafeEqual(a, b)) return 'link';
+  }
+
+  const secret = process.env.SESSION_SECRET;
   return secret ? verifyToken(token, secret) : null;
 }
 
