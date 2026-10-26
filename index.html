@@ -5811,18 +5811,22 @@ function cardTME(v, vComp) {
 // Lead que ja tinha entrado antes e voltou. Vale acompanhar porque uma taxa
 // alta significa que boa parte do volume nao e' publico novo — a base esta
 // sendo reimpactada.
-// ── Fila do SDR: atrasado x sem atividade ───────────────────────────────────
-// Dois estados diferentes, e o segundo costuma ser o pior:
-//
-//   atrasado        — tem atividade marcada, a data passou e ninguem fez
-//   sem atividade   — nao tem NENHUMA atividade aberta. O lead nao aparece
-//                     em lista de pendencia nenhuma; saiu do radar sem
-//                     gerar alerta em lugar algum.
+// ── Fila do SDR: sem atividade ──────────────────────────────────────────────
+// Negocio em aberto que nao tem NENHUMA atividade marcada. O lead nao
+// aparece em lista de pendencia nenhuma; saiu do radar sem gerar alerta em
+// lugar algum.
 //
 // So vale pra negocio em aberto: ganho e perdido nao tem follow-up pendente.
 //
+// ATRASO SAIU DA TELA (26/10, a pedido). Em quatro lugares o dashboard
+// mostrava ha quantos dias a proxima atividade estava vencida: o KPI de
+// Fila, o numero a' direita de cada etapa do funil, a coluna "Atraso" da
+// tabela e "Dias de Atraso" no CSV. Nenhum deles aparece mais.
+//
+// As duas funcoes abaixo ficaram de proposito. A conta esta certa — so' nao
+// esta sendo desenhada — e voltar atras e' chamar de novo, nao reescrever.
 // A data vem da planilha como AAAA-MM-DD e a conta e' feita aqui, contra
-// hoje — por isso o numero nao envelhece entre uma rodada e outra do script.
+// hoje, por isso o numero nao envelhece entre uma rodada e outra do script.
 function diasDeAtraso(b) {
   if (semAcento(b.status) !== 'open') return null;
   const d = (b.proximaAtividade || '').trim().slice(0, 10);
@@ -5859,8 +5863,7 @@ function cardAtividades(v) {
     </div>`;
   }
 
-  const atrasados = abertos.filter(estaAtrasado);
-  const semAtiv   = abertos.filter(semAtividade);
+  const semAtiv = abertos.filter(semAtividade);
 
   // Sem nenhuma data preenchida a coluna nao chegou da planilha — melhor
   // dizer isso do que mostrar zero, que se le como "esta tudo em dia".
@@ -5874,32 +5877,20 @@ function cardAtividades(v) {
     </div>`;
   }
 
-  const pctA = atrasados.length / abertos.length * 100;
-  const pctS = semAtiv.length   / abertos.length * 100;
-
-  // Mediana, nao media: um lead esquecido ha 300 dias distorce a media e
-  // some na mediana, que descreve o atraso tipico da fila.
-  const dias = atrasados.map(diasDeAtraso).sort((a, b) => a - b);
-  const medAtraso = dias.length
-    ? (dias.length % 2 ? dias[(dias.length - 1) / 2]
-       : Math.round((dias[dias.length / 2 - 1] + dias[dias.length / 2]) / 2))
-    : null;
+  const pctS = semAtiv.length / abertos.length * 100;
 
   const cor = p => p >= 30 ? 'var(--red)' : p >= 15 ? 'var(--amber)' : 'var(--gray-light)';
 
   return `<div class="kpi-card">
     <div class="kpi-label">Fila</div>
-    <div class="kpi-val" style="color:${cor(pctA)}"
-      title="${fmtNum(atrasados.length)} de ${fmtNum(abertos.length)} negócios em aberto com atividade vencida">${
-      fmtNum(atrasados.length)}</div>
-    <div class="kpi-linha"><span>atrasados</span>
-      <span style="color:${cor(pctA)}">${pctA.toFixed(0)}%</span></div>
+    <div class="kpi-val" style="color:${cor(pctS)}"
+      title="${fmtNum(semAtiv.length)} de ${fmtNum(abertos.length)} negócios em aberto sem nenhuma atividade marcada">${
+      fmtNum(semAtiv.length)}</div>
     <div class="kpi-linha" title="Não têm nenhuma atividade marcada — não aparecem em lista de pendência nenhuma">
       <span>sem atividade</span>
-      <span style="color:${cor(pctS)}">${fmtNum(semAtiv.length)}<span
-        class="kpi-sub">${pctS.toFixed(0)}%</span></span></div>
-    ${medAtraso !== null ? `<div class="kpi-linha"><span>atraso típico</span>
-      <span>${fmtNum(medAtraso)}d</span></div>` : ''}
+      <span style="color:${cor(pctS)}">${pctS.toFixed(0)}%</span></div>
+    <div class="kpi-linha"><span>em aberto</span>
+      <span>${fmtNum(abertos.length)}</span></div>
   </div>`;
 }
 
@@ -6081,24 +6072,18 @@ function funilHtml(v) {
   // sequencial, entao comparar com a primeira daria numeros acima de 100%
   const total  = etapas.reduce((s, e) => s + e.qtd, 0) || 1;
 
-  const totAtraso = etapas.reduce((s, e) => s + (e.atrasados || 0), 0);
-  const totSem    = etapas.reduce((s, e) => s + (e.semAtiv   || 0), 0);
-  const temFila   = totAtraso > 0 || totSem > 0;
+  // Sem o atraso, o numero da direita volta a ser o % do total em aberto,
+  // que e' o que a coluna mostrava antes de a fila entrar.
+  const totSem = etapas.reduce((s, e) => s + (e.semAtiv || 0), 0);
 
   const barras = etapas.map((e, i) => {
     const larg = Math.max(e.qtd / maior * 100, 3);
     const pct  = (e.qtd / total * 100).toFixed(0);
     const cor  = `hsl(${210 - i * 6}, ${62 - i * 3}%, ${58 - i * 2}%)`;
     const sel  = filtros.etapa === e.etapa;
-    // Com dado de fila, a coluna da direita mostra o atraso — e' o que
-    // pede acao. Sem dado, volta a mostrar o % do total.
-    const dir = temFila
-      ? (e.atrasados ? fmtNum(e.atrasados) : '·')
-      : pct + '%';
     return `<div class="funil-step ${sel ? 'selecionado' : ''}"
               onclick="toggleFiltro('etapa', ${attr(e.etapa)})"
               title="${fmtNum(e.qtd)} negócios · ${pct}% do total em aberto${
-              e.atrasados ? ' · ' + fmtNum(e.atrasados) + ' com atividade vencida' : ''}${
               e.semAtiv ? ' · ' + fmtNum(e.semAtiv) + ' sem atividade marcada' : ''}">
       <div class="funil-label">${e.etapa}</div>
       <div class="funil-track">
@@ -6106,16 +6091,14 @@ function funilHtml(v) {
           <span class="funil-val">${fmtNum(e.qtd)}</span>
         </div>
       </div>
-      <div class="funil-pct" style="color:${
-        temFila && e.atrasados ? 'var(--amber)' : 'var(--white)'}">${dir}</div>
+      <div class="funil-pct">${pct}%</div>
     </div>`;
   }).join('');
 
   return `<div class="funil">${barras}</div>
-    ${temFila ? `<div class="calor-nota">
-      Número à direita = atrasados na etapa · <span style="color:var(--amber)">${
-      fmtNum(totAtraso)} com atividade vencida</span> · ${
-      fmtNum(totSem)} sem nenhuma atividade marcada
+    ${totSem ? `<div class="calor-nota">
+      Número à direita = % do total em aberto · ${
+      fmtNum(totSem)} negócios sem nenhuma atividade marcada
     </div>` : ''}`;
 }
 
@@ -7182,37 +7165,10 @@ function leadsAbertos(v) {
     .sort((a, b) => (b.aplicacao || '').localeCompare(a.aplicacao || ''));
 }
 
-// Celula da coluna Atraso. Tres estados, nao dois:
-//
-//   sem ativ.  — aberto e sem nenhuma atividade marcada. E' o pior caso e
-//                nao aparece como atraso em lugar nenhum; por isso vem em
-//                vermelho, mesmo sem numero de dias.
-//   Nd         — atividade marcada e vencida ha N dias
-//   em dia     — atividade marcada pra hoje ou pro futuro
-//
-// Ganho e perdido recebem traco: nao existe follow-up pendente neles.
-function celulaAtraso(b) {
-  if (semAcento(b.status) !== 'open') {
-    return `<td class="num" style="color:var(--gray)"
-      title="Negócio fechado — não há follow-up pendente">—</td>`;
-  }
-  if (semAtividade(b)) {
-    return `<td class="num" style="color:var(--red)"
-      title="Nenhuma atividade marcada — o lead não aparece em lista de pendência nenhuma">sem ativ.</td>`;
-  }
-  const d = diasDeAtraso(b);
-  if (d === null) {
-    return `<td class="num" style="color:var(--gray)"
-      title="Sem data de próxima atividade na planilha">—</td>`;
-  }
-  if (d === 0) {
-    return `<td class="num" style="color:var(--gray-light)"
-      title="Próxima atividade em ${b.proximaAtividade}">em dia</td>`;
-  }
-  const cor = d > 7 ? 'var(--red)' : 'var(--amber)';
-  return `<td class="num" style="color:${cor}"
-    title="Atividade vencida em ${b.proximaAtividade}">${fmtNum(d)}d</td>`;
-}
+// A coluna "Atraso" (sem ativ. / Nd / em dia) saiu da tabela em 26/10 junto
+// com o resto do atraso. O dado continua chegando da planilha nas colunas
+// Proxima Atividade e Ativ. Abertas, e continua saindo no CSV — so' nao tem
+// mais celula na tela.
 
 function tabelaAbertos(v) {
   const leads = leadsAbertos(v);
@@ -7254,7 +7210,6 @@ function tabelaAbertos(v) {
           <th>MQL</th><th>Funil</th><th>Etapa</th><th>Status</th>
           <th>Proprietário</th>
           <th class="num" title="Horas úteis entre a entrada do lead e o primeiro contato (ligação ou mensagem). Só para os SDRs.">TME</th>
-          <th class="num" title="Dias desde a data da próxima atividade em aberto. 'sem ativ.' = o negócio não tem nenhuma atividade marcada — não aparece em lista de pendência nenhuma.">Atraso</th>
           <th>Rede</th>
           <th>utm_campaign</th><th>utm_source</th><th>utm_medium</th>
           <th>utm_content</th><th>utm_term</th>
@@ -7288,7 +7243,6 @@ function tabelaAbertos(v) {
                   : b.tme <= TME_META * 6 ? 'var(--amber)'
                   : 'var(--red)'}">${
                 b.tme === null || b.tme === undefined ? '—' : fmtHoras(b.tme)}</td>
-              ${celulaAtraso(b)}
               <td>${redeDoLead(b)}</td>
               <td class="utm" title="${b.campanha || ''}">${corta(b.campanha, 30)}</td>
               <td class="utm" title="${b.source || ''}">${corta(b.source, 12)}</td>
@@ -7312,7 +7266,7 @@ function exportarAbertosCSV() {
   const cabecalho = [
     'ID', 'Produto', 'Aplicação', 'Nome', 'Email', 'Cargo', 'MQL', 'Score',
     'Funil', 'Etapa', 'Status', 'Proprietário', 'TME (h úteis)', 'Atendido em',
-    'Próxima Atividade', 'Dias de Atraso', 'Ativ. Abertas',
+    'Próxima Atividade', 'Ativ. Abertas',
     'Rede', 'Reaplicação', 'Valor',
     'utm_campaign', 'utm_source', 'utm_medium', 'utm_content', 'utm_term',
   ];
@@ -7328,14 +7282,15 @@ function exportarAbertosCSV() {
     // Virgula decimal pro Excel BR reconhecer como numero
     b.score === null || b.score === undefined
       ? '' : String(b.score).replace('.', ','),
-    b.funil, b.etapa, b.proprietario,
+    // b.status estava faltando: o cabecalho tem 'Status' e a linha nao
+    // tinha o valor, entao TUDO depois de Etapa saia uma coluna torto no
+    // CSV (Proprietario embaixo de Status, e por ai).
+    b.funil, b.etapa, b.status, b.proprietario,
     // Vírgula decimal pro Excel BR reconhecer como número
     b.tme === null || b.tme === undefined
       ? '' : String(b.tme).replace('.', ','),
     b.atendidoEm || '',
     b.proximaAtividade || '',
-    // Vazio quando nao se aplica (fechado ou sem data); 0 = em dia
-    (() => { const d = diasDeAtraso(b); return d === null ? '' : d; })(),
     b.ativAbertas || 0,
     redeDoLead(b),
     b.reaplicacao ? 'Sim' : 'Não',
