@@ -3152,12 +3152,11 @@ function render() {
         delta: dv('cac', true, fmtBRL) }),
     cardReaplicacao(v, vComp),
     cardLTG(v, vComp),
-    cardAtividades(v),
   ].join('');
 
   document.getElementById('conteudo').innerHTML = `
     <div class="kpi-strip ${comparando ? 'comparando' : ''}"
-         style="grid-template-columns:repeat(${comparando ? 7 : 12},1fr)">${kpisHtml}</div>
+         style="grid-template-columns:repeat(${comparando ? 7 : 11},1fr)">${kpisHtml}</div>
 
     <div class="redes-grid">${cardsRedes(v, vComp)}</div>
 
@@ -5832,15 +5831,21 @@ function cardTME(v, vComp) {
 //
 // So vale pra negocio em aberto: ganho e perdido nao tem follow-up pendente.
 //
-// ATRASO SAIU DA TELA (26/10, a pedido). Em quatro lugares o dashboard
-// mostrava ha quantos dias a proxima atividade estava vencida: o KPI de
-// Fila, o numero a' direita de cada etapa do funil, a coluna "Atraso" da
-// tabela e "Dias de Atraso" no CSV. Nenhum deles aparece mais.
+// A FILA SAIU DA TELA (26/10, a pedido). Nada de atraso nem de atividade
+// pendente e' desenhado em lugar nenhum do dashboard:
 //
-// As duas funcoes abaixo ficaram de proposito. A conta esta certa — so' nao
-// esta sendo desenhada — e voltar atras e' chamar de novo, nao reescrever.
-// A data vem da planilha como AAAA-MM-DD e a conta e' feita aqui, contra
-// hoje, por isso o numero nao envelhece entre uma rodada e outra do script.
+//   KPI "Fila"           card inteiro removido da faixa de KPIs (eram 12,
+//                        agora sao 11)
+//   funil                o numero a' direita voltou a ser o % do total em
+//                        aberto; a nota de rodape saiu
+//   tabela de leads      coluna "Atraso" removida
+//   CSV                  coluna "Dias de Atraso" removida
+//
+// As funcoes abaixo ficaram de proposito. A conta esta certa — so' nao esta
+// sendo desenhada em lugar nenhum — e voltar atras e' chamar de novo, nao
+// reescrever. A data vem da planilha como AAAA-MM-DD e a conta e' feita
+// aqui, contra hoje, por isso o numero nao envelhece entre uma rodada e
+// outra do script.
 function diasDeAtraso(b) {
   if (semAcento(b.status) !== 'open') return null;
   const d = (b.proximaAtividade || '').trim().slice(0, 10);
@@ -5864,49 +5869,6 @@ const semAtividade = b =>
   semAcento(b.status) === 'open'
   && !(b.proximaAtividade || '').trim()
   && !(b.ativAbertas > 0);
-
-function cardAtividades(v) {
-  // Mesma lista do funil em aberto — ver baseAbertos em dadosVisiveis.
-  // Os dois numeros tem que bater, entao nao podem vir de contas separadas.
-  const abertos = v.baseAbertos || [];
-  if (!abertos.length) {
-    return `<div class="kpi-card">
-      <div class="kpi-label">Fila</div>
-      <div class="kpi-val" style="color:var(--gray)">—</div>
-      <div class="kpi-linha"><span>nenhum lead em aberto</span></div>
-    </div>`;
-  }
-
-  const semAtiv = abertos.filter(semAtividade);
-
-  // Sem nenhuma data preenchida a coluna nao chegou da planilha — melhor
-  // dizer isso do que mostrar zero, que se le como "esta tudo em dia".
-  const temDado = abertos.some(b => (b.proximaAtividade || '').trim()
-                                 || b.ativAbertas > 0);
-  if (!temDado) {
-    return `<div class="kpi-card">
-      <div class="kpi-label">Fila</div>
-      <div class="kpi-val" style="color:var(--gray)">—</div>
-      <div class="kpi-linha"><span title="As colunas Próxima Atividade e Ativ. Abertas são gravadas pelo funil_denise.py. Se ainda não existem na planilha, rode o script.">sem dado de atividade</span></div>
-    </div>`;
-  }
-
-  const pctS = semAtiv.length / abertos.length * 100;
-
-  const cor = p => p >= 30 ? 'var(--red)' : p >= 15 ? 'var(--amber)' : 'var(--gray-light)';
-
-  return `<div class="kpi-card">
-    <div class="kpi-label">Fila</div>
-    <div class="kpi-val" style="color:${cor(pctS)}"
-      title="${fmtNum(semAtiv.length)} de ${fmtNum(abertos.length)} negócios em aberto sem nenhuma atividade marcada">${
-      fmtNum(semAtiv.length)}</div>
-    <div class="kpi-linha" title="Não têm nenhuma atividade marcada — não aparecem em lista de pendência nenhuma">
-      <span>sem atividade</span>
-      <span style="color:${cor(pctS)}">${pctS.toFixed(0)}%</span></div>
-    <div class="kpi-linha"><span>em aberto</span>
-      <span>${fmtNum(abertos.length)}</span></div>
-  </div>`;
-}
 
 // ── LTG: lead time até o ganho ──────────────────────────────────────────────
 // Dias entre a última aplicação e a venda. Vem pronto da coluna "Dias até a
@@ -6086,10 +6048,8 @@ function funilHtml(v) {
   // sequencial, entao comparar com a primeira daria numeros acima de 100%
   const total  = etapas.reduce((s, e) => s + e.qtd, 0) || 1;
 
-  // Sem o atraso, o numero da direita volta a ser o % do total em aberto,
-  // que e' o que a coluna mostrava antes de a fila entrar.
-  const totSem = etapas.reduce((s, e) => s + (e.semAtiv || 0), 0);
-
+  // Sem a fila, o numero da direita volta a ser o % do total em aberto,
+  // que e' o que a coluna mostrava antes de ela entrar.
   const barras = etapas.map((e, i) => {
     const larg = Math.max(e.qtd / maior * 100, 3);
     const pct  = (e.qtd / total * 100).toFixed(0);
@@ -6097,8 +6057,7 @@ function funilHtml(v) {
     const sel  = filtros.etapa === e.etapa;
     return `<div class="funil-step ${sel ? 'selecionado' : ''}"
               onclick="toggleFiltro('etapa', ${attr(e.etapa)})"
-              title="${fmtNum(e.qtd)} negócios · ${pct}% do total em aberto${
-              e.semAtiv ? ' · ' + fmtNum(e.semAtiv) + ' sem atividade marcada' : ''}">
+              title="${fmtNum(e.qtd)} negócios · ${pct}% do total em aberto">
       <div class="funil-label">${e.etapa}</div>
       <div class="funil-track">
         <div class="funil-bar" style="width:${larg}%;background:${sel ? 'var(--amber)' : cor}">
@@ -6109,11 +6068,7 @@ function funilHtml(v) {
     </div>`;
   }).join('');
 
-  return `<div class="funil">${barras}</div>
-    ${totSem ? `<div class="calor-nota">
-      Número à direita = % do total em aberto · ${
-      fmtNum(totSem)} negócios sem nenhuma atividade marcada
-    </div>` : ''}`;
+  return `<div class="funil">${barras}</div>`;
 }
 
 // ── Mapa de calor: quando os leads chegam ───────────────────────────────────
