@@ -832,8 +832,22 @@ export default async function handler(req, res) {
         // ainda nao tem essa coluna" — acontece entre subir o codigo novo
         // e a primeira rodada do script. Se null virasse false, o grafico
         // de pontuacao ficaria VAZIO nesse intervalo, e pareceria bug.
-        cadastroCompleto: linha[27] === undefined || linha[27] === null
-                            ? null : String(linha[27]).trim() !== '',
+        // Tres estados, e a leitura e' por VALOR, nao por "tem conteudo".
+        //
+        //   'sim'  -> true     respondeu as quatro perguntas
+        //   'nao'  -> false    nao respondeu
+        //   resto  -> null     a planilha ainda nao tem a coluna
+        //
+        // Antes era "celula nao vazia = true". Parecia igual e nao era: o
+        // script gravava string vazia no incompleto, a API do Sheets corta
+        // celula vazia no fim da linha, e o lead incompleto chegava aqui
+        // como undefined — virava null, "nao sei", e PASSAVA no filtro.
+        cadastroCompleto: (() => {
+          const v = String(linha[27] ?? '').trim().toLowerCase();
+          if (v === 'sim') return true;
+          if (v === 'nao' || v === 'não') return false;
+          return null;
+        })(),
       });
     }
 
