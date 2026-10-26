@@ -976,31 +976,44 @@ const METAS_POR_MES = {
   // Brasil dizia 3.714 quando investimento/vendas dava 3.729.
   //
   // Chile sem meta: nao tem verba em outubro.
+  // Metas revisadas em 26/10. Leads, MQL, CPL e CPMQL vieram do Vitao;
+  // faturamento, investimento, vendas, CAC e ROAS ficaram como estavam.
+  //
+  // Com a revisao, quase tudo passou a FECHAR na divisao:
+  //   Brasil   396.440 / 5.286 = 75    · / 2.936 = 135
+  //   Advisor   20.000 /   267 = 75    · /   148 = 135
+  //   CES       10.000 /   263 = 38    · /   100 = 100
+  //   LEAN      10.000 /   270 = 37    · /   100 = 100
+  //   IA        10.000 /   123 = 81
+  // O cpmql 135 do Brasil deixou de ser "teto que nao bate" e virou a
+  // divisao de verdade — a nota antiga sobre isso saiu junto.
+  //
+  // UMA EXCECAO: Mexico. 50.000 / 431 da 116, nao 114 (114 pediria 438
+  // MQL). Os dois numeros vieram assim e foram gravados assim.
+  //
+  // IA NA PRATICA nao tem meta de MQL nem de CPMQL — os campos estao
+  // AUSENTES de proposito, nao zerados. kpiCard trata ausente como "sem
+  // meta" e mostra so o realizado; zero seria uma meta de zero.
+  //
+  // Chile sem meta: nao tem verba em outubro.
   '2026-10': {
-    [CONSOLIDADO]:   { leads: 7108, mqls: 4975, faturamento: 2821588, investimento: 496440,
-                       vendas: 199, cpl: 70,  cpmql: 100, cac: 2495, roas: 5.68 },
-    // cpmql 135 e' o TETO do planejamento, nao a divisao — e' por isso que
-    // ele nao bate com investimento / mqls (396.440 / 3.700 = 107). A
-    // planilha de planejamento traz a coluna CMQL em 135 nas tres linhas
-    // que somam este produto (PFCC Brasil, DIST/NUT/RMKT e Vanguard),
-    // mesmo com verbas bem diferentes: e' limite aceitavel, nao previsao.
-    // O card exibe este campo como "Teto", entao 135 e' o numero certo.
-    //
-    // Nao "corrija" pra 107 achando que e' erro de digitacao. O resto do
-    // bloco confere com a planilha somada: 4.646+200+440 leads,
-    // 3.252+140+308 MQL, 348.440+15.000+33.000 de verba.
-    'PFCC BRASIL':   { leads: 5286, mqls: 3700, faturamento: 2257512, investimento: 396440,
+    // Soma dos produtos. mqls = 3.715 porque IA nao entra com MQL nenhum,
+    // mas os 10.000 dele continuam no investimento — por isso o cpmql do
+    // consolidado (134) e' mais alto que o de qualquer produto sozinho.
+    [CONSOLIDADO]:   { leads: 6834, mqls: 3715, faturamento: 2821588, investimento: 496440,
+                       vendas: 199, cpl: 73,  cpmql: 134, cac: 2495, roas: 5.68 },
+    'PFCC BRASIL':   { leads: 5286, mqls: 2936, faturamento: 2257512, investimento: 396440,
                        vendas: 148, cpl: 75,  cpmql: 135, cac: 2679, roas: 5.69 },
-    'PFCC MÉXICO':   { leads: 625,  mqls: 438,  faturamento: 315000,  investimento: 50000,
+    'PFCC MÉXICO':   { leads: 625,  mqls: 431,  faturamento: 315000,  investimento: 50000,
                        vendas: 18,  cpl: 80,  cpmql: 114, cac: 2778, roas: 6.30 },
-    'BOARD ADVISOR': { leads: 541,  mqls: 378,  faturamento: 75676,   investimento: 20000,
-                       vendas: 15,  cpl: 37,  cpmql: 53,  cac: 1333, roas: 3.78 },
-    'IA NA PRÁTICA': { leads: 123,  mqls: 86,   faturamento: 34571,   investimento: 10000,
-                       vendas: 3,   cpl: 81,  cpmql: 116, cac: 3333, roas: 3.46 },
-    'CES':           { leads: 263,  mqls: 184,  faturamento: 88421,   investimento: 10000,
-                       vendas: 7,   cpl: 38,  cpmql: 54,  cac: 1429, roas: 8.84 },
-    'LEAN':          { leads: 270,  mqls: 189,  faturamento: 50408,   investimento: 10000,
-                       vendas: 8,   cpl: 37,  cpmql: 53,  cac: 1250, roas: 5.04 },
+    'BOARD ADVISOR': { leads: 267,  mqls: 148,  faturamento: 75676,   investimento: 20000,
+                       vendas: 15,  cpl: 75,  cpmql: 135, cac: 1333, roas: 3.78 },
+    'IA NA PRÁTICA': { leads: 123,  faturamento: 34571,  investimento: 10000,
+                       vendas: 3,   cpl: 81,  cac: 3333, roas: 3.46 },
+    'CES':           { leads: 263,  mqls: 100,  faturamento: 88421,   investimento: 10000,
+                       vendas: 7,   cpl: 38,  cpmql: 100, cac: 1429, roas: 8.84 },
+    'LEAN':          { leads: 270,  mqls: 100,  faturamento: 50408,   investimento: 10000,
+                       vendas: 8,   cpl: 37,  cpmql: 100, cac: 1250, roas: 5.04 },
   },
 };
 
@@ -1655,7 +1668,8 @@ let textoSoUltimo = false;
 //
 // Antes era rateio linear — meta x dias / dias do mes. Isso combinava com
 // o report manual do IC (dia 13 de outubro: 2.217 leads e 1.552 MQL, que
-// sao 5286x13/31 e 3700x13/31), mas brigava com o card da home: no dia 16
+// sao 5286x13/31 e 3700x13/31, com a meta de MQL que valia ate 26/10),
+// mas brigava com o card da home: no dia 16
 // o card dizia 1.698 de MQL e este texto dizia 1.910, pro mesmo conceito.
 //
 // Duas respostas pra mesma pergunta e' pior que uma resposta que muda. A
