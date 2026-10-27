@@ -7836,7 +7836,30 @@ function graficoScore(v, vComp) {
         pointHoverRadius: 5,
         pointBackgroundColor: '#5a7a94',
         order: 9,
-        datalabels: { display: false },
+        datalabels: {
+          // 'auto' em vez de true: com tres linhas na tela os rotulos se
+          // cruzam, e o plugin esconde sozinho o que cairia em cima de
+          // outro ja' colocado. Como este dataset e' o ULTIMO do array,
+          // ele e' o que cede — meta e realizado nunca somem por causa
+          // dele. Faixa sem lead no periodo anterior nao ganha rotulo:
+          // "0%" em faixa vazia e' ruido, igual no realizado.
+          display: ctx => dC.qtd[ctx.dataIndex] > 0 ? 'auto' : false,
+          anchor: 'center',
+          // Lado oposto ao do realizado: quando a linha anterior esta por
+          // baixo, o rotulo desce. Sem isso ele encosta no rotulo de
+          // valor, que e' maior e opaco.
+          align: ctx => dC.pct[ctx.dataIndex] >= d.pct[ctx.dataIndex]
+            ? 'top' : 'bottom',
+          offset: 4,
+          color: '#8fb0cc',
+          font: { family: 'DM Mono', size: 9 },
+          backgroundColor: 'rgba(10,10,10,.7)',
+          borderRadius: 3, padding: { top: 1, bottom: 1, left: 4, right: 4 },
+          // Sem casa decimal: e' leitura de apoio, e o numero cheio esta
+          // no tooltip. Com uma casa, tres rotulos empilhados na mesma
+          // faixa viram parede de digito.
+          formatter: x => x.toFixed(0) + '%',
+        },
       }] : [])],
     },
     options: {
