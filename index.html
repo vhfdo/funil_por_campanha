@@ -3365,7 +3365,7 @@ function render() {
         <div class="chart-box" style="height:300px">
           <canvas id="chartScore"></canvas>
         </div>
-        ${notaMetaScore(v)}
+        ${notaMetaScore(v, vComp)}
       </div>`;
     })()}
 
@@ -7647,14 +7647,18 @@ const pluginZonaICP = {
 // Tres blocos, nao oito: faixa a faixa o desvio e' ruido de arredondamento.
 // O que decide acao e' o formato — quanto da base esta no ICP, quanto ficou
 // abaixo dele e quanto escapou pro topo.
-function notaMetaScore(v) {
+function notaMetaScore(v, vComp) {
   const d = distribuicaoScore(v.backlog);
   if (!d.total) return '';
 
-  const fatia = (de, ate) => FAIXAS_SCORE
-    .map((f, i) => [f, d.pct[i]])
+  const dC = comparando && vComp ? distribuicaoScore(vComp.backlog) : null;
+  const temComp = !!(dC && dC.total);
+
+  const fatiaDe = (dd, de, ate) => FAIXAS_SCORE
+    .map((f, i) => [f, dd.pct[i]])
     .filter(([f]) => f >= de && f <= ate)
     .reduce((s, [, p]) => s + p, 0);
+  const fatia = (de, ate) => fatiaDe(d, de, ate);
 
   // O lado bom de cada bloco sai do ladoDaFaixa, a mesma funcao que o
   // grafico usa — com a regra escrita duas vezes, um dia o rotulo pinta de
@@ -7676,10 +7680,24 @@ function notaMetaScore(v) {
     const meta = somaMeta(de, ate);
     const dif  = real - meta;
     const cor  = corDesvio(dif, ladoDaFaixa(de));
+
+    // Com o comparativo ligado, o bloco ganha o mesmo numero do periodo
+    // anterior. E' percentual contra percentual: as duas bases costumam ter
+    // tamanhos diferentes, entao comparar volume diria so' que um periodo
+    // teve mais lead que o outro — o que interessa e' se o FORMATO mudou.
+    let antes = '';
+    if (temComp) {
+      const ant = fatiaDe(dC, de, ate);
+      const dv  = real - ant;
+      antes = ` <span style="opacity:.55">· antes ${ant.toFixed(0)}%</span>
+        <b style="color:${corDesvio(dv, ladoDaFaixa(de))}">${
+          dv >= 0 ? '+' : ''}${dv.toFixed(0)}</b>`;
+    }
+
     return `<span style="white-space:nowrap">${rotulo}
       <b style="color:var(--white)">${real.toFixed(0)}%</b>
       <span style="opacity:.6">de ${meta}%</span>
-      <b style="color:${cor}">${dif >= 0 ? '+' : ''}${dif.toFixed(0)}</b></span>`;
+      <b style="color:${cor}">${dif >= 0 ? '+' : ''}${dif.toFixed(0)}</b>${antes}</span>`;
   }).join(' &nbsp;·&nbsp; ');
 
   return `<div class="calor-nota"
@@ -7690,12 +7708,25 @@ function notaMetaScore(v) {
 
 // Desenha a linha no canvas do card de Pontuacao. Chamado pelo
 // desenharGraficos — se o card nao estiver na tela, comCanvas devolve null.
-function graficoScore(v) {
+function graficoScore(v, vComp) {
   const base = PRODUTOS_COM_SCORE.includes(produtoAtivo)
     ? v.backlog                      // Lean e CES: o score E' a regua
     : v.backlog;                     // Brasil: mesma base, outra leitura
   const d = distribuicaoScore(base);
   if (!d.total) return null;
+
+  // ── Comparativo ──────────────────────────────────────────────────────
+  // Aqui o eixo e' a FAIXA de score, nao o dia. Os dois periodos caem
+  // exatamente nos mesmos oito pontos, entao este grafico nao precisa do
+  // alinhamento por posicao que os graficos por dia fazem.
+  //
+  // A serie e' PERCENTUAL nos dois lados, nunca volume: o periodo anterior
+  // quase sempre tem outro tamanho de base, e duas curvas de volume diriam
+  // so' que um periodo teve mais lead que o outro. A pergunta do card e'
+  // outra — o formato da base mudou? O lead esta entrando mais qualificado
+  // ou menos?
+  const dC = comparando && vComp ? distribuicaoScore(vComp.backlog) : null;
+  const temComp = !!(dC && dC.total);
 
   return comCanvas('chartScore', el => new Chart(el, {
     type: 'line',
@@ -7788,7 +7819,25 @@ function graficoScore(v) {
             },
           },
         },
-      }],
+      },
+      // Tracejado apagado e atras de tudo (order alto), igual aos outros
+      // comparativos do dashboard: e' referencia, nao concorre com o dado
+      // do periodo. Sem rotulo — o realizado ja carrega valor e desvio
+      // empilhados, um terceiro numero por ponto nao se le.
+      ...(temComp ? [{
+        label: 'anterior',
+        data: dC.pct,
+        borderColor: '#5a7a94',
+        borderWidth: 1.5,
+        borderDash: [5, 4],
+        tension: .4,
+        fill: false,
+        pointRadius: 2,
+        pointHoverRadius: 5,
+        pointBackgroundColor: '#5a7a94',
+        order: 9,
+        datalabels: { display: false },
+      }] : [])],
     },
     options: {
       ...opcoesBase(),
@@ -7812,10 +7861,22 @@ function graficoScore(v) {
             // O tooltip da linha da meta so precisa dizer o alvo
             if (ctx.datasetIndex === 0) return [` meta: ${meta}%`];
 
+            // Linha do periodo anterior (so existe com o comparativo ligado)
+            if (temComp && ctx.datasetIndex === 2) {
+              return [` anterior: ${ctx.raw.toFixed(1)}% · ${
+                fmtNum(dC.qtd[i])} leads`];
+            }
+
             const dif = ctx.raw - meta;
             const linhas = [` ${ctx.raw.toFixed(1)}% · ${fmtNum(d.qtd[i])} leads`];
             linhas.push(` meta ${meta}% · ${dif >= 0 ? '+' : ''}${
               dif.toFixed(1)} ponto${Math.abs(dif) === 1 ? '' : 's'}`);
+            if (temComp) {
+              const dv = ctx.raw - dC.pct[i];
+              linhas.push(` anterior ${dC.pct[i].toFixed(1)}% · ${
+                dv >= 0 ? '+' : ''}${dv.toFixed(1)} ponto${
+                Math.abs(dv) === 1 ? '' : 's'}`);
+            }
             if (!PRODUTOS_COM_SCORE.includes(produtoAtivo)) {
               linhas.push(` ${fmtNum(d.mqls[i])} são MQL pelo cargo`);
             }
@@ -8151,7 +8212,7 @@ function desenharGraficos(v, vComp) {
 
   // Card de Pontuacao em largura cheia. O canvas so existe quando ha lead
   // com score — fora disso comCanvas devolve null sem reclamar.
-  charts.score = graficoScore(v);
+  charts.score = graficoScore(v, vComp);
 
   const labels  = v.leadsPorDia.map(d => d.data);
   const invDias = labels.map(l => v.investPorDia[l] || 0);
