@@ -4843,7 +4843,10 @@ function dadosCampanhas(v) {
     if (!agg[k]) {
       agg[k] = {
         chave: k, rotulo, rede: rede || '', investimento: 0,
-        leads: 0, mqls: 0, ganhos: 0, faturamento: 0,
+        // mqls = cargo OU score (ver ehMqlAmplo). Os dois de baixo sao a
+        // quebra, pra tabela poder mostrar de onde veio cada um.
+        leads: 0, mqls: 0, mqlsCargo: 0, mqlsScore: 0,
+        ganhos: 0, faturamento: 0,
         // Quebra diaria, montada junto com os totais: e' o que o
         // drill-down desenha. Calcular de novo depois seria repetir toda
         // a logica de chave (ID do Google vs nome) e abrir espaco pros
@@ -4920,13 +4923,18 @@ function dadosCampanhas(v) {
     // com investimento zero
     const d = pega(k, rotulo, redeDoLead(b));
     d.leads++;
-    if (b.mql) d.mqls++;
+    // Cargo OU nota >= 6 — ver ehMqlAmplo. mqlsScore conta so' quem entrou
+    // PELA NOTA e o cargo reprovaria: e' o ganho que a campanha de score
+    // trouxe e que a contagem antiga jogava fora.
+    if (ehMqlAmplo(b)) d.mqls++;
+    if (ehMqlCargo(b)) d.mqlsCargo++;
+    else if (ehMqlScore(b)) d.mqlsScore++;
 
     const dia = (b.aplicacao || '').trim().slice(0, 5);   // DD/MM
     if (dia.includes('/')) {
       const nd = noDia(d, dia);
       nd.leads++;
-      if (b.mql) nd.mqls++;
+      if (ehMqlAmplo(b)) nd.mqls++;
     }
   }
 
@@ -5250,6 +5258,11 @@ function renderCampanhas(v) {
     faturamento: s.faturamento + l.faturamento,
   }), { investimento: 0, leads: 0, mqls: 0, ganhos: 0, faturamento: 0 });
 
+  // Quantos MQL desta tela entraram SO' pela nota. Zero quando nao ha
+  // campanha de score no periodo — e ai a nota de rodape nem aparece, pra
+  // nao explicar uma regra que nao mudou nada.
+  const mqlSoNota = linhas.reduce((s, l) => s + (l.mqlsScore || 0), 0);
+
   // O investimento dos CARDS vem das colunas fixas da planilha, sem filtro
   // de pais nem exclusao de workshop. Esta tabela usa a leitura detalhada,
   // que aplica os dois. A diferenca e' esperada — mas se ninguem mostrar,
@@ -5433,7 +5446,15 @@ function renderCampanhas(v) {
                   ? 'color:var(--red);font-weight:600' : ''}">${
                   fmtBRL(l.investimento)}</td>
                 <td class="num">${fmtNum(l.leads)}</td>
-                <td class="num" style="color:var(--blue)">${fmtNum(l.mqls)}</td>
+                <td class="num" style="color:var(--blue)" title="${
+                  l.mqlsScore
+                    ? fmtNum(l.mqlsCargo) + ' por cargo + ' + fmtNum(l.mqlsScore)
+                      + ' só pela nota (score ≥ ' + SCORE_MINIMO + ', cargo não qualificaria)'
+                    : fmtNum(l.mqls) + ' por cargo'}">${fmtNum(l.mqls)}${
+                  l.mqlsScore
+                    ? `<span style="color:${COR_SCORE};font-size:10px"> +${
+                        fmtNum(l.mqlsScore)}</span>`
+                    : ''}</td>
                 <td class="num">${num(l.txMql, x => x.toFixed(0) + '%')}</td>
                 <td class="num">${num(l.cpl, fmtBRL)}</td>
                 <td class="num">${num(l.cpmql, fmtBRL)}</td>
@@ -5451,6 +5472,15 @@ function renderCampanhas(v) {
           </tbody>
         </table>
       </div>
+      ${mqlSoNota ? `<div class="calor-nota">
+        MQL nesta tabela = <b>cargo de diretoria pra cima</b> <b>ou</b> <b>nota ≥ ${
+        SCORE_MINIMO}</b>. <span style="color:${COR_SCORE}">${fmtNum(mqlSoNota)}</span>
+        entraram só pela nota — o cargo sozinho não qualificaria — e aparecem como
+        <span style="color:${COR_SCORE}">+N</span> na coluna. Nota só existe em campanha
+        de SCORE, que é a única cujo formulário faz as quatro perguntas.
+        O KPI de MQL do topo do dashboard continua contando <b>só o cargo</b>, então ele
+        é menor que a soma desta coluna.
+      </div>` : ''}
     </div>
   `;
 
@@ -5572,7 +5602,8 @@ function exportarCampanhasCSV() {
 
   const rotuloNivel = { campanha: 'Campanha', conjunto: 'Conjunto', anuncio: 'Anúncio' }[nivelCampanha];
   const cabecalho = [
-    rotuloNivel, 'Rede', 'Investimento', 'Leads', 'MQL', 'Taxa MQL',
+    rotuloNivel, 'Rede', 'Investimento', 'Leads',
+    'MQL', 'MQL por cargo', 'MQL só pela nota', 'Taxa MQL',
     'CPL', 'CPMQL', 'Vol. Ganhos', 'Faturamento', 'CAC', 'ROAS',
   ];
 
@@ -5585,7 +5616,8 @@ function exportarCampanhasCSV() {
 
   const corpo = linhas.map(l => [
     l.rotulo, l.rede,
-    dec(l.investimento), l.leads, l.mqls,
+    dec(l.investimento), l.leads,
+    l.mqls, l.mqlsCargo, l.mqlsScore,
     l.txMql === null ? '' : dec(l.txMql),
     dec(l.cpl), dec(l.cpmql),
     l.ganhos, dec(l.faturamento), dec(l.cac), dec(l.roas),
@@ -7579,6 +7611,33 @@ function somaMeta(de, ate) {
 // pareceria bug.
 const comScoreValido = b =>
   b.score !== null && b.score !== undefined && b.cadastroCompleto !== false;
+
+// ── Os DOIS caminhos pra virar MQL ──────────────────────────────────────
+// Usado pela tabela de CAMPANHAS. Dois caminhos, nao um:
+//
+//   cargo   a regra de sempre, calculada la' no funil_denise.py: diretoria
+//           pra cima. Vale pra qualquer lead, de qualquer campanha.
+//   score   nota >= SCORE_MINIMO. So' aparece em lead de campanha de
+//           SCORE, porque so' aquele formulario faz as quatro perguntas —
+//           e sem as quatro o script ja' descarta o score antes daqui.
+//
+// Por que somar os dois: a campanha de score compra um lead que se
+// qualifica PELA NOTA. Boa parte tem cargo que a regra de cargo reprova
+// (gerente, coordenador, analista) e nota 7 ou 8. Contando so' o cargo, o
+// CPMQL da campanha de score fica inflado e ela parece pior do que e'
+// contra a campanha de MQL — que e' exatamente a comparacao pra qual essa
+// tabela existe.
+//
+// Em Lean e CES nao muda nada: la' o b.mql JA' sai do score no proprio
+// script, entao o OU devolve o mesmo valor de antes.
+//
+// ATENCAO: isto vale SO' na tabela de campanhas. O KPI de MQL do topo, o
+// CPMQL do topo e as metas continuam no cargo puro. E' divergencia
+// conhecida e proposital — a coluna mostra a quebra (“+N”) pra ninguem
+// achar que um dos dois esta quebrado.
+const ehMqlCargo = b => !!b.mql;
+const ehMqlScore = b => comScoreValido(b) && b.score >= SCORE_MINIMO;
+const ehMqlAmplo = b => ehMqlCargo(b) || ehMqlScore(b);
 
 // Distribuicao por faixa. Score fora da escala e' puxado pra ponta mais
 // proxima, senao o lead sumiria da conta sem ninguem notar.
