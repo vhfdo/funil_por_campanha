@@ -73,6 +73,10 @@
   .tme-linha.mql b{color:var(--blue);}
   /* So em tela de celular: em janela de desktop, mesmo estreita, o bloco
      cabe na segunda linha do cabecalho */
+  /* Selo do SLA no cabecalho. Herda tudo do .tme-box e so' muda a cor da
+     borda e do numero, que sao pintadas por nota — por isso vao inline. */
+  .sla-box{margin-left:10px;}
+  .sla-val{font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:.02em;}
   @media(max-width:700px){ .tme-box{display:none;} }
   @media print{ .tme-box{display:none;} }
 
@@ -619,6 +623,7 @@
       <span id="statusAtualizacao"></span>
       <!-- Depois dos botoes: no inicio, ele empurrava a barra inteira e
            sumia em janela estreita -->
+      <span id="slaHeader"></span>
       <span id="tmeHeader"></span>
       <button class="btn" onclick="logout()">Sair</button>
     </div>
@@ -3131,6 +3136,11 @@ function render() {
   const boxTME = document.getElementById('tmeHeader');
   if (boxTME) boxTME.innerHTML = cardTME(v, vComp);
 
+  // Mesmo motivo do TME: o selo do SLA vive fora do #conteudo, entao e'
+  // reescrito a cada render pra seguir produto, periodo e filtros.
+  const boxSLA = document.getElementById('slaHeader');
+  if (boxSLA) boxSLA.innerHTML = seloSLA(v);
+
   if (modoBase)      { renderBase(v); return; }
   if (modoGanhos)    { renderGanhos(v); return; }
   if (modoDescartes) { renderDescartes(v); return; }
@@ -3426,6 +3436,8 @@ function render() {
       <div class="chart-box" style="height:360px"><canvas id="chartMetaMtd"></canvas></div>
     </div>`;
     })()}
+
+    ${cardSLA(v)}
 
     ${(() => {
       // Card de largura cheia, abaixo do CPMQL. So aparece quando ha lead
@@ -7673,6 +7685,174 @@ function corDesvio(dif, lado) {
 function somaMeta(de, ate) {
   return FAIXAS_SCORE.filter(f => f >= de && f <= ate)
                      .reduce((s, f) => s + metaDaFaixa(f), 0);
+}
+
+// ── SLA de MQL: 40% quantidade + 60% qualidade ──────────────────────────
+//
+// Uma nota so, de 0 a 100%, pra responder "estamos entregando o combinado?"
+// sem precisar ler seis cards. Os dois pesos somam 1 de proposito: a nota
+// e' uma media ponderada, nao uma soma de pontos.
+//
+//   QUANTIDADE (40%)  MQL realizado / MQL que a PROJECAO pede ate hoje.
+//                     Projecao, nao meta cheia: no dia 3 de um mes de 30,
+//                     comparar com a meta inteira poria todo produto em 10%.
+//
+//   QUALIDADE  (60%)  Que fatia da base caiu na faixa ICP, contra a fatia
+//                     que a META_SCORE pede la'. So' entra quem respondeu
+//                     as quatro perguntas — ver comScoreValido.
+//
+// Pesa mais a qualidade porque volume sem perfil e' o problema que esta
+// nota existe pra pegar: MQL por cargo que nao sustenta a nota.
+const SLA_PESO_QTD = 0.40;
+const SLA_PESO_QUA = 0.60;
+
+// A qualidade mede SO' a faixa ICP (6 a 8,9), nao "score 6 ou mais".
+//
+// O bloco 9+ fica fora dos DOIS lados da divisao, de proposito. E' a mesma
+// posicao do ladoDaFaixa, que nao pinta 9+ de verde nem de vermelho porque
+// la' aparece cadastro com resposta inflada. Pondo o 9+ no denominador, a
+// nota cobraria do time os 16% que o proprio dashboard se recusa a tratar
+// como meta de qualidade — e um produto com a distribuicao perfeita dentro
+// do ICP nunca passaria de 82%.
+//
+// Pra mudar pra "score 6 ou mais", troque o SLA_QUA_ATE por 9. Nada mais.
+const SLA_QUA_DE  = ICP_DE;
+const SLA_QUA_ATE = ICP_ATE;
+
+// Abaixo disto a distribuicao e' ruido, nao amostra: com 8 leads, um unico
+// cadastro muda a qualidade em 12 pontos. A nota continua saindo, mas vem
+// marcada — esconder seria pior, porque o produto sumiria do acompanhamento
+// justamente no mes em que entrou pouco lead.
+const SLA_BASE_MINIMA = 30;
+
+// Teto de 100% em cada parte, decidido com o Vitao: volume em excesso nao
+// compensa qualidade baixa. Sem o teto, um produto com 140% de MQL e 50%
+// de qualidade fecharia em 86% e passaria batido.
+const teto = x => Math.max(0, Math.min(1, x));
+
+function calcSLA(v) {
+  const metas = metasAtivas();
+
+  // ── Quantidade ────────────────────────────────────────────────────
+  // Sem meta de MQL nao ha denominador. E' o caso do IA NA PRATICA, que
+  // tem meta de lead e de CPL mas nenhuma de MQL — os campos estao
+  // AUSENTES do METAS_POR_MES de proposito, nao zerados.
+  const esperado  = metas.mqls ? metaAteHoje(metas.mqls) : null;
+  const realizado = v.kpis.mqls;
+  const qtd = esperado ? teto(realizado / esperado) : null;
+
+  // ── Qualidade ─────────────────────────────────────────────────────
+  // distribuicaoScore ja' passa por comScoreValido, entao a base aqui e'
+  // so' quem respondeu as quatro perguntas — idade, escolaridade, renda e
+  // cargo. Lead sem cadastro completo nao entra em lado nenhum da conta.
+  const d = distribuicaoScore(v.backlog);
+  const fatiaICP = FAIXAS_SCORE
+    .map((f, i) => [f, d.pct[i]])
+    .filter(([f]) => f >= SLA_QUA_DE && f <= SLA_QUA_ATE)
+    .reduce((s, [, p]) => s + p, 0);
+  const metaICP = somaMeta(SLA_QUA_DE, SLA_QUA_ATE);
+  const qua = d.total && metaICP ? teto(fatiaICP / metaICP) : null;
+
+  // Sem nenhuma das duas partes nao ha nota. Com uma so', a nota sairia
+  // com peso errado (0,4 ou 0,6 de teto), entao tambem nao sai — mas o
+  // card mostra a parte que existe, pra diferenca ficar visivel.
+  const completo = qtd !== null && qua !== null;
+  const nota = completo ? SLA_PESO_QTD * qtd + SLA_PESO_QUA * qua : null;
+
+  return {
+    nota, qtd, qua,
+    mqlReal: realizado, mqlEsperado: esperado,
+    quaReal: fatiaICP, quaMeta: metaICP,
+    base: d.total,
+    baseCurta: d.total > 0 && d.total < SLA_BASE_MINIMA,
+    semMetaMql: !metas.mqls,
+  };
+}
+
+// Cor da nota. Os cortes sao os mesmos pra nota cheia e pras duas partes,
+// senao um card verde poderia ter uma barra vermelha com o mesmo numero.
+function corSLA(x) {
+  if (x === null) return 'var(--gray-light)';
+  return x >= 0.90 ? 'var(--green)' : x >= 0.70 ? 'var(--amber)' : 'var(--red)';
+}
+
+function cardSLA(v) {
+  const s = calcSLA(v);
+  const pc = x => x === null ? '—' : (x * 100).toFixed(0) + '%';
+
+  // IA NA PRATICA cai aqui: sem meta de MQL a quantidade nao tem
+  // denominador, e metade da nota ficaria inventada. Melhor nao mostrar.
+  if (s.semMetaMql) return '';
+
+  const barra = (rot, val, peso, detalhe) => `
+    <div style="flex:1;min-width:180px">
+      <div class="kpi-linha" style="margin-bottom:4px">
+        <span>${rot} <span style="opacity:.5">· peso ${peso}</span></span>
+        <span style="color:${corSLA(val)};font-weight:600">${pc(val)}</span>
+      </div>
+      <div class="kpi-barra"><div style="width:${val === null ? 0 : val * 100}%;
+        background:${corSLA(val)}"></div></div>
+      <div style="font-size:11px;opacity:.55;margin-top:4px">${detalhe}</div>
+    </div>`;
+
+  return `
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title">
+      SLA de MQL
+      <span class="card-tag">40% quantidade · 60% qualidade</span>
+      ${s.baseCurta ? `<span class="card-tag" style="background:var(--amber);
+        color:#0a0a0a">base curta · ${fmtNum(s.base)} com cadastro completo</span>` : ''}
+    </div>
+    <div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap;padding:4px 0">
+      <div style="min-width:120px">
+        <div style="font-size:38px;line-height:1;font-weight:600;
+          color:${corSLA(s.nota)}">${pc(s.nota)}</div>
+        <div style="font-size:11px;opacity:.55;margin-top:6px">nota do período</div>
+      </div>
+      ${barra('Quantidade', s.qtd, '40%',
+        s.mqlEsperado
+          ? `${fmtNum(s.mqlReal)} MQL de ${fmtNum(s.mqlEsperado)} que a projeção pede até hoje`
+          : 'sem meta de MQL no mês')}
+      ${barra('Qualidade', s.qua, '60%',
+        s.base
+          ? `${s.quaReal.toFixed(0)}% na faixa ICP contra ${s.quaMeta}% da meta`
+            + ` · base de ${fmtNum(s.base)} com cadastro completo`
+          : 'nenhum lead com as quatro perguntas respondidas')}
+    </div>
+  </div>`;
+}
+
+// Versao compacta do mesmo calculo, pro cabecalho. Chama o calcSLA, nao
+// recalcula nada: com duas contas, um dia o topo e o card discordam.
+//
+// Devolve string vazia quando nao ha nota — IA NA PRATICA (sem meta de
+// MQL) e produto sem lead com cadastro completo. Melhor o selo sumir do
+// que mostrar "—" e alguem ler como zero.
+function seloSLA(v) {
+  const s = calcSLA(v);
+  if (s.nota === null) return '';
+
+  const cor = corSLA(s.nota);
+  const pc  = x => x === null ? '—' : (x * 100).toFixed(0) + '%';
+
+  return `
+  <span class="tme-box sla-box" style="border-left-color:${cor}"
+        title="40% quantidade (MQL contra a projeção) + 60% qualidade (faixa ICP contra a meta de distribuição). Só leads com cadastro completo.">
+    <span class="tme-principal">
+      <span class="tme-rot">SLA</span>
+      <span class="sla-val" style="color:${cor}">${pc(s.nota)}</span>
+      <span class="tme-sub">40 QTD · 60 QUAL</span>
+    </span>
+    <span class="tme-quebra">
+      <span class="tme-linha"><span>quantidade</span>
+        <b style="color:${corSLA(s.qtd)}">${pc(s.qtd)}</b></span>
+      <span class="tme-linha"><span>qualidade</span>
+        <b style="color:${corSLA(s.qua)}">${pc(s.qua)}</b></span>
+      <span class="tme-linha"><span>base</span>
+        <b style="color:${s.baseCurta ? 'var(--amber)' : 'var(--gray-light)'}">${
+          fmtNum(s.base)}</b></span>
+    </span>
+  </span>`;
 }
 
 // Lead que entra na leitura de pontuacao.
