@@ -3437,8 +3437,6 @@ function render() {
     </div>`;
     })()}
 
-    ${cardSLA(v)}
-
     ${(() => {
       // Card de largura cheia, abaixo do CPMQL. So aparece quando ha lead
       // com pontuacao: sem dado, uma linha reta em zero nao diz nada e so
@@ -7776,54 +7774,9 @@ function corSLA(x) {
   return x >= 0.90 ? 'var(--green)' : x >= 0.70 ? 'var(--amber)' : 'var(--red)';
 }
 
-function cardSLA(v) {
-  const s = calcSLA(v);
-  const pc = x => x === null ? '—' : (x * 100).toFixed(0) + '%';
-
-  // IA NA PRATICA cai aqui: sem meta de MQL a quantidade nao tem
-  // denominador, e metade da nota ficaria inventada. Melhor nao mostrar.
-  if (s.semMetaMql) return '';
-
-  const barra = (rot, val, peso, detalhe) => `
-    <div style="flex:1;min-width:180px">
-      <div class="kpi-linha" style="margin-bottom:4px">
-        <span>${rot} <span style="opacity:.5">· peso ${peso}</span></span>
-        <span style="color:${corSLA(val)};font-weight:600">${pc(val)}</span>
-      </div>
-      <div class="kpi-barra"><div style="width:${val === null ? 0 : val * 100}%;
-        background:${corSLA(val)}"></div></div>
-      <div style="font-size:11px;opacity:.55;margin-top:4px">${detalhe}</div>
-    </div>`;
-
-  return `
-  <div class="card" style="margin-bottom:16px">
-    <div class="card-title">
-      SLA de MQL
-      <span class="card-tag">40% quantidade · 60% qualidade</span>
-      ${s.baseCurta ? `<span class="card-tag" style="background:var(--amber);
-        color:#0a0a0a">base curta · ${fmtNum(s.base)} com cadastro completo</span>` : ''}
-    </div>
-    <div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap;padding:4px 0">
-      <div style="min-width:120px">
-        <div style="font-size:38px;line-height:1;font-weight:600;
-          color:${corSLA(s.nota)}">${pc(s.nota)}</div>
-        <div style="font-size:11px;opacity:.55;margin-top:6px">nota do período</div>
-      </div>
-      ${barra('Quantidade', s.qtd, '40%',
-        s.mqlEsperado
-          ? `${fmtNum(s.mqlReal)} MQL de ${fmtNum(s.mqlEsperado)} que a projeção pede até hoje`
-          : 'sem meta de MQL no mês')}
-      ${barra('Qualidade', s.qua, '60%',
-        s.base
-          ? `${s.quaReal.toFixed(0)}% na faixa ICP contra ${s.quaMeta}% da meta`
-            + ` · base de ${fmtNum(s.base)} com cadastro completo`
-          : 'nenhum lead com as quatro perguntas respondidas')}
-    </div>
-  </div>`;
-}
-
-// Versao compacta do mesmo calculo, pro cabecalho. Chama o calcSLA, nao
-// recalcula nada: com duas contas, um dia o topo e o card discordam.
+// O SLA vive so' no cabecalho, ao lado do TME. Houve um card de largura
+// cheia no corpo da pagina; saiu a pedido do Vitao em 03/11, por repetir
+// o que o selo ja' diz.
 //
 // Devolve string vazia quando nao ha nota — IA NA PRATICA (sem meta de
 // MQL) e produto sem lead com cadastro completo. Melhor o selo sumir do
