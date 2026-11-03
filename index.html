@@ -2955,13 +2955,23 @@ const PLANO_DIARIO = {
   // outro caminho (recarga da semana / dias da semana) e chega em numeros
   // diferentes. Quando as duas metades divergirem, esta e' a que o
   // dashboard segue.
+  // ATUALIZADO 03/11: os valores sao os da aba PREVISTO, dia a dia, copiados
+  // como estao la. A curva anterior (30/30/20/15/5, saida da tabela do
+  // orcamento) ficou pra tras quando o plano de carga mudou — e como a
+  // Projecao dos cards e' META x FRACAO DAQUI, o card do investimento
+  // mostrava 43.954 no dia 03 quando o previsto da aba dava 30.846.
+  //
+  // A curva nova nao e' decrescente: ela ALTERNA 21/26/21/26/5% por semana.
+  // Se a aba PREVISTO mudar de novo, este bloco muda junto — enquanto a
+  // aba nao for lida pela API (ver nota abaixo), e' daqui que sai o ritmo
+  // de lead, MQL, venda e faturamento tambem, nao so' o de investimento.
   '2026-11': {
-    'PFCC BRASIL':   _sem(16279.30, 16279.30, 10852.87,  8139.65,  9496.26),
-    'PFCC MÉXICO':   _sem( 1714.29,  1714.29,  1142.86,   857.14,  1000.00),
-    'BOARD ADVISOR': _sem(  857.14,   857.14,   571.43,   428.57,   500.00),
-    'IA NA PRÁTICA': _sem(  428.57,   428.57,   285.71,   214.29,   250.00),
-    'CES':           _sem(  857.14,   857.14,   571.43,   428.57,   500.00),
-    'LEAN':          _sem(  514.29,   514.29,   342.86,   257.14,   300.00),
+    'PFCC BRASIL':   _sem(10282, 12852, 10282, 12852, 8996),
+    'PFCC MÉXICO':   _sem( 1203,  1504,  1203,  1504, 1053),
+    'BOARD ADVISOR': _sem(  541,   677,   541,   677,  474),
+    'IA NA PRÁTICA': _sem(  301,   376,   301,   376,  263),
+    'CES':           _sem(  602,   752,   602,   752,  526),
+    'LEAN':          _sem(  361,   451,   361,   451,  316),
   },
 };
 
