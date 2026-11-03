@@ -1015,6 +1015,46 @@ const METAS_POR_MES = {
     'LEAN':          { leads: 270,  mqls: 100,  faturamento: 50408,   investimento: 10000,
                        vendas: 8,   cpl: 37,  cpmql: 100, cac: 1250, roas: 5.04 },
   },
+
+  // Novembro: BUDGET_11.2026.xlsx, aba Novembro. Tudo saiu da planilha —
+  // CPL, CPMQL, CAC e ROAS sao as proprias divisoes e FECHAM:
+  //   Brasil   379.850 / 5.065 = 75  · / 2.922 = 130  · / 117 = 3.250
+  //   Mexico    40.000 /   500 = 80  · /   351 = 114  · /  14 = 2.850
+  //   Advisor   20.000 /   267 = 75  · /   154 = 130  · /   6 = 3.250
+  //   CES       20.000 /   526 = 38  · /   222 =  90  · /   9 = 2.250
+  //   LEAN      12.000 /   324 = 37  · /    80 = 150  · /   3 = 3.750
+  //   IA        10.000 /   123 = 81
+  //
+  // PFCC BRASIL = linhas 8 + 9 + 10 do orcamento (PFCC-BRASIL 331.850,40
+  // + DIST/NUT/RMKT 15.000 + VANGUARD 33.000). Soma dos 6 produtos =
+  // 481.850,40, igual ao D16. Os 50.000 de EVENTOS e os 150 de
+  // FERRAMENTAS ficam de fora: nao sao produto e nao geram lead aqui.
+  //
+  // IA NA PRATICA continua sem mqls/cpmql — AUSENTES de proposito, nao
+  // zerados (o orcamento traz MQL 0 cravado na linha 13).
+  //
+  // Chile e LinkedIn Program sem meta: nao tem verba em novembro.
+  //
+  // RESSALVA no cpmql: os 130 do Brasil foram calculados na regua ANTIGA
+  // de MQL (so cargo). Com a regra nova — cargo OU score >= 6 no Brasil —
+  // o realizado tende a vir ~37% acima dos 2.922, e o CPMQL realizado
+  // abaixo de 130. A meta ficou como o Vitao mandou, de proposito.
+  '2026-11': {
+    [CONSOLIDADO]:   { leads: 6805, mqls: 3729, faturamento: 2287558, investimento: 481850,
+                       vendas: 149, cpl: 71,  cpmql: 129, cac: 3234, roas: 4.75 },
+    'PFCC BRASIL':   { leads: 5065, mqls: 2922, faturamento: 1782726, investimento: 379850,
+                       vendas: 117, cpl: 75,  cpmql: 130, cac: 3247, roas: 4.69 },
+    'PFCC MÉXICO':   { leads: 500,  mqls: 351,  faturamento: 195088,  investimento: 40000,
+                       vendas: 14,  cpl: 80,  cpmql: 114, cac: 2857, roas: 4.88 },
+    'BOARD ADVISOR': { leads: 267,  mqls: 154,  faturamento: 43077,   investimento: 20000,
+                       vendas: 6,   cpl: 75,  cpmql: 130, cac: 3333, roas: 2.15 },
+    'IA NA PRÁTICA': { leads: 123,  faturamento: 0,       investimento: 10000,
+                       vendas: 0,   cpl: 81 },
+    'CES':           { leads: 526,  mqls: 222,  faturamento: 106667,  investimento: 20000,
+                       vendas: 9,   cpl: 38,  cpmql: 90,  cac: 2222, roas: 5.33 },
+    'LEAN':          { leads: 324,  mqls: 80,   faturamento: 160000,  investimento: 12000,
+                       vendas: 3,   cpl: 37,  cpmql: 150, cac: 4000, roas: 13.33 },
+  },
 };
 
 function metasAtivas() {
@@ -2876,6 +2916,21 @@ const _curva = (a, b, c, d, e, f) => [
   ..._rep(f, 6),   // 26 a 31
 ];
 
+// Novembro vem por SEMANA, nao por bloco solto: o orcamento de novembro
+// reparte 30/30/20/15/5% em cinco semanas e o mes comeca num domingo, o
+// que fecha as semanas em 7+7+7+7+2. Dai um helper proprio em vez de
+// forcar os seis blocos de outubro.
+//
+// Sao 30 posicoes, nao 31 — fracaoDoPlano percorre o tamanho do array,
+// entao mes de 30 dias nao precisa de nada a mais.
+const _sem = (s1, s2, s3, s4, s5) => [
+  ..._rep(s1, 7),  // 01 a 07
+  ..._rep(s2, 7),  // 08 a 14
+  ..._rep(s3, 7),  // 15 a 21
+  ..._rep(s4, 7),  // 22 a 28
+  ..._rep(s5, 2),  // 29 e 30
+];
+
 // Nomes dos PRODUTOS do dashboard, nao as linhas do orcamento:
 // PFCC BRASIL ja inclui DIST/NUT/RMKT e VANGUARD. LINKEDIN PROGRAM fica
 // de fora porque nao existe como produto aqui, e PFCC CHILE nao tem linha
@@ -2889,6 +2944,24 @@ const PLANO_DIARIO = {
     'IA NA PRÁTICA': _curva( 265.04,   331.30,   353.39,   290.52,   311.27,   363.14),
     'CES':           _curva( 265.04,   331.30,   353.39,   290.52,   311.27,   363.14),
     'LEAN':          _curva( 265.04,   331.30,   353.39,   290.52,   311.27,   363.14),
+  },
+
+  // Novembro: colunas AE..AI da aba Novembro (o valor da semana), cada uma
+  // dividida pelos dias daquela semana. A soma de cada produto da' exatamente
+  // o investimento da meta — por isso o card de investimento fica exato.
+  //
+  // Vale uma ressalva: o plano aqui e' a curva 30/30/20/15/5 da tabela
+  // principal do orcamento. A aba Diario do mesmo arquivo distribui por
+  // outro caminho (recarga da semana / dias da semana) e chega em numeros
+  // diferentes. Quando as duas metades divergirem, esta e' a que o
+  // dashboard segue.
+  '2026-11': {
+    'PFCC BRASIL':   _sem(16279.30, 16279.30, 10852.87,  8139.65,  9496.26),
+    'PFCC MÉXICO':   _sem( 1714.29,  1714.29,  1142.86,   857.14,  1000.00),
+    'BOARD ADVISOR': _sem(  857.14,   857.14,   571.43,   428.57,   500.00),
+    'IA NA PRÁTICA': _sem(  428.57,   428.57,   285.71,   214.29,   250.00),
+    'CES':           _sem(  857.14,   857.14,   571.43,   428.57,   500.00),
+    'LEAN':          _sem(  514.29,   514.29,   342.86,   257.14,   300.00),
   },
 };
 
