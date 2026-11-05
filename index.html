@@ -4009,7 +4009,37 @@ function renderReport(v) {
 //
 // Separador ponto e virgula e BOM no inicio: e' o que o Excel brasileiro
 // espera. Sem o BOM os acentos saem corrompidos.
+// ── Senha para exportar CSV ─────────────────────────────────────────────
+// Pedida uma vez por sessao: depois de acertar, as outras exportacoes da
+// mesma aba de navegador passam direto. Fechar a aba exige de novo.
+//
+// ATENCAO ao que isto E' e ao que NAO E'. A pagina inteira ja' chegou no
+// navegador de quem abriu o dashboard — o JSON com todos os leads esta
+// na memoria dele, e o PIN abaixo esta escrito neste arquivo, visivel em
+// "ver codigo-fonte". Quem quiser o dado consegue sem a senha.
+//
+// Serve pra outra coisa, que e' legitima: impedir a exportacao sem
+// querer, e deixar claro que baixar a base e' um ato deliberado. Se o
+// objetivo for impedir acesso de verdade, a trava tem que estar na API
+// (um endpoint proprio de exportacao, validando a sessao no servidor) —
+// no front nao da pra fazer.
+const PIN_EXPORT = '7453';
+let exportLiberado = false;
+
+function podeExportar() {
+  if (exportLiberado) return true;
+  const digitado = prompt('Senha para exportar CSV:');
+  if (digitado === null) return false;            // cancelou
+  if (digitado.trim() !== PIN_EXPORT) {
+    alert('Senha incorreta.');
+    return false;
+  }
+  exportLiberado = true;
+  return true;
+}
+
 function exportarBaseCSV() {
+  if (!podeExportar()) return;
   const v = dadosVisiveis();
   if (!v || !v.backlog.length) return;
 
@@ -4761,6 +4791,7 @@ function renderDescartes(v) {
 // Mesmo formato do CSV da Base: ; como separador e BOM, pro Excel BR abrir
 // sem acento quebrado.
 function exportarDescartesCSV() {
+  if (!podeExportar()) return;
   const v = dadosVisiveis();
   // Exporta o que esta na tela — inclusive o recorte do seletor Leads/MQL
   const termoCsv = semAcento(buscaDescartes);
@@ -5687,6 +5718,7 @@ function desenharGraficoCampanha(linha) {
 
 // ── Exportar a tabela de campanhas ──────────────────────────────────────────
 function exportarCampanhasCSV() {
+  if (!podeExportar()) return;
   const v = dadosVisiveis();
   const { linhas } = dadosCampanhas(v);
   if (!linhas.length) return;
@@ -7351,6 +7383,7 @@ function tabelaAbertos(v) {
 
 // ── Exportar os leads do período ────────────────────────────────────────────
 function exportarAbertosCSV() {
+  if (!podeExportar()) return;
   const v = dadosVisiveis();
   const leads = leadsAbertos(v);
   if (!leads.length) return;
