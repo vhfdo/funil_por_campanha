@@ -19,6 +19,23 @@
     --amber:#d9a441; --red:#c0392b; --green:#4ade80;
   }
   *{margin:0;padding:0;box-sizing:border-box;}
+  /* ── Caixa de senha da exportacao ── */
+  .pin-fundo{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:9999;
+    display:flex;align-items:center;justify-content:center;padding:20px;}
+  .pin-caixa{background:var(--panel);border:1px solid var(--border);
+    border-left:3px solid var(--blue);padding:24px 26px;width:300px;max-width:100%;}
+  .pin-rot{font-family:'DM Mono',monospace;font-size:10px;color:var(--white);
+    text-transform:uppercase;letter-spacing:.15em;margin-bottom:12px;}
+  /* letter-spacing largo: com 4 digitos mascarados, as bolinhas coladas
+     viram um borrao e nao da' pra contar quantas ja' foram digitadas */
+  .pin-campo{width:100%;background:var(--panel2);border:1px solid var(--border);
+    color:var(--white);font-family:'DM Mono',monospace;font-size:20px;
+    letter-spacing:.5em;text-align:center;padding:10px 12px;outline:none;}
+  .pin-campo:focus{border-color:var(--blue);}
+  .pin-erro{font-family:'DM Mono',monospace;font-size:10px;color:var(--red);
+    margin-top:8px;min-height:13px;letter-spacing:.05em;}
+  .pin-acoes{display:flex;gap:8px;margin-top:14px;}
+  .pin-acoes .btn{flex:1;justify-content:center;text-align:center;}
   body{background:var(--bg);color:var(--white);font-family:'DM Sans',sans-serif;-webkit-font-smoothing:antialiased;}
   .wrap{max-width:1500px;margin:0 auto;padding:26px 22px 50px;}
 
@@ -4010,8 +4027,12 @@ function renderReport(v) {
 // Separador ponto e virgula e BOM no inicio: e' o que o Excel brasileiro
 // espera. Sem o BOM os acentos saem corrompidos.
 // ── Senha para exportar CSV ─────────────────────────────────────────────
-// Pedida uma vez por sessao: depois de acertar, as outras exportacoes da
-// mesma aba de navegador passam direto. Fechar a aba exige de novo.
+// Pedida em TODA exportacao, de proposito: nao guarda que ja' foi digitada.
+// O dashboard fica aberto em tela de reuniao e em maquina compartilhada —
+// lembrar por sessao deixaria o botao livre pra quem sentasse depois.
+//
+// Caixa propria em vez do prompt() do navegador por um motivo so': o
+// prompt nao mascara o que se digita. Aqui o campo e' type=password.
 //
 // ATENCAO ao que isto E' e ao que NAO E'. A pagina inteira ja' chegou no
 // navegador de quem abriu o dashboard — o JSON com todos os leads esta
@@ -4024,22 +4045,55 @@ function renderReport(v) {
 // (um endpoint proprio de exportacao, validando a sessao no servidor) —
 // no front nao da pra fazer.
 const PIN_EXPORT = '7453';
-let exportLiberado = false;
 
-function podeExportar() {
-  if (exportLiberado) return true;
-  const digitado = prompt('Senha para exportar CSV:');
-  if (digitado === null) return false;            // cancelou
-  if (digitado.trim() !== PIN_EXPORT) {
-    alert('Senha incorreta.');
-    return false;
-  }
-  exportLiberado = true;
-  return true;
+// Devolve uma Promise porque a caixa espera o clique — por isso as quatro
+// funcoes de exportacao viraram async e usam `await`.
+function pedirSenha() {
+  return new Promise(resolve => {
+    const fundo = document.createElement('div');
+    fundo.className = 'pin-fundo';
+    fundo.innerHTML = `
+      <div class="pin-caixa">
+        <div class="pin-rot">Senha para exportar</div>
+        <input type="password" class="pin-campo" maxlength="8"
+               inputmode="numeric" autocomplete="off">
+        <div class="pin-erro"></div>
+        <div class="pin-acoes">
+          <button class="btn" data-ok>Exportar</button>
+          <button class="btn" data-cancel>Cancelar</button>
+        </div>
+      </div>`;
+    document.body.appendChild(fundo);
+
+    const campo = fundo.querySelector('.pin-campo');
+    const erro  = fundo.querySelector('.pin-erro');
+    campo.focus();
+
+    const fechar = r => { document.removeEventListener('keydown', atalho);
+                          fundo.remove(); resolve(r); };
+    const tentar = () => {
+      if (campo.value.trim() === PIN_EXPORT) return fechar(true);
+      // Nao fecha no erro: fechar obrigaria a clicar no botao de novo so'
+      // porque errou um digito.
+      erro.textContent = 'Senha incorreta';
+      campo.value = '';
+      campo.focus();
+    };
+    const atalho = e => {
+      if (e.key === 'Enter')  { e.preventDefault(); tentar(); }
+      if (e.key === 'Escape') { e.preventDefault(); fechar(false); }
+    };
+
+    document.addEventListener('keydown', atalho);
+    fundo.querySelector('[data-ok]').onclick = tentar;
+    fundo.querySelector('[data-cancel]').onclick = () => fechar(false);
+    // Clique fora da caixa cancela
+    fundo.onclick = e => { if (e.target === fundo) fechar(false); };
+  });
 }
 
-function exportarBaseCSV() {
-  if (!podeExportar()) return;
+async function exportarBaseCSV() {
+  if (!await pedirSenha()) return;
   const v = dadosVisiveis();
   if (!v || !v.backlog.length) return;
 
@@ -4790,8 +4844,8 @@ function renderDescartes(v) {
 // ── Exportar os descartes filtrados em CSV ──────────────────────────────────
 // Mesmo formato do CSV da Base: ; como separador e BOM, pro Excel BR abrir
 // sem acento quebrado.
-function exportarDescartesCSV() {
-  if (!podeExportar()) return;
+async function exportarDescartesCSV() {
+  if (!await pedirSenha()) return;
   const v = dadosVisiveis();
   // Exporta o que esta na tela — inclusive o recorte do seletor Leads/MQL
   const termoCsv = semAcento(buscaDescartes);
@@ -5717,8 +5771,8 @@ function desenharGraficoCampanha(linha) {
 }
 
 // ── Exportar a tabela de campanhas ──────────────────────────────────────────
-function exportarCampanhasCSV() {
-  if (!podeExportar()) return;
+async function exportarCampanhasCSV() {
+  if (!await pedirSenha()) return;
   const v = dadosVisiveis();
   const { linhas } = dadosCampanhas(v);
   if (!linhas.length) return;
@@ -7382,8 +7436,8 @@ function tabelaAbertos(v) {
 }
 
 // ── Exportar os leads do período ────────────────────────────────────────────
-function exportarAbertosCSV() {
-  if (!podeExportar()) return;
+async function exportarAbertosCSV() {
+  if (!await pedirSenha()) return;
   const v = dadosVisiveis();
   const leads = leadsAbertos(v);
   if (!leads.length) return;
