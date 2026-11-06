@@ -3027,6 +3027,36 @@ function fracaoDoPlano(ref) {
   return total ? ate / total : null;
 }
 
+// Fracao do plano DENTRO da janela selecionada, nao desde o dia 1.
+//
+// fracaoDoPlano devolve sempre o acumulado do dia 1 ate a data, e e' isso
+// que o grafico de MQL/dia precisa — ele monta uma linha acumulada e tira
+// a meta de cada dia da diferenca entre dois acumulados. Por isso ela nao
+// mudou: a pergunta aqui e' outra, "quanto o plano pede NESTE periodo".
+//
+// Sem este desconto, filtrar um dia so' comparava o MQL daquele dia com a
+// meta acumulada do mes inteiro ate ali. No dia 06/11 isso punha o PFCC
+// Brasil em 36% de quantidade com o mes inteiro selecionado — e um dia
+// solto ficaria em algo perto de 6%, sempre vermelho, sempre sem sentido.
+//
+// Periodo que cruza a virada do mes mantem o comportamento antigo: o
+// METAS_POR_MES e' mensal, entao "a meta do periodo" ja' seria ambigua, e
+// subtrair fracoes de dois planos diferentes nao significaria nada.
+function fracaoDoPeriodo(ini, fim) {
+  const fFim = fracaoDoPlano(fim);
+  if (fFim === null || !ini) return fFim;
+  if (ini.getFullYear() !== fim.getFullYear()
+      || ini.getMonth()  !== fim.getMonth()) return fFim;
+
+  const vespera = new Date(ini);
+  vespera.setDate(vespera.getDate() - 1);
+  // Comecou no dia 1: a vespera cai no mes passado, nao ha o que descontar
+  if (vespera.getMonth() !== ini.getMonth()) return fFim;
+
+  const fAntes = fracaoDoPlano(vespera);
+  return fAntes === null ? fFim : Math.max(0, fFim - fAntes);
+}
+
 function metaAteHoje(meta, previsto) {
   if (previsto !== null && previsto !== undefined) return Math.round(previsto);
   if (!meta) return null;
@@ -3039,12 +3069,20 @@ function metaAteHoje(meta, previsto) {
 
   // O plano manda quando existe pro mes; sem ele, a divisao linear de
   // sempre — mes novo sem plano cadastrado continua funcionando.
-  const f = fracaoDoPlano(ref);
+  const iniSel = document.getElementById('dataInicio').value;
+  const ini = iniSel ? new Date(iniSel + 'T00:00:00') : null;
+
+  const f = fracaoDoPeriodo(ini, ref);
   if (f !== null) return Math.round(meta * f);
 
-  const dia = ref.getDate();
+  // Mesmo raciocinio no fallback linear: conta os dias DA JANELA, nao os
+  // dias decorridos do mes.
   const diasNoMes = new Date(ref.getFullYear(), ref.getMonth() + 1, 0).getDate();
-  return Math.round(meta / diasNoMes * dia);
+  const mesmoMes = ini && ini.getFullYear() === ref.getFullYear()
+                       && ini.getMonth()    === ref.getMonth();
+  const dias = mesmoMes ? Math.max(0, ref.getDate() - ini.getDate() + 1)
+                        : ref.getDate();
+  return Math.round(meta / diasNoMes * dias);
 }
 
 // Abas que o dashboard.js nao achou na planilha. Antes esse erro virava
