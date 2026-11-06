@@ -7744,11 +7744,23 @@ const metaDaFaixa = f => META_SCORE[f] || 0;
 //
 // Uma funcao so, usada pelo grafico E pela nota de rodape: com duas copias
 // da regra, um dia uma pinta de verde o que a outra pinta de vermelho.
-function ladoDaFaixa(f) {
-  if (f >= ICP_DE && f <= ICP_ATE) return +1;
-  if (f < ICP_DE) return -1;
-  return 0;
-}
+// NAO existe mais "lado bom" de faixa. A meta do score e' um FORMATO a
+// seguir, nao um piso a superar: o ideal e' acompanhar a curva, nem acima
+// nem abaixo. Decidido com o Vitao em 06/11.
+//
+// A regra antiga tratava o ICP inteiro como bloco unico e pintava de verde
+// qualquer excesso dentro dele. O caso que derrubou a regra: 6 a 6,9 com
+// +8 pt aparecia VERDE enquanto 7 a 7,9 (-6) e 8 a 8,9 (-12) apareciam
+// vermelhos — mas os 8 pt "a mais" no 6 nao eram lead extra, eram os leads
+// que escorregaram de cima. O unico verde da tela estava justamente na
+// faixa que recebia o estrago.
+//
+// Tolerancia em PONTOS absolutos, nao relativa. Faixa de meta 3% e faixa
+// de meta 30% usam o mesmo criterio, o que e' mais duro com as faixas
+// pequenas — mas e' o numero que ja' aparece escrito na tela ("+8 pt"),
+// entao a cor e o rotulo contam a mesma historia.
+const DESVIO_OK    = 2;   // ate 2 pt: segue a curva
+const DESVIO_ALERTA = 5;  // de 2 a 5: desviando
 
 // Cor do desvio. Meio ponto e' arredondamento, nao desvio.
 //
@@ -7760,9 +7772,15 @@ const VERDE_DESVIO = '#4ade80';
 const VERMELHO_DESVIO = '#e0645c';
 const NEUTRO_DESVIO = 'rgba(200,200,200,.7)';
 
-function corDesvio(dif, lado) {
-  if (!lado || Math.abs(dif) < 0.5) return NEUTRO_DESVIO;
-  return dif * lado > 0 ? VERDE_DESVIO : VERMELHO_DESVIO;
+const AMBAR_DESVIO = '#d9a441';
+
+// Sem parametro de lado: o que decide e' o TAMANHO do desvio, nao a
+// direcao. Verde aqui quer dizer "esta na curva", nao "superou a meta".
+function corDesvio(dif) {
+  const d = Math.abs(dif);
+  if (d <= DESVIO_OK)     return VERDE_DESVIO;
+  if (d <= DESVIO_ALERTA) return AMBAR_DESVIO;
+  return VERMELHO_DESVIO;
 }
 
 // Soma da meta dentro de um intervalo de faixas — usado pra comparar o
@@ -7792,15 +7810,19 @@ const SLA_PESO_QTD = 0.40;
 const SLA_PESO_QUA = 0.60;
 
 // A qualidade mede SO' a faixa ICP (6 a 8,9), nao "score 6 ou mais".
+// O bloco 9+ fica fora dos dois lados da divisao.
 //
-// O bloco 9+ fica fora dos DOIS lados da divisao, de proposito. E' a mesma
-// posicao do ladoDaFaixa, que nao pinta 9+ de verde nem de vermelho porque
-// la' aparece cadastro com resposta inflada. Pondo o 9+ no denominador, a
-// nota cobraria do time os 16% que o proprio dashboard se recusa a tratar
-// como meta de qualidade — e um produto com a distribuicao perfeita dentro
-// do ICP nunca passaria de 82%.
+// PENDENTE, e o Vitao precisa decidir: desde 06/11 o grafico passou a
+// tratar a meta do score como FORMATO a seguir — desvio pra cima conta
+// igual a desvio pra baixo. Esta conta aqui ainda e' a antiga, uma razao
+// com teto de 100%: fatia do ICP dividida pela meta do ICP. Ou seja, um
+// produto com 85% dentro do ICP contra meta de 71% le 100%, quando pela
+// regra nova deveria ser penalizado por ter desviado da curva.
 //
-// Pra mudar pra "score 6 ou mais", troque o SLA_QUA_ATE por 9. Nada mais.
+// A versao coerente com a regra nova e' a intersecao de histograma —
+// somar, faixa a faixa, o MENOR entre realizado e meta. Ela vale 100% so'
+// quando os dois formatos coincidem e cai nos dois sentidos. Com os dados
+// de 06/11 isso levaria a qualidade de 86% para 69%.
 const SLA_QUA_DE  = ICP_DE;
 const SLA_QUA_ATE = ICP_ATE;
 
@@ -8022,15 +8044,14 @@ function notaMetaScore(v, vComp) {
     .reduce((s, [, p]) => s + p, 0);
   const fatia = (de, ate) => fatiaDe(d, de, ate);
 
-  // O lado bom de cada bloco sai do ladoDaFaixa, a mesma funcao que o
-  // grafico usa — com a regra escrita duas vezes, um dia o rotulo pinta de
-  // verde o que a nota pinta de vermelho.
+  // Os blocos usam o mesmo corDesvio do grafico — com a regra escrita duas
+  // vezes, um dia o rotulo pinta de verde o que a nota pinta de vermelho.
   //
-  // O bloco de 9+ fica sem lado. A meta pede 16% la, mas nota 9+ tambem e'
-  // onde aparece cadastro com resposta inflada: pintar de vermelho "abaixo
-  // da meta" ou de verde "acima" afirmaria uma direcao que o dado nao
-  // sustenta. Mostramos o desvio e deixamos a leitura com quem conhece a
-  // origem daquele lead.
+  // O bloco de 9+ agora TAMBEM e' colorido. Antes ficava cinza, por nota
+  // 9+ ser onde aparece cadastro com resposta inflada. Sob a regra nova
+  // isso nao se sustenta: a meta pede 16% la, e 3% e' desvio igual a
+  // qualquer outro. Suspeita sobre a origem do lead continua valendo na
+  // leitura, mas nao e' motivo pra esconder o desvio.
   const blocos = [
     ['abaixo do ICP', 2, ICP_DE - 1],
     [`ICP (${ICP_DE} a ${ICP_ATE},9)`, ICP_DE, ICP_ATE],
@@ -8041,7 +8062,7 @@ function notaMetaScore(v, vComp) {
     const real = fatia(de, ate);
     const meta = somaMeta(de, ate);
     const dif  = real - meta;
-    const cor  = corDesvio(dif, ladoDaFaixa(de));
+    const cor  = corDesvio(dif);
 
     // Com o comparativo ligado, o bloco ganha o mesmo numero do periodo
     // anterior. E' percentual contra percentual: as duas bases costumam ter
@@ -8052,7 +8073,7 @@ function notaMetaScore(v, vComp) {
       const ant = fatiaDe(dC, de, ate);
       const dv  = real - ant;
       antes = ` <span style="opacity:.55">· antes ${ant.toFixed(0)}%</span>
-        <b style="color:${corDesvio(dv, ladoDaFaixa(de))}">${
+        <b style="color:${corDesvio(dv)}">${
           dv >= 0 ? '+' : ''}${dv.toFixed(0)}</b>`;
     }
 
@@ -8169,8 +8190,7 @@ function graficoScore(v, vComp) {
               font: { family: 'DM Mono', size: 9, weight: 500 },
               color: ctx => {
                 const f = FAIXAS_SCORE[ctx.dataIndex];
-                return corDesvio(d.pct[ctx.dataIndex] - metaDaFaixa(f),
-                                 ladoDaFaixa(f));
+                return corDesvio(d.pct[ctx.dataIndex] - metaDaFaixa(f));
               },
               formatter: (x, ctx) => {
                 const dif = x - metaDaFaixa(FAIXAS_SCORE[ctx.dataIndex]);
