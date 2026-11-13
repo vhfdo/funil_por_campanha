@@ -5034,9 +5034,43 @@ function _chavePorNomeNorm() {
   return m;
 }
 
+// Marcadores de versao que NAO fazem parte do nome da campanha.
+//
+// Quando uma campanha e' refeita, a antiga e' renomeada com "old" (as
+// vezes no fim, as vezes no COMECO) ou a nova ganha um "V1". Na tabela de
+// Campanhas isso virava duas linhas com o mesmo nome, uma com o sufixo —
+// investimento, lead e MQL divididos entre as duas sem motivo.
+//
+// A comparacao e' por TOKEN ISOLADO, nunca por pedaco de texto:
+//
+//   "old [TD] [PFCC]..."        → remove   (token proprio)
+//   "... [CAPTACAO] old"        → remove   (token proprio)
+//   "... [CAPTACAO] V1"         → remove   (token proprio)
+//   "...[TESTE][BA][V3] - JUL"  → MANTEM   ([V3] tem colchete, e' taxonomia)
+//   "...[QUENTE][GOLD] [CAPT]"  → MANTEM   ("gold" nao e' o token "old")
+//
+// Por que nao "ignorar tudo depois do ultimo ]": porque varias campanhas
+// terminam em texto livre que distingue de verdade — "- ADS FOCO RMKT",
+// "- ANIVERSARIO BA - 5 ANOS", "- VICTOR EBOOK". Aquela regra fundiria
+// "[FRIO][ADV+] - ANIVERSARIO BA - 5 ANOS" com "[FRIO][ADV+]", que sao
+// campanhas diferentes. Foi conferido contra as campanhas reais do Meta.
+//
+// Pra adicionar marcador novo (copia, teste, bkp), e' so' por aqui.
+const MARCA_VERSAO = /^(old\d*|v[1-9]\d?)$/i;
+
+// So' a CHAVE perde o marcador. O rotulo exibido continua inteiro — quem
+// escolhe qual nome aparece na linha fundida e' o `pega`, mais abaixo.
 const chaveCamp = s => (s || '').toString().toLowerCase().trim()
   .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-  .replace(/\s+/g, ' ');
+  .split(/\s+/)
+  .filter(t => !MARCA_VERSAO.test(t))
+  .join(' ');
+
+// Um rotulo carrega marcador de versao? Usado pra, na hora de fundir duas
+// linhas, mostrar o nome LIMPO em vez do primeiro que chegou — senao a
+// linha fundida apareceria escrita "... [BLACK FRIDAY] old".
+const temMarcaVersao = s => (s || '').toString().trim()
+  .split(/\s+/).some(t => MARCA_VERSAO.test(t));
 
 // O Google e' o caso especial: a utm_campaign do lead vem como ID numerico
 // ("23874401647"), enquanto a planilha de investimento tem o ID numa coluna
@@ -5070,6 +5104,9 @@ function dadosCampanhas(v) {
         porDia: {},
       };
     } else if (soDigitos(agg[k].rotulo) && rotulo && !soDigitos(rotulo)) {
+      agg[k].rotulo = rotulo;
+    } else if (temMarcaVersao(agg[k].rotulo) && rotulo && !temMarcaVersao(rotulo)) {
+      // Chegou a versao sem "old"/"V1": e' ela que fica na tela
       agg[k].rotulo = rotulo;
     }
     return agg[k];
