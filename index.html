@@ -4578,6 +4578,11 @@ function renderGanhos(v) {
       <div class="table-scroll" style="max-height:420px">
         <table class="tabela-utm">
           <thead><tr>
+            <!-- A primeira celula da linha e' o ID com link pro Pipedrive, e o
+                 cabecalho nao tinha a coluna correspondente: eram 13 titulos
+                 pra 14 celulas. Resultado: "Data" sentava em cima do ID,
+                 "Nome" em cima da data, e assim por diante ate o fim. -->
+            <th class="num" title="Clique para abrir o negócio no Pipedrive">ID</th>
             <th>Data</th><th>Nome</th><th>Produto</th><th class="num">Valor</th>
             <th class="num">Neg.</th>
             <th class="num" title="Lead time até o ganho: dias entre a última aplicação e a venda.">LTG</th>
