@@ -92,23 +92,23 @@
      cabe na segunda linha do cabecalho */
   /* Selo do SLA no cabecalho. Herda tudo do .tme-box e so' muda a cor da
      borda e do numero, que sao pintadas por nota — por isso vao inline. */
-  /* As duas caixas do cabecalho com o mesmo tamanho (pedido em 17/11).
-     min-width em vez de width: o TME cresce quando aparece time novo na
-     quebra, e travar a largura cortaria o nome. Assim as duas batem no
-     caso normal e o TME ainda pode passar disso sem quebrar. */
   /* Os dois selos moram dentro de um <span> de ancoragem (#slaHeader e
      #tmeHeader). Sem o display:contents quem vira item flex e' o SPAN, e
-     o align-self da caixa nao vale nada — foi o que aconteceu na primeira
-     tentativa: largura igualou, altura nao. */
+     o align-self da caixa nao vale nada. */
   #slaHeader, #tmeHeader{display:contents;}
-  .tme-box{min-width:430px;align-self:stretch;}
+
+  /* ALTURA igual, LARGURA ao conteudo (ajustado em 17/11).
+     Teve um min-width:430px aqui pra igualar as duas larguras. Saiu: a
+     caixa do SLA pede 249px e a do TME 416px, entao o min-width abria
+     181px de vazio no meio do SLA. Igualar largura de caixas com
+     conteudo diferente so' funciona enchendo uma delas de nada.
+     O align-self:stretch fica — ele iguala a altura, que e' o que faz as
+     duas lerem como par. */
+  .tme-box{align-self:stretch;}
   /* align-self:stretch iguala a ALTURA sem numero magico: o .header-right
      e' align-items:center, entao as duas caixas passam a ocupar a altura
      da linha, que e' ditada pela mais alta (o TME). Travar com min-height
      quebraria quando aparecesse time novo na quebra. */
-  /* Empurra a quebra pro canto direito: sem isso a caixa do SLA, que tem
-     uma coluna so, ficaria com o numero grande colado e um vazio no fim. */
-  .tme-box .tme-quebra:first-of-type{margin-left:auto;}
   .sla-box{margin-left:10px;}
   .sla-val{font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:.02em;}
   @media(max-width:700px){ .tme-box{display:none;} }
