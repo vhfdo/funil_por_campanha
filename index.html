@@ -92,6 +92,23 @@
      cabe na segunda linha do cabecalho */
   /* Selo do SLA no cabecalho. Herda tudo do .tme-box e so' muda a cor da
      borda e do numero, que sao pintadas por nota — por isso vao inline. */
+  /* As duas caixas do cabecalho com o mesmo tamanho (pedido em 17/11).
+     min-width em vez de width: o TME cresce quando aparece time novo na
+     quebra, e travar a largura cortaria o nome. Assim as duas batem no
+     caso normal e o TME ainda pode passar disso sem quebrar. */
+  /* Os dois selos moram dentro de um <span> de ancoragem (#slaHeader e
+     #tmeHeader). Sem o display:contents quem vira item flex e' o SPAN, e
+     o align-self da caixa nao vale nada — foi o que aconteceu na primeira
+     tentativa: largura igualou, altura nao. */
+  #slaHeader, #tmeHeader{display:contents;}
+  .tme-box{min-width:430px;align-self:stretch;}
+  /* align-self:stretch iguala a ALTURA sem numero magico: o .header-right
+     e' align-items:center, entao as duas caixas passam a ocupar a altura
+     da linha, que e' ditada pela mais alta (o TME). Travar com min-height
+     quebraria quando aparecesse time novo na quebra. */
+  /* Empurra a quebra pro canto direito: sem isso a caixa do SLA, que tem
+     uma coluna so, ficaria com o numero grande colado e um vazio no fim. */
+  .tme-box .tme-quebra:first-of-type{margin-left:auto;}
   .sla-box{margin-left:10px;}
   .sla-val{font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:.02em;}
   @media(max-width:700px){ .tme-box{display:none;} }
@@ -3504,7 +3521,7 @@ function render() {
           Pontuação · distribuição por faixa
           <span class="card-tag" style="background:var(--amber);color:#0a0a0a"
                 title="Zona ICP: faixa de score onde está o perfil que a operação procura">
-            ICP ${ICP_DE} a ${ICP_ATE},9</span>
+            ICP ${ICP_DE} a ${ICP_ROTULO_ATE}</span>
           <span class="card-tag">${fmtNum(comScore)} leads com score${
             PRODUTOS_COM_SCORE.includes(produtoAtivo)
               ? ' · MQL a partir de ' + SCORE_MINIMO
@@ -5389,7 +5406,12 @@ function painelScoreCampanha(leads) {
   const meio = Math.floor(ord.length / 2);
   const mediana = ord.length % 2 ? ord[meio] : (ord[meio - 1] + ord[meio]) / 2;
 
-  const noIcp = comScore.filter(b => b.score >= ICP_DE && b.score < ICP_ATE + 1).length;
+  // Espelha o bucket do distribuicaoScore: nota 10 cai na faixa 9. Com o
+  // teste antigo (score < ICP_ATE + 1 = < 10) um 10 cravado ficava de
+  // fora do proprio ICP.
+  const faixaDe = s => Math.min(9, Math.max(2, Math.floor(s)));
+  const noIcp = comScore.filter(
+    b => faixaDe(b.score) >= ICP_DE && faixaDe(b.score) <= ICP_ATE).length;
 
   const linhas = FAIXAS_SCORE.map((f, i) => {
     const dentro = f >= ICP_DE && f <= ICP_ATE;
@@ -5413,7 +5435,7 @@ function painelScoreCampanha(leads) {
         mediana.toFixed(1)}</strong> · <strong style="color:var(--white)">${
         fmtNum(mqlPorScore)}</strong> MQL (score ≥ ${SCORE_MINIMO}) · ${
       (noIcp / comScore.length * 100).toFixed(0)}% na zona ICP
-      (${ICP_DE} a ${ICP_ATE},9, em verde)
+      (${ICP_DE} a ${ICP_ROTULO_ATE}, em verde)
     </div>${linhas}`;
 }
 
@@ -7887,7 +7909,14 @@ const rotuloFaixa = f => f === 9 ? 'De 9 a 10' : `De ${f} a ${f},9`;
 // corte de MQL e vai ate 8,9 — o 9+ fica fora porque e' uma cauda minima
 // e costuma ser cadastro com resposta inflada.
 const ICP_DE  = SCORE_MINIMO;
-const ICP_ATE = 8;
+// 17/11: o ICP passou a incluir a faixa 9 a 10, a pedido do Vitao. A meta
+// do ICP sobe de 71% (17+30+24) para 87% (+16), entao a nota de qualidade
+// CAI — o denominador cresceu e o 9-10 vinha muito abaixo do pedido.
+const ICP_ATE = 9;
+
+// A ultima faixa cobre 9 ATE 10, nao ate 9,9. Sem isso o rotulo sairia
+// "ICP 6 a 9,9" e esconderia que a nota 10 conta.
+const ICP_ROTULO_ATE = ICP_ATE >= 9 ? '10' : `${ICP_ATE},9`;
 
 // Meta de distribuicao: que fatia da base deveria cair em cada faixa.
 // Mesma ordem do FAIXAS_SCORE.
@@ -8240,9 +8269,11 @@ function notaMetaScore(v, vComp) {
   // leitura, mas nao e' motivo pra esconder o desvio.
   const blocos = [
     ['abaixo do ICP', 2, ICP_DE - 1],
-    [`ICP (${ICP_DE} a ${ICP_ATE},9)`, ICP_DE, ICP_ATE],
+    [`ICP (${ICP_DE} a ${ICP_ROTULO_ATE})`, ICP_DE, ICP_ATE],
     ['acima do ICP', ICP_ATE + 1, 9],
-  ];
+  // Com o ICP indo ate a ultima faixa, "acima do ICP" vira um intervalo
+  // vazio (de 10 a 9). Sai da lista em vez de aparecer como "0% de 0%".
+  ].filter(([, de, ate]) => de <= ate);
 
   const partes = blocos.map(([rotulo, de, ate]) => {
     const real = fatia(de, ate);
