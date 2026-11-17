@@ -5968,16 +5968,48 @@ function previstoNoPeriodo() {
 // ainda espera e' calculado AQUI, porque e' contra o relogio de agora e
 // no Python congelaria na ultima rodada (ate 4h atras). Mudou uma, muda a
 // outra — senao o mesmo card passa a somar duas reguas diferentes.
-const TME_HORA_INI = 8;
+const TME_HORA_INI = 9;
 const TME_HORA_FIM = 18;
 const TME_DIAS = [1, 2, 3, 4, 5];   // getDay(): 1 = segunda ... 5 = sexta
+
+// Feriado nao conta, igual no Python. Calculado, nao digitado: lista fixa
+// envelheceria em silencio. Mesmo algoritmo de Gauss do funil_denise.py —
+// se mudar la', muda aqui.
+const _feriadosCache = {};
+function feriadosDoAno(ano) {
+  if (_feriadosCache[ano]) return _feriadosCache[ano];
+  const a = ano % 19, b = Math.floor(ano / 100), c = ano % 100;
+  const d = Math.floor(b / 4), e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const hh = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4), k = c % 4;
+  const l = (32 + 2 * e + 2 * i - hh - k) % 7;
+  const m = Math.floor((a + 11 * hh + 22 * l) / 451);
+  const mes = Math.floor((hh + l - 7 * m + 114) / 31);
+  const dia = ((hh + l - 7 * m + 114) % 31) + 1;
+  const pascoa = new Date(ano, mes - 1, dia);
+  const dd = x => x.getFullYear() + '-' + (x.getMonth() + 1) + '-' + x.getDate();
+  const maisDias = n => { const x = new Date(pascoa);
+                          x.setDate(x.getDate() + n); return x; };
+  const s = new Set([
+    new Date(ano, 0, 1), new Date(ano, 3, 21), new Date(ano, 4, 1),
+    new Date(ano, 8, 7), new Date(ano, 9, 12), new Date(ano, 10, 2),
+    new Date(ano, 10, 15), new Date(ano, 10, 20), new Date(ano, 11, 25),
+    maisDias(-48), maisDias(-47), maisDias(-2), maisDias(60),
+  ].map(dd));
+  _feriadosCache[ano] = s;
+  return s;
+}
+const ehFeriado = d => feriadosDoAno(d.getFullYear())
+  .has(d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate());
 
 function horasUteis(ini, fim) {
   if (!(ini instanceof Date) || !(fim instanceof Date) || fim <= ini) return 0;
   let total = 0;
   const d = new Date(ini);
   while (d < fim) {
-    if (TME_DIAS.includes(d.getDay())) {
+    if (TME_DIAS.includes(d.getDay()) && !ehFeriado(d)) {
       const abre  = new Date(d); abre.setHours(TME_HORA_INI, 0, 0, 0);
       const fecha = new Date(d); fecha.setHours(TME_HORA_FIM, 0, 0, 0);
       const de  = ini > abre  ? ini  : abre;
@@ -6030,8 +6062,13 @@ function calcTME(lista) {
   // Lead ja' perdido fica de fora: ele parou de esperar, e contar o tempo
   // dele contra hoje faria o TME crescer pra sempre sozinho.
   const agora = new Date();
+  // `excluidoTme` vem do funil_denise.py (coluna 28 do backlog) e marca
+  // lead que o IC mandou nao considerar. Sem este filtro o excluido sairia
+  // da media e voltaria pela fila de "esperando" — pior que nao excluir.
+  // Enquanto a API nao enviar o campo, ele chega undefined e nada muda.
   const esperando = base
-    .filter(b => !temTme(b) && !String(b.dataPerda || '').trim())
+    .filter(b => !temTme(b) && !String(b.dataPerda || '').trim()
+                            && !String(b.excluidoTme || '').trim())
     .map(b => {
       const d = dataAplicacao(b.aplicacao);
       return d ? horasUteis(d, agora) : null;
@@ -6167,7 +6204,7 @@ function cardTME(v, vComp) {
          && b.tme <= TME_META).length;
   const pctPrazo = t.n ? noPrazo / t.n * 100 : 0;
   const nomes = Object.keys(escalaSDRs()).join(', ');
-  return `<div class="tme-box" title="Tempo médio de espera: da entrada do lead até a primeira ligação ou mensagem. Conta horas úteis, 8h-18h de segunda a sexta.&#10;&#10;Lead que chegou e ainda não foi atendido também entra, com o tempo que já esperou.&#10;&#10;SDRs: ${nomes}">
+  return `<div class="tme-box" title="Tempo médio de espera: da entrada do lead até a primeira ligação ou mensagem. Conta horas úteis, 9h-18h de segunda a sexta, sem feriados.&#10;&#10;Lead que chegou e ainda não foi atendido também entra, com o tempo que já esperou.&#10;&#10;SDRs: ${nomes}">
     <div class="tme-principal">
       <span class="tme-rot"><span class="pulso ${fresco ? '' : 'parado'}"
         title="${horas === null ? 'sem carimbo de atualização'
