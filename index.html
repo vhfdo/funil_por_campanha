@@ -5960,8 +5960,8 @@ function previstoNoPeriodo() {
 //
 // Mediana, nao media: um lead esquecido por 200 horas puxa a media e some
 // na mediana, que descreve o atendimento tipico.
-// ── Horas uteis no front: ESPELHO do funil_denise.py ────────────────────
-// Mesma janela do JANELA_PADRAO de la': 8h as 18h, segunda a sexta.
+// ── Janela do TME no front: ESPELHO do funil_denise.py ──────────────────
+// Mesma janela de la': 9h as 18h, segunda a sexta, feriado dentro.
 //
 // As duas implementacoes PRECISAM concordar. O TME de quem ja' foi
 // atendido vem calculado no Python e chega pronto na planilha; o de quem
@@ -5972,37 +5972,11 @@ const TME_HORA_INI = 9;
 const TME_HORA_FIM = 18;
 const TME_DIAS = [1, 2, 3, 4, 5];   // getDay(): 1 = segunda ... 5 = sexta
 
-// Feriado nao conta, igual no Python. Calculado, nao digitado: lista fixa
-// envelheceria em silencio. Mesmo algoritmo de Gauss do funil_denise.py —
-// se mudar la', muda aqui.
-const _feriadosCache = {};
-function feriadosDoAno(ano) {
-  if (_feriadosCache[ano]) return _feriadosCache[ano];
-  const a = ano % 19, b = Math.floor(ano / 100), c = ano % 100;
-  const d = Math.floor(b / 4), e = b % 4;
-  const f = Math.floor((b + 8) / 25);
-  const g = Math.floor((b - f + 1) / 3);
-  const hh = (19 * a + b - d - g + 15) % 30;
-  const i = Math.floor(c / 4), k = c % 4;
-  const l = (32 + 2 * e + 2 * i - hh - k) % 7;
-  const m = Math.floor((a + 11 * hh + 22 * l) / 451);
-  const mes = Math.floor((hh + l - 7 * m + 114) / 31);
-  const dia = ((hh + l - 7 * m + 114) % 31) + 1;
-  const pascoa = new Date(ano, mes - 1, dia);
-  const dd = x => x.getFullYear() + '-' + (x.getMonth() + 1) + '-' + x.getDate();
-  const maisDias = n => { const x = new Date(pascoa);
-                          x.setDate(x.getDate() + n); return x; };
-  const s = new Set([
-    new Date(ano, 0, 1), new Date(ano, 3, 21), new Date(ano, 4, 1),
-    new Date(ano, 8, 7), new Date(ano, 9, 12), new Date(ano, 10, 2),
-    new Date(ano, 10, 15), new Date(ano, 10, 20), new Date(ano, 11, 25),
-    maisDias(-48), maisDias(-47), maisDias(-2), maisDias(60),
-  ].map(dd));
-  _feriadosCache[ano] = s;
-  return s;
-}
-const ehFeriado = d => feriadosDoAno(d.getFullYear())
-  .has(d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate());
+// Feriado nao entra na conta (pedido do Vitao em 18/11). O calculo de
+// Pascoa que estava aqui foi removido junto: lead que chega num feriado em
+// dia de semana entre 9h e 18h tem TME igual a qualquer outro. Se um dia
+// voltar, tem que voltar nos DOIS arquivos — funil_denise.py ainda carrega
+// a lista nacional, hoje sem nenhuma chamada no TME.
 
 // ── TME: recorte na CHEGADA, tempo CORRIDO ────────────────────────────
 // Espelho do funil_denise.py (chegou_no_expediente / tempo_corrido).
@@ -6011,7 +5985,7 @@ const ehFeriado = d => feriadosDoAno(d.getFullYear())
 // — nem como atendido, nem como esperando.
 function dentroDaJanela(d) {
   if (!(d instanceof Date) || isNaN(d)) return false;
-  if (!TME_DIAS.includes(d.getDay()) || ehFeriado(d)) return false;
+  if (!TME_DIAS.includes(d.getDay())) return false;
   const h = d.getHours() + d.getMinutes() / 60;
   return h >= TME_HORA_INI && h < TME_HORA_FIM;
 }
@@ -6024,7 +5998,10 @@ function tempoCorrido(ini, fim) {
 }
 
 // A aplicacao vem "DD/MM/AAAA HH:MM:SS" ou so' "DD/MM/AAAA". Sem hora,
-// assume meia-noite — e o horasUteis comeca a contar as 8h daquele dia.
+// assume meia-noite — e meia-noite esta FORA da janela, entao esse lead
+// cai inteiro fora do TME. Era diferente antes de 18/11: o relogio
+// comecava as 9h do mesmo dia. Se aparecer um bolo de lead sem hora na
+// planilha, o lugar de olhar e' aqui.
 function dataAplicacao(s) {
   const m = String(s || '').trim()
     .match(/^(\d{2})\/(\d{2})\/(\d{4})(?:[ T](\d{2}):(\d{2}))?/);
