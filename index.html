@@ -5961,20 +5961,37 @@ function previstoNoPeriodo() {
 // Mediana, nao media: um lead esquecido por 200 horas puxa a media e some
 // na mediana, que descreve o atendimento tipico.
 // ── Janela do TME no front: ESPELHO do funil_denise.py ──────────────────
-// Mesma janela de la': 9h as 18h, segunda a sexta, feriado dentro.
+// Mesma regra de la': segunda a sexta, feriado dentro, e a janela de
+// horas depende do mercado do produto (BR 9h-18h, LATAM 11h-21h).
 //
 // As duas implementacoes PRECISAM concordar. O TME de quem ja' foi
 // atendido vem calculado no Python e chega pronto na planilha; o de quem
 // ainda espera e' calculado AQUI, porque e' contra o relogio de agora e
 // no Python congelaria na ultima rodada (ate 4h atras). Mudou uma, muda a
 // outra — senao o mesmo card passa a somar duas reguas diferentes.
-const TME_HORA_INI = 9;
-const TME_HORA_FIM = 18;
+// Janela por mercado, sempre em horario de Brasilia — mesma base da
+// aplicacao que chega na planilha. Nada aqui converte fuso: 11h-21h BRT
+// e' como o expediente do time LATAM se escreve na nossa regua
+// (= 08h-18h na Cidade do Mexico). Espelho do funil_denise.py: mudou
+// la', muda aqui.
+const TME_JANELAS = {
+  BR:    [9, 18],
+  LATAM: [11, 21],
+};
 const TME_DIAS = [1, 2, 3, 4, 5];   // getDay(): 1 = segunda ... 5 = sexta
+
+// Mexico e Chile. Por pedaco do nome, nao por igualdade: a planilha grava
+// ora "PFCC MEXICO", ora "PFCC - MÉXICO".
+const TME_MARCAS_LATAM = ['mexico', 'chile'];
+const mercadoDoProduto = p => {
+  const n = semAcento(p);
+  return TME_MARCAS_LATAM.some(m => n.includes(m)) ? 'LATAM' : 'BR';
+};
+const janelaTme = p => TME_JANELAS[mercadoDoProduto(p)];
 
 // Feriado nao entra na conta (pedido do Vitao em 18/11). O calculo de
 // Pascoa que estava aqui foi removido junto: lead que chega num feriado em
-// dia de semana entre 9h e 18h tem TME igual a qualquer outro. Se um dia
+// dia de semana, dentro da janela do mercado dele, tem TME igual aos outros. Se um dia
 // voltar, tem que voltar nos DOIS arquivos — funil_denise.py ainda carrega
 // a lista nacional, hoje sem nenhuma chamada no TME.
 
@@ -5983,11 +6000,12 @@ const TME_DIAS = [1, 2, 3, 4, 5];   // getDay(): 1 = segunda ... 5 = sexta
 // Mudado em 18/11: o expediente decide QUEM ENTRA, nao onde o relogio
 // para. Quem chega fora da janela nao tem TME e nao entra em base nenhuma
 // — nem como atendido, nem como esperando.
-function dentroDaJanela(d) {
+function dentroDaJanela(d, produto) {
   if (!(d instanceof Date) || isNaN(d)) return false;
   if (!TME_DIAS.includes(d.getDay())) return false;
+  const [ini, fim] = janelaTme(produto);
   const h = d.getHours() + d.getMinutes() / 60;
-  return h >= TME_HORA_INI && h < TME_HORA_FIM;
+  return h >= ini && h < fim;
 }
 
 // Horas de relogio, sem pausa. Um lead de sexta 17h que so' for atendido
@@ -6021,7 +6039,7 @@ function calcTME(lista) {
   // So' lead que CHEGOU no expediente entra no universo do TME. Isso muda
   // o denominador da cobertura junto, e e' o certo: cobrar atendimento de
   // lead que caiu 22h de sabado nao mede ninguem.
-  const noExpediente = b => dentroDaJanela(dataAplicacao(b.aplicacao));
+  const noExpediente = b => dentroDaJanela(dataAplicacao(b.aplicacao), b.produto);
   const base = (temEscala ? (lista || []).filter(ehSDR) : (lista || []))
     .filter(noExpediente);
 
