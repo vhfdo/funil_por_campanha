@@ -6004,22 +6004,23 @@ function feriadosDoAno(ano) {
 const ehFeriado = d => feriadosDoAno(d.getFullYear())
   .has(d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate());
 
-function horasUteis(ini, fim) {
+// ── TME: recorte na CHEGADA, tempo CORRIDO ────────────────────────────
+// Espelho do funil_denise.py (chegou_no_expediente / tempo_corrido).
+// Mudado em 18/11: o expediente decide QUEM ENTRA, nao onde o relogio
+// para. Quem chega fora da janela nao tem TME e nao entra em base nenhuma
+// — nem como atendido, nem como esperando.
+function dentroDaJanela(d) {
+  if (!(d instanceof Date) || isNaN(d)) return false;
+  if (!TME_DIAS.includes(d.getDay()) || ehFeriado(d)) return false;
+  const h = d.getHours() + d.getMinutes() / 60;
+  return h >= TME_HORA_INI && h < TME_HORA_FIM;
+}
+
+// Horas de relogio, sem pausa. Um lead de sexta 17h que so' for atendido
+// na segunda conta o fim de semana inteiro — e' o metodo, nao um bug.
+function tempoCorrido(ini, fim) {
   if (!(ini instanceof Date) || !(fim instanceof Date) || fim <= ini) return 0;
-  let total = 0;
-  const d = new Date(ini);
-  while (d < fim) {
-    if (TME_DIAS.includes(d.getDay()) && !ehFeriado(d)) {
-      const abre  = new Date(d); abre.setHours(TME_HORA_INI, 0, 0, 0);
-      const fecha = new Date(d); fecha.setHours(TME_HORA_FIM, 0, 0, 0);
-      const de  = ini > abre  ? ini  : abre;
-      const ate = fim < fecha ? fim  : fecha;
-      if (ate > de) total += (ate - de) / 36e5;
-    }
-    d.setDate(d.getDate() + 1);
-    d.setHours(0, 0, 0, 0);
-  }
-  return total;
+  return (fim - ini) / 36e5;
 }
 
 // A aplicacao vem "DD/MM/AAAA HH:MM:SS" ou so' "DD/MM/AAAA". Sem hora,
@@ -6040,10 +6041,12 @@ function calcTME(lista) {
   // no fim da pagina mostrava o TME normalmente, porque ela nao filtra
   // por SDR. Sem escala, contamos todo mundo que tem TME.
   const temEscala = Object.keys(escalaSDRs()).length > 0;
-  const base = temEscala
-    ? (lista || []).filter(ehSDR)
-    : (lista || []).filter(b => (b.tme !== null && b.tme !== undefined)
-                             || dataAplicacao(b.aplicacao));
+  // So' lead que CHEGOU no expediente entra no universo do TME. Isso muda
+  // o denominador da cobertura junto, e e' o certo: cobrar atendimento de
+  // lead que caiu 22h de sabado nao mede ninguem.
+  const noExpediente = b => dentroDaJanela(dataAplicacao(b.aplicacao));
+  const base = (temEscala ? (lista || []).filter(ehSDR) : (lista || []))
+    .filter(noExpediente);
 
   const temTme = b => b.tme !== null && b.tme !== undefined;
   const atendidos = base.filter(temTme);
@@ -6071,7 +6074,7 @@ function calcTME(lista) {
                             && !String(b.excluidoTme || '').trim())
     .map(b => {
       const d = dataAplicacao(b.aplicacao);
-      return d ? horasUteis(d, agora) : null;
+      return d ? tempoCorrido(d, agora) : null;
     })
     .filter(h => h !== null);
 
@@ -6204,7 +6207,7 @@ function cardTME(v, vComp) {
          && b.tme <= TME_META).length;
   const pctPrazo = t.n ? noPrazo / t.n * 100 : 0;
   const nomes = Object.keys(escalaSDRs()).join(', ');
-  return `<div class="tme-box" title="Tempo médio de espera: da entrada do lead até a primeira ligação ou mensagem. Conta horas úteis, 9h-18h de segunda a sexta, sem feriados.&#10;&#10;Lead que chegou e ainda não foi atendido também entra, com o tempo que já esperou.&#10;&#10;SDRs: ${nomes}">
+  return `<div class="tme-box" title="Tempo médio de espera: da entrada do lead até a primeira ligação ou mensagem. Conta só leads que chegaram entre 9h e 18h de dia útil, e mede tempo corrido até o primeiro contato.&#10;&#10;Lead que chegou e ainda não foi atendido também entra, com o tempo que já esperou.&#10;&#10;SDRs: ${nomes}">
     <div class="tme-principal">
       <span class="tme-rot"><span class="pulso ${fresco ? '' : 'parado'}"
         title="${horas === null ? 'sem carimbo de atualização'
