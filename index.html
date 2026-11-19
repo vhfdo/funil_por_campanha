@@ -400,7 +400,7 @@
 
   /* ── Funil ── */
   .funil{display:flex;flex-direction:column;gap:2px;}
-  .funil-step{display:grid;grid-template-columns:118px 1fr 42px;align-items:center;gap:8px;
+  .funil-step{display:grid;grid-template-columns:118px 1fr 42px 38px;align-items:center;gap:8px;
     cursor:pointer;}
   .funil-step:hover .funil-bar{filter:brightness(1.25);}
   .funil-step.selecionado .funil-label{color:var(--amber);}
@@ -411,6 +411,14 @@
     justify-content:flex-end;padding-right:6px;min-width:22px;transition:filter .12s;}
   .funil-val{font-family:'DM Mono',monospace;font-size:10px;color:#fff;font-weight:500;}
   .funil-pct{font-family:'DM Mono',monospace;font-size:9px;color:var(--white);text-align:right;}
+  /* Taxa de MQL do funil. Coluna propria: enfiada junto do outro numero
+     viravam dois valores grudados sem dizer qual era qual. */
+  .funil-taxa{font-family:'DM Mono',monospace;font-size:9px;text-align:right;
+              color:var(--amber);opacity:.9;}
+  /* O presencial e' soma de tres funis que tambem aparecem embaixo. Fica
+     separado por uma linha pra ninguem somar duas vezes sem querer. */
+  .funil-grupo{border-bottom:1px solid var(--border);padding-bottom:4px;margin-bottom:4px;}
+  .funil-grupo .funil-label{color:var(--amber);font-weight:600;}
   /* Variacao nas barras: menor que o selo dos KPIs, pra caber na linha */
   .mini-delta{font-family:'DM Mono',monospace;font-size:8.5px;
     margin-left:5px;white-space:nowrap;}
@@ -449,14 +457,14 @@
   .chart-box.report-chart-2{height:190px;}
   .report-funis{height:190px;overflow:hidden;}
   .report-funis .funil{gap:1px;}
-  .report-funis .funil-step{grid-template-columns:96px 1fr 30px;gap:6px;}
+  .report-funis .funil-step{grid-template-columns:96px 1fr 30px 28px;gap:6px;}
   .report-funis .funil-track{height:13px;}
   .report-funis .funil-label{font-size:8.5px;}
   .report-funis .funil-val{font-size:8px;}
   .report-funis .funil-pct{font-size:7.5px;}
   /* 12 etapas em 250px: barras e fontes menores pra caber sem cortar */
   .report-funil .funil{gap:1px;}
-  .report-funil .funil-step{grid-template-columns:108px 1fr 30px;gap:6px;}
+  .report-funil .funil-step{grid-template-columns:108px 1fr 30px 28px;gap:6px;}
   .report-funil .funil-track{height:14px;}
   .report-funil .funil-label{font-size:9px;}
   .report-funil .funil-val{font-size:8.5px;}
@@ -1451,6 +1459,20 @@ function badgeDelta(atual, anterior, opts = {}) {
   const seta = d > 0.5 ? '▲' : (d < -0.5 ? '▼' : '·');
   return `<span class="kpi-delta" style="color:${cor}"
     title="Período de comparação: ${fmt(anterior)}">${seta} ${Math.abs(d).toFixed(0)}%</span>`;
+}
+
+// ── Presencial: Sniper + Elite + Olympus numa so' tecla ─────────────────
+// O filtro de funil guarda UM nome. Pra "PRESENCIAL" valer pelos tres sem
+// virar um filtro de lista, ele entra como um nome reservado e todo teste
+// de funil passa por casaFunil(). Se nascer outro grupo, e' o unico lugar
+// a mexer — antes disso o `=== filtros.funil` estava copiado em 8 lugares,
+// e bastava esquecer um pra tabela discordar do card.
+const FUNIL_PRESENCIAL = 'PRESENCIAL';
+const ehPresencial = f => FUNIS_PRINCIPAIS.includes((f || '').toUpperCase());
+function casaFunil(f) {
+  if (!filtros.funil) return true;
+  if (filtros.funil === FUNIL_PRESENCIAL) return ehPresencial(f);
+  return f === filtros.funil;
 }
 
 let filtros = { rede: null, etapa: null, proprietario: null, funil: null,
@@ -2475,7 +2497,7 @@ function dadosVisiveis() {
 
   if (filtros.etapa)        backlog = backlog.filter(b => normalizarEtapa(b.etapa) === filtros.etapa);
   if (filtros.proprietario) backlog = backlog.filter(b => b.proprietario === filtros.proprietario);
-  if (filtros.funil)        backlog = backlog.filter(b => b.funil === filtros.funil);
+  if (filtros.funil)        backlog = backlog.filter(b => casaFunil(b.funil));
   if (filtros.cargo)        backlog = backlog.filter(b => normalizarCargo(b.cargo) === filtros.cargo);
   if (filtros.rede)         backlog = backlog.filter(b => redeDoLead(b) === filtros.rede);
   if (filtros.tipoCampanha) backlog = backlog.filter(passaTipoCampanha);
@@ -2523,7 +2545,7 @@ function dadosVisiveis() {
       .filter(b => semAcento(b.status) === 'open')
       .filter(b => noPeriodo(b.aplicacao));
     if (filtros.proprietario) base = base.filter(b => b.proprietario === filtros.proprietario);
-    if (filtros.funil)        base = base.filter(b => b.funil === filtros.funil);
+    if (filtros.funil)        base = base.filter(b => casaFunil(b.funil));
     if (filtros.cargo)        base = base.filter(b => normalizarCargo(b.cargo) === filtros.cargo);
     if (filtros.rede)         base = base.filter(b => redeDoLead(b) === filtros.rede);
     if (filtros.tipoCampanha) base = base.filter(passaTipoCampanha);
@@ -2627,7 +2649,7 @@ function dadosVisiveis() {
     .filter(r => alvos.includes(semAcento(r.produto)))
     .filter(r => noPeriodo(r.dataReuniao));
   if (filtros.proprietario) reunioes = reunioes.filter(r => r.proprietario === filtros.proprietario);
-  if (filtros.funil)        reunioes = reunioes.filter(r => r.funil === filtros.funil);
+  if (filtros.funil)        reunioes = reunioes.filter(r => casaFunil(r.funil));
   if (filtros.cargo)        reunioes = reunioes.filter(r => normalizarCargo(r.cargo) === filtros.cargo);
   if (filtros.rede)         reunioes = reunioes.filter(r => redeDoLead(r) === filtros.rede);
 
@@ -2647,7 +2669,7 @@ function dadosVisiveis() {
   const rot = (t, vazio) => (t || '').trim() || vazio;
   if (filtros.etapa)        descartes = descartes.filter(p => normalizarEtapa(p.etapa) === filtros.etapa);
   if (filtros.proprietario) descartes = descartes.filter(p => rot(p.proprietario, '—') === filtros.proprietario);
-  if (filtros.funil)        descartes = descartes.filter(p => p.funil === filtros.funil);
+  if (filtros.funil)        descartes = descartes.filter(p => casaFunil(p.funil));
   if (filtros.cargo)        descartes = descartes.filter(p => normalizarCargo(p.cargo) === filtros.cargo);
   if (filtros.rede)         descartes = descartes.filter(p => redeDoLead(p) === filtros.rede);
   if (filtros.motivo)       descartes = descartes.filter(p => rot(p.motivo, '(sem motivo)') === filtros.motivo);
@@ -2738,7 +2760,7 @@ function reaplicacaoPorDiaRede() {
     });
   if (filtros.etapa)        base = base.filter(b => normalizarEtapa(b.etapa) === filtros.etapa);
   if (filtros.proprietario) base = base.filter(b => b.proprietario === filtros.proprietario);
-  if (filtros.funil)        base = base.filter(b => b.funil === filtros.funil);
+  if (filtros.funil)        base = base.filter(b => casaFunil(b.funil));
   if (filtros.cargo)        base = base.filter(b => normalizarCargo(b.cargo) === filtros.cargo);
   if (filtros.tipoCampanha) base = base.filter(passaTipoCampanha);
   if (filtros.score)        base = base.filter(b =>
@@ -2875,7 +2897,7 @@ function cpmqlPorDiaProduto() {
     let base = dados.backlog.filter(b => semAcento(b.produto) === alvo && b.mql);
     if (filtros.etapa)        base = base.filter(b => normalizarEtapa(b.etapa) === filtros.etapa);
     if (filtros.proprietario) base = base.filter(b => b.proprietario === filtros.proprietario);
-    if (filtros.funil)        base = base.filter(b => b.funil === filtros.funil);
+    if (filtros.funil)        base = base.filter(b => casaFunil(b.funil));
     if (filtros.cargo)        base = base.filter(b => normalizarCargo(b.cargo) === filtros.cargo);
     if (filtros.rede)         base = base.filter(b => redeDoLead(b) === filtros.rede);
     if (filtros.tipoCampanha) base = base.filter(passaTipoCampanha);
@@ -7512,7 +7534,57 @@ function tabelaFunis(v, limite, vComp) {
   const maior = Math.max(...lista.map(([, d]) => d[metrica]), 1);
   const outra = metrica === 'mqls' ? 'leads' : 'mqls';
 
-  return '<div class="funil">' + lista.map(([nome, d]) => {
+  // Taxa de MQL do funil: quantos dos leads dele viraram MQL. E' a coluna
+  // que o Vitao pediu. Share (quanto do MQL total esta aqui) vai no title,
+  // porque sao perguntas diferentes: o Orion pode ter MUITO MQL em volume
+  // e uma taxa pessima, e os dois numeros juntos e' que contam a historia.
+  const totLeads = Object.values(agg).reduce((s, d) => s + d.leads, 0);
+  const totMqls  = Object.values(agg).reduce((s, d) => s + d.mqls, 0);
+  const taxaDe   = d => (d.leads ? d.mqls / d.leads * 100 : null);
+  const pctTxt   = t => (t === null ? '—' : t.toFixed(0) + '%');
+  const titTaxa  = d => `${fmtNum(d.mqls)} MQL de ${fmtNum(d.leads)} leads`
+    + ` · taxa ${pctTxt(taxaDe(d))}`
+    + (totMqls ? ` · ${(d.mqls / totMqls * 100).toFixed(0)}% do MQL do período` : '');
+
+  // ── Presencial = Sniper + Elite + Olympus ────────────────────────────
+  // Os tres continuam na lista abaixo com barra propria; esta linha e' o
+  // total deles.
+  //
+  // A barra usa a MESMA escala das outras (o `maior`), limitada a 100%.
+  // A primeira versao escalava pelo peso no total do periodo, e dava um
+  // grafico mentiroso: o presencial somava 1.366 contra 1.133 do Sniper e
+  // aparecia com a barra MENOR. Numero maior tem que ter barra maior, ou
+  // o grafico esta contando outra historia que a tabela. O peso no
+  // periodo continua, no title.
+  const pres = Object.entries(agg)
+    .filter(([nome]) => ehPresencial(nome))
+    .reduce((acc, [, d]) => ({
+      leads: acc.leads + d.leads, mqls: acc.mqls + d.mqls,
+      abertos: acc.abertos + d.abertos, mqlAbertos: acc.mqlAbertos + d.mqlAbertos,
+    }), { leads: 0, mqls: 0, abertos: 0, mqlAbertos: 0 });
+  const totMetrica = metrica === 'mqls' ? totMqls : totLeads;
+  const linhaPres = !pres.leads ? '' : (() => {
+    const selP = filtros.funil === FUNIL_PRESENCIAL;
+    const share = totMetrica ? pres[metrica] / totMetrica * 100 : 0;
+    const largP = Math.min(pres[metrica] / maior * 100, 100);
+    return `<div class="funil-step funil-grupo ${selP ? 'selecionado' : ''}"
+              onclick="toggleFiltro('funil', ${attr(FUNIL_PRESENCIAL)})"
+              title="Sniper + Elite + Olympus — os três times do presencial · ${
+                titTaxa(pres)} · ${share.toFixed(0)}% ${
+                rotuloMetrica().toLowerCase()} do período · clique para filtrar os três">
+      <div class="funil-label">PRESENCIAL</div>
+      <div class="funil-track">
+        <div class="funil-bar" style="width:${Math.max(largP, 3)}%;background:${
+          selP ? 'var(--amber)' : '#2f6d94'}">
+          <span class="funil-val">${fmtNum(pres[metrica])}</span>
+        </div>
+      </div>
+      <div class="funil-pct">${fmtNum(pres[outra])}</div>
+      <div class="funil-taxa">${pctTxt(taxaDe(pres))}</div>
+    </div>`;
+  })();
+
+  return '<div class="funil">' + linhaPres + lista.map(([nome, d]) => {
     const sel  = filtros.funil === nome;
     const larg = Math.max(d[metrica] / maior * 100, 3);
     // Quantos ainda estão vivos: é a diferença entre este card e a tabela
@@ -7523,7 +7595,8 @@ function tabelaFunis(v, limite, vComp) {
               onclick="toggleFiltro('funil', ${attr(nome)})"
               title="${fmtNum(d[metrica])} ${rotuloMetrica().toLowerCase()} no período · ${
                 fmtNum(vivos)} em aberto${
-                fechados ? ' · ' + fmtNum(fechados) + ' já fechados (ganhos ou perdidos)' : ''}">
+                fechados ? ' · ' + fmtNum(fechados) + ' já fechados (ganhos ou perdidos)' : ''} · ${
+                titTaxa(d)}">
       <div class="funil-label">${nome}</div>
       <div class="funil-track">
         <div class="funil-bar" style="width:${larg}%;background:${sel ? 'var(--amber)' : '#3a7ca8'}">
@@ -7532,6 +7605,7 @@ function tabelaFunis(v, limite, vComp) {
       </div>
       <div class="funil-pct">${fmtNum(d[outra])}${
         ant ? miniDelta(d[metrica], ant[nome]) : ''}</div>
+      <div class="funil-taxa" title="${titTaxa(d)}">${pctTxt(taxaDe(d))}</div>
     </div>`;
   }).join('') + (resto ? `
     <div class="funil-step" style="opacity:.55;cursor:default">
@@ -7543,6 +7617,7 @@ function tabelaFunis(v, limite, vComp) {
         </div>
       </div>
       <div class="funil-pct">${fmtNum(resto[outra])}</div>
+      <div class="funil-taxa">${pctTxt(taxaDe(resto))}</div>
     </div>` : '') + '</div>';
 }
 
