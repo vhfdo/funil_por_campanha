@@ -7534,17 +7534,29 @@ function tabelaFunis(v, limite, vComp) {
   const maior = Math.max(...lista.map(([, d]) => d[metrica]), 1);
   const outra = metrica === 'mqls' ? 'leads' : 'mqls';
 
-  // Taxa de MQL do funil: quantos dos leads dele viraram MQL. E' a coluna
-  // que o Vitao pediu. Share (quanto do MQL total esta aqui) vai no title,
-  // porque sao perguntas diferentes: o Orion pode ter MUITO MQL em volume
-  // e uma taxa pessima, e os dois numeros juntos e' que contam a historia.
+  // SHARE de MQL: quanto do MQL do periodo esta neste funil. E' a coluna
+  // que o Vitao pediu — responde "de onde vem meu MQL", nao "esse funil
+  // converte bem". A taxa (MQL/leads do proprio funil) vai no title, que
+  // e' a outra pergunta e tambem interessa: o Orion traz MUITO MQL em
+  // volume com uma taxa pessima, e so' os dois juntos contam a historia.
+  //
+  // ATENCAO: a soma da coluna passa de 100%, porque a linha PRESENCIAL
+  // repete o MQL do Sniper, do Elite e do Olympus, que tambem aparecem
+  // sozinhos embaixo. E' o preco de ter o grupo e as partes na mesma
+  // lista; o traco embaixo do PRESENCIAL e' o aviso.
   const totLeads = Object.values(agg).reduce((s, d) => s + d.leads, 0);
   const totMqls  = Object.values(agg).reduce((s, d) => s + d.mqls, 0);
+  const shareDe  = d => (totMqls ? d.mqls / totMqls * 100 : null);
   const taxaDe   = d => (d.leads ? d.mqls / d.leads * 100 : null);
-  const pctTxt   = t => (t === null ? '—' : t.toFixed(0) + '%');
+  // Funil pequeno nao vira "0%": LIC-SJC com 6 MQL e' 0,26% do periodo,
+  // e arredondar pra zero apaga a unica informacao da linha. Abaixo de 1%
+  // mostra "<1%", que diz "existe e e' pouco" em vez de "nao existe".
+  const pctTxt = t => (t === null ? '—'
+    : t > 0 && t < 1 ? '&lt;1%'   // escapado: '<' cru abre tag no meio do HTML
+    : t.toFixed(0) + '%');
   const titTaxa  = d => `${fmtNum(d.mqls)} MQL de ${fmtNum(d.leads)} leads`
-    + ` · taxa ${pctTxt(taxaDe(d))}`
-    + (totMqls ? ` · ${(d.mqls / totMqls * 100).toFixed(0)}% do MQL do período` : '');
+    + (totMqls ? ` · ${pctTxt(shareDe(d))} do MQL do período` : '')
+    + ` · taxa de MQL do funil ${pctTxt(taxaDe(d))}`;
 
   // ── Presencial = Sniper + Elite + Olympus ────────────────────────────
   // Os tres continuam na lista abaixo com barra propria; esta linha e' o
@@ -7580,7 +7592,7 @@ function tabelaFunis(v, limite, vComp) {
         </div>
       </div>
       <div class="funil-pct">${fmtNum(pres[outra])}</div>
-      <div class="funil-taxa">${pctTxt(taxaDe(pres))}</div>
+      <div class="funil-taxa">${pctTxt(shareDe(pres))}</div>
     </div>`;
   })();
 
@@ -7605,7 +7617,7 @@ function tabelaFunis(v, limite, vComp) {
       </div>
       <div class="funil-pct">${fmtNum(d[outra])}${
         ant ? miniDelta(d[metrica], ant[nome]) : ''}</div>
-      <div class="funil-taxa" title="${titTaxa(d)}">${pctTxt(taxaDe(d))}</div>
+      <div class="funil-taxa" title="${titTaxa(d)}">${pctTxt(shareDe(d))}</div>
     </div>`;
   }).join('') + (resto ? `
     <div class="funil-step" style="opacity:.55;cursor:default">
@@ -7617,7 +7629,7 @@ function tabelaFunis(v, limite, vComp) {
         </div>
       </div>
       <div class="funil-pct">${fmtNum(resto[outra])}</div>
-      <div class="funil-taxa">${pctTxt(taxaDe(resto))}</div>
+      <div class="funil-taxa">${pctTxt(shareDe(resto))}</div>
     </div>` : '') + '</div>';
 }
 
