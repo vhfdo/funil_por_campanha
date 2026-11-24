@@ -5141,6 +5141,12 @@ function dadosCampanhas(v) {
         // quebra, pra tabela poder mostrar de onde veio cada um.
         leads: 0, mqls: 0, mqlsCargo: 0, mqlsScore: 0,
         ganhos: 0, faturamento: 0,
+        // Os leads desta linha, por referencia (nao copia). E' o que o
+        // drill-down usa pra desenhar a distribuicao de score da campanha
+        // sozinha. Recalcular depois exigiria repetir a logica de chave
+        // (ID do Google vs nome) e abriria espaco pros dois divergirem —
+        // mesmo motivo do porDia logo abaixo.
+        leadsRaw: [],
         // Quebra diaria, montada junto com os totais: e' o que o
         // drill-down desenha. Calcular de novo depois seria repetir toda
         // a logica de chave (ID do Google vs nome) e abrir espaco pros
@@ -5220,6 +5226,7 @@ function dadosCampanhas(v) {
     // com investimento zero
     const d = pega(k, rotulo, redeDoLead(b));
     d.leads++;
+    d.leadsRaw.push(b);
     // Cargo OU nota >= 6 — ver ehMqlAmplo. mqlsScore conta so' quem entrou
     // PELA NOTA e o cargo reprovaria: e' o ganho que a campanha de score
     // trouxe e que a contagem antiga jogava fora.
@@ -5693,6 +5700,31 @@ function renderCampanhas(v) {
         </span>
       </div>
       <div class="chart-box" style="height:320px"><canvas id="chartCampanha"></canvas></div>
+      ${(() => {
+        // Distribuicao de score DESTA campanha, abaixo do volume diario.
+        //
+        // So aparece quando a campanha tem lead com nota. Campanha que nao
+        // e' de score nao tem o que mostrar aqui: o formulario dela nao faz
+        // as quatro perguntas, e um grafico zerado so ocuparia a tela.
+        const comNota = (aberta.leadsRaw || []).filter(comScoreValido).length;
+        if (!comNota) return '';
+        return `
+        <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border)">
+          <div class="card-title" style="margin-bottom:10px">
+            Pontuação desta ${rotuloNivel.toLowerCase()}
+            <span style="display:flex;align-items:center;gap:8px">
+              <span class="card-tag" style="background:var(--amber);color:#0a0a0a"
+                    title="Zona ICP: faixa de score onde está o perfil que a operação procura">
+                ICP ${ICP_DE} a ${ICP_ROTULO_ATE}</span>
+              <span class="card-tag">${fmtNum(comNota)} de ${
+                fmtNum(aberta.leads)} leads com nota</span>
+            </span>
+          </div>
+          <div class="chart-box" style="height:300px">
+            <canvas id="chartCampanhaScore"></canvas>
+          </div>
+        </div>`;
+      })()}
     </div>` : ''}
 
     ${cardPerfilCampanha(v)}
@@ -5786,20 +5818,34 @@ function renderCampanhas(v) {
     </div>
   `;
 
-  if (aberta) desenharGraficoCampanha(aberta);
+  if (aberta) desenharGraficoCampanha(aberta, v);
 }
 
 // ── Grafico do drill-down ───────────────────────────────────────────────────
 // Barras de leads e MQL no eixo esquerdo, linha de CPMQL no direito.
 // Sao grandezas diferentes: sem o segundo eixo, um CPMQL de 300 achataria
 // as barras de 20 leads ate sumirem.
-function desenharGraficoCampanha(linha) {
+function desenharGraficoCampanha(linha, v) {
   // O render trocou o innerHTML inteiro, entao os canvas antigos ja sairam
   // do DOM. Destruir aqui evita o Chart.js segurar referencia morta.
   Object.values(charts).forEach(c => {
     try { c && c.destroy(); } catch (e) { /* canvas ja removido */ }
   });
   charts = {};
+
+  // A pontuacao vem ANTES do grafico de volume de proposito: logo abaixo
+  // existe um `return` pra campanha sem movimento diario, e desenhar aqui
+  // garante que a campanha sem dia (mas com lead pontuado) ainda mostre a
+  // distribuicao em vez de um card vazio.
+  //
+  // Passa `null` como vComp: o recorte e' de uma campanha so', e a serie
+  // do periodo anterior e' do dashboard inteiro — ver graficoScore.
+  if (v && (linha.leadsRaw || []).some(comScoreValido)) {
+    charts.campanhaScore = graficoScore(v, null, {
+      canvas: 'chartCampanhaScore',
+      lista: linha.leadsRaw,
+    });
+  }
 
   // So os dias que existem, ordenados por data de verdade — ordenar
   // "10/08" como texto colocaria ele antes de "09/08"
@@ -8430,11 +8476,18 @@ function notaMetaScore(v, vComp) {
 
 // Desenha a linha no canvas do card de Pontuacao. Chamado pelo
 // desenharGraficos — se o card nao estiver na tela, comCanvas devolve null.
-function graficoScore(v, vComp) {
-  const base = PRODUTOS_COM_SCORE.includes(produtoAtivo)
-    ? v.backlog                      // Lean e CES: o score E' a regua
-    : v.backlog;                     // Brasil: mesma base, outra leitura
-  const d = distribuicaoScore(base);
+// opts permite reusar este grafico no drill-down de campanha:
+//   canvas  — qual <canvas> desenhar (o padrao e' o card do topo)
+//   lista   — qual recorte de leads medir (o padrao e' o periodo inteiro)
+//
+// Reuso em vez de uma segunda funcao porque a leitura TEM que ser a mesma:
+// mesma meta por faixa, mesma zona ICP, mesmo calculo de desvio. Duas
+// implementacoes do mesmo grafico divergem no primeiro ajuste que alguem
+// fizer so' de um lado — e o usuario veria a campanha "fora da meta" num
+// card e "na meta" no outro.
+function graficoScore(v, vComp, opts = {}) {
+  const recorte = opts.lista || v.backlog;
+  const d = distribuicaoScore(recorte);
   if (!d.total) return null;
 
   // ── Comparativo ──────────────────────────────────────────────────────
@@ -8447,10 +8500,15 @@ function graficoScore(v, vComp) {
   // so' que um periodo teve mais lead que o outro. A pergunta do card e'
   // outra — o formato da base mudou? O lead esta entrando mais qualificado
   // ou menos?
-  const dC = comparando && vComp ? distribuicaoScore(vComp.backlog) : null;
+  //
+  // No drill-down nao ha serie anterior: o comparativo do dashboard e' do
+  // periodo inteiro, e sobrepor ele a UMA campanha compararia coisas
+  // diferentes. La' a referencia util e' a meta, que continua desenhada.
+  const dC = opts.lista || !comparando || !vComp
+    ? null : distribuicaoScore(vComp.backlog);
   const temComp = !!(dC && dC.total);
 
-  return comCanvas('chartScore', el => new Chart(el, {
+  return comCanvas(opts.canvas || 'chartScore', el => new Chart(el, {
     type: 'line',
     plugins: [pluginZonaICP],
     data: {
