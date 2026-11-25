@@ -417,7 +417,16 @@
               color:var(--amber);opacity:.9;}
   /* O presencial e' soma de tres funis que tambem aparecem embaixo. Fica
      separado por uma linha pra ninguem somar duas vezes sem querer. */
-  .funil-grupo{border-bottom:1px solid var(--border);padding-bottom:4px;margin-bottom:4px;}
+  /* Conjunto e anuncio abertos abaixo da campanha. Fundo mais escuro pra
+   separar o bloco do filho das outras campanhas, e sem hover de clique no
+   anuncio, que e' folha e nao abre nada. */
+.linha-filha td{background:rgba(0,0,0,.28);border-top:none;}
+.linha-filha.nivel-conjunto{cursor:pointer;}
+.linha-filha.nivel-conjunto:hover td{background:rgba(74,158,237,.07);}
+.linha-filha.nivel-conjunto.selecionado td{background:rgba(74,158,237,.11);}
+.linha-filha.nivel-anuncio td{background:rgba(0,0,0,.42);font-size:11px;}
+.linha-filha .nome-camp{font-size:11px;}
+.funil-grupo{border-bottom:1px solid var(--border);padding-bottom:4px;margin-bottom:4px;}
   .funil-grupo .funil-label{color:var(--amber);font-weight:600;}
   /* Variacao nas barras: menor que o selo dos KPIs, pra caber na linha */
   .mini-delta{font-family:'DM Mono',monospace;font-size:8.5px;
@@ -1518,6 +1527,10 @@ let ordemCampCol = 'investimento';
 let ordemCampDir = 'desc';
 // Chave da linha aberta no drill-down. null = tabela fechada.
 let campanhaAberta = null;
+// Conjunto aberto dentro da campanha aberta. Fica separado de
+// campanhaAberta porque fechar a campanha tem que fechar o conjunto
+// junto, mas trocar de conjunto nao pode fechar a campanha.
+let conjuntoAberto = null;
 
 // Cada negocio no Pipedrive tem uma URL propria; o ID abre direto la
 const URL_PIPEDRIVE = 'https://boardacademy.pipedrive.com/deal/';
@@ -2234,8 +2247,16 @@ function trocarNivelCampanha(nivel) {
 
 function abrirCampanha(chave) {
   // Clicar na linha ja aberta fecha
+  conjuntoAberto = null;
   campanhaAberta = (chave && campanhaAberta === chave) ? null : chave;
   rastrear(campanhaAberta ? 'abrir_campanha' : 'fechar_campanha',
+           String(chave || '').slice(0, 80));
+  render();
+}
+
+function abrirConjunto(chave) {
+  conjuntoAberto = conjuntoAberto === chave ? null : chave;
+  rastrear(conjuntoAberto ? 'abrir_conjunto' : 'fechar_conjunto',
            String(chave || '').slice(0, 80));
   render();
 }
@@ -5123,6 +5144,192 @@ const temMarcaVersao = s => (s || '').toString().trim()
 // (que casa por nome) nunca encontrar os leads (que casam por ID).
 const soDigitos = s => /^\d{6,}$/.test(String(s || '').trim());
 
+// ── Conjuntos e anuncios de UMA campanha ────────────────────────────────────
+// A tabela mostra um nivel por vez (campanha, conjunto OU anuncio). Esta
+// funcao monta a arvore do nivel de baixo pra campanha que o usuario abriu:
+// conjuntos, e dentro de cada um os anuncios.
+//
+// Nao reaproveita dadosCampanhas() porque aquela agrega o periodo inteiro
+// num nivel so'. Aqui o recorte e' uma campanha e a saida tem dois niveis.
+// O que ESTA reaproveitado e' o que importa: as mesmas chaves (chaveCamp /
+// chaveCampanhaUtm), os mesmos testes de periodo e rede, e a mesma conta de
+// derivadas — se divergissem, o filho somaria diferente do pai.
+//
+// `semNome` recolhe o que nao tem conjunto/anuncio preenchido na planilha.
+// Vira uma linha "(sem conjunto)" em vez de sumir: investimento que some da
+// soma dos filhos faz o pai parecer errado.
+function derivadas(d) {
+  return {
+    ...d,
+    cpl:   d.investimento && d.leads  ? d.investimento / d.leads  : null,
+    cpmql: d.investimento && d.mqls   ? d.investimento / d.mqls   : null,
+    cac:   d.investimento && d.ganhos ? d.investimento / d.ganhos : null,
+    roas:  d.investimento ? d.faturamento / d.investimento : null,
+    txMql: d.leads ? d.mqls / d.leads * 100 : null,
+  };
+}
+
+function filhosDaCampanha(chaveCampanhaPai) {
+  const nomes = produtoAtivo === CONSOLIDADO ? PRODUTOS_REAIS : [produtoAtivo];
+
+  // A chave do PAI e' calculada do mesmo jeito nos tres lugares abaixo.
+  // Linha de investimento usa idCampanha quando existe; lead e ganho usam a
+  // utm. E' exatamente a regra de dadosCampanhas no nivel campanha.
+  const chavePaiInvest = l =>
+    (l.idCampanha ? l.idCampanha : chaveCamp((l.campanha || '').trim()));
+  const chavePaiUtm = s => chaveCampanhaUtm((s || '').trim(), 'campanha');
+
+  const vazio = rotulo => ({
+    rotulo, investimento: 0, leads: 0, mqls: 0, mqlsCargo: 0, mqlsScore: 0,
+    ganhos: 0, faturamento: 0, leadsRaw: [], redes: new Set(), filhos: {},
+  });
+  const conj = {};
+  const pegaC = (k, r) => (conj[k] = conj[k] || vazio(r));
+  const pegaA = (c, k, r) => (c.filhos[k] = c.filhos[k] || vazio(r));
+
+  const SEM_CONJ = '(sem conjunto)';
+  const SEM_AD   = '(sem anúncio)';
+  const rot = s => ((s || '').toString().trim());
+
+  // A chave agrupa, o rotulo so' aparece. Os dois lados tem que usar a
+  // MESMA normalizacao, senao o investimento (que vem com o nome do
+  // conjunto na planilha) e o lead (que vem com a utm_medium) viram duas
+  // linhas em vez de uma. E' o chaveCamp, igual ao que a tabela usa nos
+  // niveis abaixo de campanha — ver chaveCampanhaUtm.
+  const kDe = r => (r === SEM_CONJ || r === SEM_AD ? r : chaveCamp(r));
+
+  // ── Investimento ──
+  for (const nome of nomes) {
+    const p = dados.produtos[nome];
+    if (!p || !p.investLinhas) continue;
+    for (const l of p.investLinhas) {
+      if (!dentroDoPeriodo(l.data)) continue;
+      if (filtros.rede && filtros.rede !== l.rede) continue;
+      if (chavePaiInvest(l) !== chaveCampanhaPai) continue;
+      // A planilha de investimento chama de `conjunto` e `anuncio` o que o
+      // lead traz como `medium` e `content` — nomes diferentes, mesma coisa
+      const rc = rot(l.conjunto) || SEM_CONJ;
+      const ra = rot(l.anuncio)  || SEM_AD;
+      const c = pegaC(kDe(rc), rc); c.investimento += l.valor; c.redes.add(l.rede);
+      const a = pegaA(c, kDe(ra), ra); a.investimento += l.valor; a.redes.add(l.rede);
+    }
+  }
+
+  // ── Leads ──
+  const alvos = nomes.map(semAcento);
+  let base = dados.backlog
+    .filter(b => alvos.includes(semAcento(b.produto)))
+    .filter(b => {
+      const dia = (b.aplicacao || '').trim().slice(0, 5);
+      return dia.includes('/') && dentroDoPeriodo(dia);
+    });
+  if (filtros.rede) base = base.filter(b => redeDoLead(b) === filtros.rede);
+
+  for (const b of base) {
+    if (chavePaiUtm(b.campanha) !== chaveCampanhaPai) continue;
+    const rc = rot(b.medium) || SEM_CONJ;
+    const ra = rot(b.content) || SEM_AD;
+    const c = pegaC(kDe(rc), rc), a = pegaA(c, kDe(ra), ra);
+    for (const d of [c, a]) {
+      d.leads++; d.leadsRaw.push(b); d.redes.add(redeDoLead(b));
+      if (ehMqlAmplo(b)) d.mqls++;
+      if (ehMqlCargo(b)) d.mqlsCargo++;
+      else if (ehMqlScore(b)) d.mqlsScore++;
+    }
+  }
+
+  // ── Ganhos ──
+  for (const nome of nomes) {
+    const p = dados.produtos[nome];
+    if (!p) continue;
+    for (const g of p.ganhos) {
+      if (g.vale !== 'sim' || !dentroDoPeriodo(g.data)) continue;
+      if (filtros.rede && redeDoLead(g) !== filtros.rede) continue;
+      if (chavePaiUtm(g.campanha) !== chaveCampanhaPai) continue;
+      const rc = rot(g.medium) || SEM_CONJ;
+      const ra = rot(g.content) || SEM_AD;
+      const c = pegaC(kDe(rc), rc), a = pegaA(c, kDe(ra), ra);
+      for (const d of [c, a]) { d.ganhos++; d.faturamento += g.valor; }
+    }
+  }
+
+  // Ordena por investimento, e quem nao gastou cai pro fim por volume de
+  // lead — senao as linhas organicas subiriam empatadas em zero.
+  const porPeso = (a, b) =>
+    (b.investimento - a.investimento) || (b.leads - a.leads);
+  const rede = d => (d.redes.size === 1 ? [...d.redes][0] : '');
+
+  return Object.values(conj).map(c => derivadas({
+    ...c, rede: rede(c),
+    filhos: Object.values(c.filhos).map(a => derivadas({
+      ...a, rede: rede(a),
+    })).sort(porPeso),
+  })).sort(porPeso);
+}
+
+// ── As linhas de conjunto e anuncio, abaixo da campanha aberta ──────────────
+// Sao <tr> na MESMA tabela, nao uma tabela aninhada: so' assim as colunas
+// ficam alinhadas com as da campanha. Tabela dentro de tabela teria largura
+// propria e o usuario nao conseguiria comparar CPL de pai e filho na
+// vertical, que e' justamente a leitura que interessa aqui.
+//
+// O recuo e a cor do texto fazem o papel da hierarquia. O fundo mais escuro
+// separa o bloco do filho das outras campanhas da lista.
+function linhasFilhas(pai) {
+  const filhos = filhosDaCampanha(pai.chave);
+  if (!filhos.length) {
+    return `<tr class="linha-filha">
+      <td colspan="12" style="padding:10px 14px 10px 34px;color:var(--gray)">
+        Sem conjunto ou anúncio identificado nesta campanha.
+      </td></tr>`;
+  }
+
+  // Celulas numericas iguais as do pai, pra coluna bater na vertical
+  const cels = d => `
+    <td class="num">${fmtBRL(d.investimento)}</td>
+    <td class="num">${fmtNum(d.leads)}</td>
+    <td class="num" style="color:var(--blue)">${fmtNum(d.mqls)}${
+      d.mqlsScore ? `<span style="color:${COR_SCORE};font-size:10px"> +${
+        fmtNum(d.mqlsScore)}</span>` : ''}</td>
+    <td class="num">${d.txMql === null ? '—' : d.txMql.toFixed(0) + '%'}</td>
+    <td class="num">${d.cpl === null ? '—' : fmtBRL(d.cpl)}</td>
+    <td class="num">${d.cpmql === null ? '—' : fmtBRL(d.cpmql)}</td>
+    <td class="num">${d.ganhos ? fmtNum(d.ganhos) : '—'}</td>
+    <td class="num" style="color:${d.faturamento ? 'var(--green)' : 'var(--gray)'}">${
+      d.faturamento ? fmtBRL(d.faturamento) : '—'}</td>
+    <td class="num">${d.cac === null ? '—' : fmtBRL(d.cac)}</td>
+    <td class="num" style="color:${
+      d.roas === null ? 'var(--gray)'
+      : d.roas >= 1 ? 'var(--green)' : 'var(--red)'}">${
+      d.roas === null ? '—' : fmtRoas(d.roas)}</td>`;
+
+  return filhos.map(c => {
+    // A chave do conjunto carrega a da campanha junto: dois produtos podem
+    // ter um conjunto com o mesmo nome, e sem o prefixo abrir um abriria o
+    // outro tambem.
+    const kc = pai.chave + '||' + c.rotulo;
+    const aberto = conjuntoAberto === kc;
+    return `
+      <tr class="linha-filha nivel-conjunto ${aberto ? 'selecionado' : ''}"
+          onclick="abrirConjunto(${attr(kc)})"
+          title="${c.filhos.length} anúncio${c.filhos.length === 1 ? '' : 's'}${
+            c.filhos.length ? ' · clique para abrir' : ''}">
+        <td class="nome-camp" style="padding-left:30px">
+          <span style="color:var(--gray);margin-right:5px">${
+            c.filhos.length ? (aberto ? '▾' : '▸') : '·'}</span>${c.rotulo}</td>
+        <td style="color:var(--gray-light)">${c.rede || '—'}</td>
+        ${cels(c)}
+      </tr>
+      ${aberto ? c.filhos.map(a => `
+        <tr class="linha-filha nivel-anuncio">
+          <td class="nome-camp" style="padding-left:56px;color:var(--gray-light)">${
+            a.rotulo}</td>
+          <td style="color:var(--gray-light)">${a.rede || '—'}</td>
+          ${cels(a)}
+        </tr>`).join('') : ''}`;
+  }).join('');
+}
+
 function dadosCampanhas(v) {
   const nomes = produtoAtivo === CONSOLIDADO ? PRODUTOS_REAIS : [produtoAtivo];
 
@@ -5801,7 +6008,9 @@ function renderCampanhas(v) {
                   l.roas === null ? 'var(--gray)'
                   : l.roas >= 1 ? 'var(--green)' : 'var(--red)'}">${
                   num(l.roas, fmtRoas)}</td>
-              </tr>`;
+              </tr>
+              ${campanhaAberta === l.chave && nivelCampanha === 'campanha'
+                ? linhasFilhas(l) : ''}`;
             }).join('')}
           </tbody>
         </table>
