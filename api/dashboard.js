@@ -186,8 +186,18 @@ function checkAuth(req) {
   // Nao afrouxa nada: a chave ja' viaja na URL hoje, no link curto do
   // boardbr.com que redireciona pra ca'. O que entra por aqui e' exatamente
   // o mesmo segredo, comparado do mesmo jeito.
+  //
+  // Le o ?k= de DUAS fontes. req.query existe no runtime Node da Vercel,
+  // mas nao em edge function nem atras de router proprio — e quando nao
+  // existe, falha calado. req.url sempre existe, entao e' o plano B.
+  const daQuery = () => {
+    if (req.query && req.query.k) return String(req.query.k).trim();
+    try {
+      return new URL(req.url, 'http://x').searchParams.get('k') || '';
+    } catch { return ''; }
+  };
   const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '')
-    || String((req.query && req.query.k) || '').trim();
+    || daQuery();
 
   // Chave de link: acesso de quem nao passa pelo SSO (hoje o CEO). E' um
   // segredo fixo na env var, nao um token assinado — por isso nao expira
@@ -450,7 +460,19 @@ async function lerAbas(nomes) {
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Método não permitido.' });
-  if (!checkAuth(req)) return res.status(401).json({ error: 'Sessão inválida ou expirada.' });
+  if (!checkAuth(req)) {
+    // Diz O QUE faltou, sem nunca devolver a chave nem parte dela. Sem
+    // isso, depurar leitura automatica e' adivinhacao: 401 sozinho nao
+    // separa "nao mandei chave" de "mandei a chave errada".
+    const temHeader = !!(req.headers.authorization || '').trim();
+    let temQuery = false;
+    try { temQuery = !!new URL(req.url, 'http://x').searchParams.get('k'); } catch {}
+    return res.status(401).json({
+      error: 'Sessão inválida ou expirada.',
+      recebi: { header: temHeader, query: temQuery,
+                ceoKeyConfigurada: !!process.env.CEO_KEY },
+    });
+  }
 
   try {
     // Monta a lista de todas as abas que precisamos e busca em paralelo
