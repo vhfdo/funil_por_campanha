@@ -1531,6 +1531,11 @@ let campanhaAberta = null;
 // campanhaAberta porque fechar a campanha tem que fechar o conjunto
 // junto, mas trocar de conjunto nao pode fechar a campanha.
 let conjuntoAberto = null;
+// Anuncio selecionado. O painel de baixo (volume + pontuacao) sempre
+// mostra o nivel MAIS FUNDO que estiver aberto: anuncio > conjunto >
+// campanha. Assim a pergunta "de onde vem essa nota" tem resposta em
+// qualquer altura da arvore, e nao so' na campanha.
+let anuncioAberto = null;
 
 // Cada negocio no Pipedrive tem uma URL propria; o ID abre direto la
 const URL_PIPEDRIVE = 'https://boardacademy.pipedrive.com/deal/';
@@ -2248,6 +2253,7 @@ function trocarNivelCampanha(nivel) {
 function abrirCampanha(chave) {
   // Clicar na linha ja aberta fecha
   conjuntoAberto = null;
+  anuncioAberto = null;
   campanhaAberta = (chave && campanhaAberta === chave) ? null : chave;
   rastrear(campanhaAberta ? 'abrir_campanha' : 'fechar_campanha',
            String(chave || '').slice(0, 80));
@@ -2256,7 +2262,16 @@ function abrirCampanha(chave) {
 
 function abrirConjunto(chave) {
   conjuntoAberto = conjuntoAberto === chave ? null : chave;
+  anuncioAberto = null;          // trocou de conjunto, o anuncio nao vale mais
   rastrear(conjuntoAberto ? 'abrir_conjunto' : 'fechar_conjunto',
+           String(chave || '').slice(0, 80));
+  render();
+}
+
+function abrirAnuncio(chave, ev) {
+  if (ev) ev.stopPropagation();   // senao o clique sobe e fecha o conjunto
+  anuncioAberto = anuncioAberto === chave ? null : chave;
+  rastrear(anuncioAberto ? 'abrir_anuncio' : 'fechar_anuncio',
            String(chave || '').slice(0, 80));
   render();
 }
@@ -3212,6 +3227,7 @@ function avisoMeta() {
 // ── Render ──────────────────────────────────────────────────────────────────
 function render() {
   if (!dados) return;
+  _cacheFilhos = {};        // o cache vale por render, e so' por ele
   const v = dadosVisiveis();
   if (!v) {
     document.getElementById('conteudo').innerHTML = '<div class="empty">Sem dados para este produto.</div>';
@@ -5121,7 +5137,12 @@ function _chavePorNomeNorm() {
 // campanhas diferentes. Foi conferido contra as campanhas reais do Meta.
 //
 // Pra adicionar marcador novo (copia, teste, bkp), e' so' por aqui.
-const MARCA_VERSAO = /^(old\d*|v[1-9]\d?)$/i;
+// So' o `old`. O "V1"/"V2" saiu daqui em 26/11/2026: era eu generalizando
+// alem do pedido. `old` marca campanha aposentada que foi recriada — as
+// duas sao a MESMA campanha e tem que somar. Ja' "V1" marca VARIANTE, que
+// existe justamente pra ser comparada com a original; fundir as duas apaga
+// o teste. Foi o que aconteceu com as duas [LAL ALUNOS PFCC 1%] [CAPTACAO].
+const MARCA_VERSAO = /^old\d*$/i;
 
 // So' a CHAVE perde o marcador. O rotulo exibido continua inteiro — quem
 // escolhe qual nome aparece na linha fundida e' o `pega`, mais abaixo.
@@ -5169,7 +5190,21 @@ function derivadas(d) {
   };
 }
 
+// Cache de um render so'. A funcao varre o backlog inteiro e todas as
+// linhas de investimento; depois que o painel passou a seguir o nivel
+// aberto, ela e' chamada duas vezes no mesmo desenho (uma pra achar o
+// foco, outra pra montar as linhas). Com ~100 mil registros isso dobrava
+// o custo do clique a toa. O cache morre no inicio de cada render, entao
+// nunca serve dado velho.
+let _cacheFilhos = {};
 function filhosDaCampanha(chaveCampanhaPai) {
+  if (_cacheFilhos[chaveCampanhaPai]) return _cacheFilhos[chaveCampanhaPai];
+  const r = _filhosDaCampanha(chaveCampanhaPai);
+  _cacheFilhos[chaveCampanhaPai] = r;
+  return r;
+}
+
+function _filhosDaCampanha(chaveCampanhaPai) {
   const nomes = produtoAtivo === CONSOLIDADO ? PRODUTOS_REAIS : [produtoAtivo];
 
   // A chave do PAI e' calculada do mesmo jeito nos tres lugares abaixo.
@@ -5182,7 +5217,14 @@ function filhosDaCampanha(chaveCampanhaPai) {
   const vazio = rotulo => ({
     rotulo, investimento: 0, leads: 0, mqls: 0, mqlsCargo: 0, mqlsScore: 0,
     ganhos: 0, faturamento: 0, leadsRaw: [], redes: new Set(), filhos: {},
+    // Mesmo formato do porDia da linha de campanha, pra o grafico de
+    // volume diario poder ler conjunto e anuncio sem saber a diferenca.
+    porDia: {},
   });
+  const dia = d => {
+    if (!d.porDia[dia._k]) d.porDia[dia._k] = { inv: 0, leads: 0, mqls: 0 };
+    return d.porDia[dia._k];
+  };
   const conj = {};
   const pegaC = (k, r) => (conj[k] = conj[k] || vazio(r));
   const pegaA = (c, k, r) => (c.filhos[k] = c.filhos[k] || vazio(r));
@@ -5212,6 +5254,8 @@ function filhosDaCampanha(chaveCampanhaPai) {
       const ra = rot(l.anuncio)  || SEM_AD;
       const c = pegaC(kDe(rc), rc); c.investimento += l.valor; c.redes.add(l.rede);
       const a = pegaA(c, kDe(ra), ra); a.investimento += l.valor; a.redes.add(l.rede);
+      dia._k = (l.data || '').trim().slice(0, 5);
+      if (dia._k.includes('/')) { dia(c).inv += l.valor; dia(a).inv += l.valor; }
     }
   }
 
@@ -5230,11 +5274,14 @@ function filhosDaCampanha(chaveCampanhaPai) {
     const rc = rot(b.medium) || SEM_CONJ;
     const ra = rot(b.content) || SEM_AD;
     const c = pegaC(kDe(rc), rc), a = pegaA(c, kDe(ra), ra);
+    dia._k = (b.aplicacao || '').trim().slice(0, 5);
+    const temDia = dia._k.includes('/');
     for (const d of [c, a]) {
       d.leads++; d.leadsRaw.push(b); d.redes.add(redeDoLead(b));
       if (ehMqlAmplo(b)) d.mqls++;
       if (ehMqlCargo(b)) d.mqlsCargo++;
       else if (ehMqlScore(b)) d.mqlsScore++;
+      if (temDia) { dia(d).leads++; if (ehMqlAmplo(b)) dia(d).mqls++; }
     }
   }
 
@@ -5320,13 +5367,19 @@ function linhasFilhas(pai) {
         <td style="color:var(--gray-light)">${c.rede || '—'}</td>
         ${cels(c)}
       </tr>
-      ${aberto ? c.filhos.map(a => `
-        <tr class="linha-filha nivel-anuncio">
-          <td class="nome-camp" style="padding-left:56px;color:var(--gray-light)">${
-            a.rotulo}</td>
+      ${aberto ? c.filhos.map(a => {
+        const ka = kc + '||' + a.rotulo;
+        const selA = anuncioAberto === ka;
+        return `
+        <tr class="linha-filha nivel-anuncio ${selA ? 'selecionado' : ''}"
+            onclick="abrirAnuncio(${attr(ka)}, event)"
+            title="Clique para ver a pontuação deste anúncio">
+          <td class="nome-camp" style="padding-left:56px">
+            <span style="color:var(--gray);margin-right:5px">${
+              selA ? '▾' : '·'}</span>${a.rotulo}</td>
           <td style="color:var(--gray-light)">${a.rede || '—'}</td>
           ${cels(a)}
-        </tr>`).join('') : ''}`;
+        </tr>`; }).join('') : ''}`;
   }).join('');
 }
 
@@ -5828,6 +5881,27 @@ function renderCampanhas(v) {
   const aberta = campanhaAberta
     ? linhas.find(l => l.chave === campanhaAberta) : null;
 
+  // O painel de baixo segue o nivel MAIS FUNDO que estiver aberto.
+  // Sem isso, abrir um anuncio mostrava o grafico da campanha inteira —
+  // e a pergunta "qual score esse anuncio esta trazendo" nao tinha onde
+  // ser respondida. `trilha` vira o subtitulo, pra nunca restar duvida
+  // de qual recorte esta na tela.
+  let foco = aberta, trilha = '', nivelFoco = 'campanha';
+  if (aberta) {
+    const _f = filhosDaCampanha(aberta.chave);
+    const _c = conjuntoAberto
+      ? _f.find(x => aberta.chave + '||' + x.rotulo === conjuntoAberto) : null;
+    if (_c) {
+      foco = _c; nivelFoco = 'conjunto'; trilha = _c.rotulo;
+      const _a = anuncioAberto
+        ? _c.filhos.find(x => conjuntoAberto + '||' + x.rotulo === anuncioAberto) : null;
+      if (_a) {
+        foco = _a; nivelFoco = 'anúncio';
+        trilha = _c.rotulo + '  ›  ' + _a.rotulo;
+      }
+    }
+  }
+
   // Cabecalho ordenavel
   const col = (campo, texto, classe) => {
     const ativa = ordemCampCol === campo;
@@ -5898,11 +5972,14 @@ function renderCampanhas(v) {
     ${aberta ? `
     <div class="card" style="margin-top:16px;border-color:var(--blue)">
       <div class="card-title">
-        <span style="word-break:break-all;line-height:1.3">${aberta.rotulo}</span>
+        <span style="word-break:break-all;line-height:1.3">${aberta.rotulo}${
+          trilha ? `<span style="display:block;font-size:11px;color:var(--amber);
+                    font-weight:400;margin-top:4px;letter-spacing:.03em">${
+                    trilha}</span>` : ''}</span>
         <span style="display:flex;align-items:center;gap:10px">
-          <span class="card-tag">${fmtBRL(aberta.investimento)} · ${
-            fmtNum(aberta.leads)} leads · ${fmtNum(aberta.mqls)} MQL${
-            aberta.ganhos ? ' · ' + fmtNum(aberta.ganhos) + ' vendas' : ''}</span>
+          <span class="card-tag">${fmtBRL(foco.investimento)} · ${
+            fmtNum(foco.leads)} leads · ${fmtNum(foco.mqls)} MQL${
+            foco.ganhos ? ' · ' + fmtNum(foco.ganhos) + ' vendas' : ''}</span>
           <button class="btn-mini" onclick="abrirCampanha(null)">fechar ×</button>
         </span>
       </div>
@@ -5913,18 +5990,20 @@ function renderCampanhas(v) {
         // So aparece quando a campanha tem lead com nota. Campanha que nao
         // e' de score nao tem o que mostrar aqui: o formulario dela nao faz
         // as quatro perguntas, e um grafico zerado so ocuparia a tela.
-        const comNota = (aberta.leadsRaw || []).filter(comScoreValido).length;
+        const comNota = (foco.leadsRaw || []).filter(comScoreValido).length;
         if (!comNota) return '';
         return `
         <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border)">
           <div class="card-title" style="margin-bottom:10px">
-            Pontuação desta ${rotuloNivel.toLowerCase()}
+            Pontuação ${nivelFoco === 'anúncio' ? 'deste anúncio'
+                        : nivelFoco === 'conjunto' ? 'deste conjunto'
+                        : 'desta ' + rotuloNivel.toLowerCase()}
             <span style="display:flex;align-items:center;gap:8px">
               <span class="card-tag" style="background:var(--amber);color:#0a0a0a"
                     title="Zona ICP: faixa de score onde está o perfil que a operação procura">
                 ICP ${ICP_DE} a ${ICP_ROTULO_ATE}</span>
               <span class="card-tag">${fmtNum(comNota)} de ${
-                fmtNum(aberta.leads)} leads com nota</span>
+                fmtNum(foco.leads)} leads com nota</span>
             </span>
           </div>
           <div class="chart-box" style="height:300px">
@@ -6027,7 +6106,7 @@ function renderCampanhas(v) {
     </div>
   `;
 
-  if (aberta) desenharGraficoCampanha(aberta, v);
+  if (aberta) desenharGraficoCampanha(foco, v);
 }
 
 // ── Grafico do drill-down ───────────────────────────────────────────────────
