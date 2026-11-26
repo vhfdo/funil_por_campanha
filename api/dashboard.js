@@ -178,7 +178,16 @@ const JANELA_INSIDE = [{
 }];
 
 function checkAuth(req) {
-  const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  // A chave pode vir no header (e' assim que o index manda, lendo o ?k=
+  // da URL) ou direto na query. A query existe pra leitura automatica:
+  // robo nao manda header customizado, e sem isso a rotina da manha nao
+  // consegue ler o dash.
+  //
+  // Nao afrouxa nada: a chave ja' viaja na URL hoje, no link curto do
+  // boardbr.com que redireciona pra ca'. O que entra por aqui e' exatamente
+  // o mesmo segredo, comparado do mesmo jeito.
+  const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '')
+    || String((req.query && req.query.k) || '').trim();
 
   // Chave de link: acesso de quem nao passa pelo SSO (hoje o CEO). E' um
   // segredo fixo na env var, nao um token assinado — por isso nao expira
@@ -848,6 +857,10 @@ export default async function handler(req, res) {
           if (v === 'nao' || v === 'não') return false;
           return null;
         })(),
+        // Lead que o Rodrigo tirou do TME na mao (lista `excluidos.json`
+        // do repo crn-dados). Vem como "sim" ou vazio. O front usa pra
+        // nao contar esse lead no tempo medio nem na cobertura.
+        excluidoTme: String(linha[28] || '').trim(),
       });
     }
 
@@ -909,6 +922,12 @@ export default async function handler(req, res) {
     // pro usuario e' a idade do DADO, nao a do request.
     const linhaMeta = (resultados[idxMeta] || [])[0] || [];
     const dadosDe = String(linhaMeta[1] || '').trim() || null;
+
+    // Quantos leads a lista de exclusao do TME tirou, e de quando ela e'.
+    // Formato "N|DD/MM/AAAA HH:MM", ou "erro" quando o script nao
+    // conseguiu ler a lista. Vai pra tela: exclusao silenciosa muda o TME
+    // e ninguem sabe por que.
+    const exclusoes = String(linhaMeta[2] || '').trim() || null;
 
     // ── Investimento previsto, por dia e por produto ─────────────────
     // Uma linha por dia; as colunas de produto são achadas pelo cabeçalho,
@@ -1024,9 +1043,147 @@ export default async function handler(req, res) {
       }
     }
 
+    // ── Modo resumo: ?resumo=1 ───────────────────────────────────────
+    // A resposta cheia carrega o backlog inteiro, as reunioes e os
+    // perdidos — alguns megabytes. Serve pro dashboard, que baixa uma vez
+    // e filtra local, mas nao serve pra leitura automatica: qualquer
+    // cliente que le por HTTP trunca a resposta no meio e entrega numero
+    // pela metade, sem avisar.
+    //
+    // Este modo devolve SO' os agregados, uns poucos KB. Ele nao recalcula
+    // nada: le as mesmas estruturas montadas acima, entao nao tem como
+    // divergir do que a tela mostra.
+    if (String((req.query && req.query.resumo) || '') === '1') {
+      // Ontem em horario de Brasilia. O servidor roda em UTC, e sem o
+      // ajuste toda leitura feita de madrugada pegaria o dia errado.
+      const agoraBr = new Date(Date.now() - 3 * 3600 * 1000);
+      const ontemBr = new Date(agoraBr.getTime() - 24 * 3600 * 1000);
+      const dd = d => String(d.getUTCDate()).padStart(2, '0')
+                    + '/' + String(d.getUTCMonth() + 1).padStart(2, '0');
+      const ontem = dd(ontemBr);
+      const mes   = String(agoraBr.getUTCMonth() + 1).padStart(2, '0');
+      const doMes = s => String(s || '').slice(3, 5) === mes;
+
+      const mediana = a => {
+        if (!a.length) return null;
+        const o = [...a].sort((x, y) => x - y), m = o.length >> 1;
+        return o.length % 2 ? o[m] : (o[m - 1] + o[m]) / 2;
+      };
+      const r2 = n => (n === null ? null : Math.round(n * 100) / 100);
+
+      // Produtos do consolidado. Lista explicita, e nao "todos": Chile
+      // esta' parado e IA nao tem meta, entao somar os dois mudaria o
+      // numero que o time acompanha. Se mudar, muda aqui.
+      const DO_CONSOLIDADO = ['PFCC BRASIL', 'PFCC MÉXICO', 'BOARD ADVISOR',
+                              'LEAN', 'CES'];
+
+      const resumoProduto = (nome) => {
+        const p = produtos[nome];
+        if (!p) return null;
+
+        const diaL = p.leadsPorDia.filter(d => d.data === ontem);
+        const mesL = p.leadsPorDia.filter(d => doMes(d.data));
+        const som = (a, k) => a.reduce((s, x) => s + x[k], 0);
+
+        const invOntem = p.investPorDia[ontem] || 0;
+        const invMes = Object.entries(p.investPorDia)
+          .filter(([d]) => doMes(d)).reduce((s, [, v]) => s + v, 0);
+
+        const vendasMes = p.ganhos.filter(g => g.vale === 'sim' && doMes(g.data));
+
+        // Leads do produto no backlog, pra nota e TME
+        const meus = backlog.filter(b => b.produto === nome);
+        const notas = meus.map(b => b.score)
+          .filter(n => typeof n === 'number' && n > 0);
+        const faixas = {};
+        for (const n of notas) {
+          const f = Math.min(9, Math.max(2, Math.floor(n)));
+          faixas[f] = (faixas[f] || 0) + 1;
+        }
+        // TME: horas ate o primeiro contato. Fora os excluidos a mao.
+        const tmes = meus.filter(b => !b.excluidoTme && typeof b.tme === 'number')
+                         .map(b => b.tme);
+
+        const prevMes = Object.entries(previsto)
+          .filter(([d]) => doMes(d))
+          .reduce((s, [, v]) => s + (v.produtos[nome] || 0), 0);
+
+        return {
+          ontem: { leads: som(diaL, 'leads'), mqls: som(diaL, 'mqls'),
+                   investimento: r2(invOntem),
+                   previsto: r2((previsto[ontem] || { produtos: {} })
+                                .produtos[nome] || 0) },
+          mes: {
+            leads: som(mesL, 'leads'), mqls: som(mesL, 'mqls'),
+            investimento: r2(invMes), investimentoPrevisto: r2(prevMes),
+            vendas: vendasMes.length,
+            faturamento: r2(vendasMes.reduce((s, g) => s + g.valor, 0)),
+          },
+          kpis: {
+            cpl: r2(p.kpis.cpl), cpmql: r2(p.kpis.cpmql),
+            cac: r2(p.kpis.cac), roas: r2(p.kpis.roas),
+            txMql: p.kpis.leads ? r2(p.kpis.mqls / p.kpis.leads * 100) : null,
+          },
+          score: {
+            comNota: notas.length, semNota: meus.length - notas.length,
+            media: r2(notas.length ? notas.reduce((s, n) => s + n, 0) / notas.length : null),
+            mediana: r2(mediana(notas)),
+            // ICP e' 6 a 10 — mesmo corte do MQL por nota
+            pctNoIcp: notas.length
+              ? r2(notas.filter(n => n >= 6).length / notas.length * 100) : null,
+            porFaixa: faixas,
+          },
+          tme: { medianaHoras: r2(mediana(tmes)),
+                 atendidos: tmes.length, naBase: meus.length },
+          investPorRede: Object.fromEntries(
+            Object.entries(p.investPorRede).map(([k, v]) => [k, r2(v)])),
+        };
+      };
+
+      const porProduto = {};
+      for (const nome of Object.keys(PRODUTOS)) {
+        const r = resumoProduto(nome);
+        if (r) porProduto[nome] = r;
+      }
+
+      // CONSOLIDADO somado dos agregados, nao recalculado do zero
+      // Os parenteses em volta do termo importam: `s + x || 0` agrupa
+      // como `(s + x) || 0`, entao um produto sem dado viraria NaN e
+      // ZERARIA o acumulado inteiro, silenciosamente.
+      const soma = (cam, campo) => DO_CONSOLIDADO.reduce(
+        (s, n) => s + ((((porProduto[n] || {})[cam] || {})[campo]) || 0), 0);
+      const cLeads = soma('mes', 'leads'), cMqls = soma('mes', 'mqls');
+      const cInv = soma('mes', 'investimento'), cVend = soma('mes', 'vendas');
+      const cFat = soma('mes', 'faturamento');
+
+      return res.status(200).json({
+        atualizadoEm: new Date().toISOString(),
+        dadosDe, exclusoes, ontem, mes,
+        consolidado: {
+          ontem: { leads: soma('ontem', 'leads'), mqls: soma('ontem', 'mqls'),
+                   investimento: r2(soma('ontem', 'investimento')),
+                   previsto: r2(soma('ontem', 'previsto')) },
+          mes: { leads: cLeads, mqls: cMqls, investimento: r2(cInv),
+                 investimentoPrevisto: r2(soma('mes', 'investimentoPrevisto')),
+                 vendas: cVend, faturamento: r2(cFat) },
+          kpis: {
+            cpl: cLeads ? r2(cInv / cLeads) : null,
+            cpmql: cMqls ? r2(cInv / cMqls) : null,
+            cac: cVend ? r2(cInv / cVend) : null,
+            roas: cInv ? r2(cFat / cInv) : null,
+            txMql: cLeads ? r2(cMqls / cLeads * 100) : null,
+          },
+          produtosSomados: DO_CONSOLIDADO,
+        },
+        produtos: porProduto,
+        abasFaltando, colunasTrocadas, abasCorrigidas,
+      });
+    }
+
     return res.status(200).json({
       atualizadoEm: new Date().toISOString(),
       dadosDe,
+      exclusoes,
       previsto,
       escala,
       produtos,
