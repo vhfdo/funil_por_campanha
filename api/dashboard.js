@@ -1112,9 +1112,15 @@ export default async function handler(req, res) {
           .filter(([d]) => doMes(d)).reduce((s, [, v]) => s + v, 0);
 
         const vendasMes = p.ganhos.filter(g => g.vale === 'sim' && doMes(g.data));
+        const fatMes = vendasMes.reduce((s, g) => s + g.valor, 0);
+        const mesLeads = som(mesL, 'leads'), mesMqls = som(mesL, 'mqls');
 
-        // Leads do produto no backlog, pra nota e TME
-        const meus = backlog.filter(b => b.produto === nome);
+        // Leads do produto NO MES. O backlog traz o ano inteiro — sem
+        // este corte a nota e o TME seriam de 41 mil leads em vez dos do
+        // mes, e a leitura da manha falaria de um periodo que ninguem
+        // pediu. A aplicacao vem "DD/MM/AAAA HH:MM:SS".
+        const meus = backlog.filter(b => b.produto === nome
+          && String(b.aplicacao || '').slice(3, 5) === mes);
         const notas = meus.map(b => b.score)
           .filter(n => typeof n === 'number' && n > 0);
         const faixas = {};
@@ -1136,15 +1142,21 @@ export default async function handler(req, res) {
                    previsto: r2((previsto[ontem] || { produtos: {} })
                                 .produtos[nome] || 0) },
           mes: {
-            leads: som(mesL, 'leads'), mqls: som(mesL, 'mqls'),
+            leads: mesLeads, mqls: mesMqls,
             investimento: r2(invMes), investimentoPrevisto: r2(prevMes),
-            vendas: vendasMes.length,
-            faturamento: r2(vendasMes.reduce((s, g) => s + g.valor, 0)),
+            vendas: vendasMes.length, faturamento: r2(fatMes),
           },
+          // Derivadas DO MES, nao do periodo todo. O p.kpis que o
+          // dashboard usa e' acumulado desde o inicio da planilha: no
+          // PFCC Brasil dava CPL de R$ 85,92 contra R$ 64,32 do mes, 34%
+          // a mais. Num resumo diario isso nao e' um numero diferente,
+          // e' um numero errado.
           kpis: {
-            cpl: r2(p.kpis.cpl), cpmql: r2(p.kpis.cpmql),
-            cac: r2(p.kpis.cac), roas: r2(p.kpis.roas),
-            txMql: p.kpis.leads ? r2(p.kpis.mqls / p.kpis.leads * 100) : null,
+            cpl:   mesLeads ? r2(invMes / mesLeads) : null,
+            cpmql: mesMqls  ? r2(invMes / mesMqls)  : null,
+            cac:   vendasMes.length ? r2(invMes / vendasMes.length) : null,
+            roas:  invMes ? r2(fatMes / invMes) : null,
+            txMql: mesLeads ? r2(mesMqls / mesLeads * 100) : null,
           },
           score: {
             comNota: notas.length, semNota: meus.length - notas.length,
@@ -1157,8 +1169,15 @@ export default async function handler(req, res) {
           },
           tme: { medianaHoras: r2(mediana(tmes)),
                  atendidos: tmes.length, naBase: meus.length },
+          // Por rede, SO' O MES. O p.investPorRede e' acumulado de tudo:
+          // no PFCC Brasil somava R$ 3,58 milhoes contra R$ 260 mil do
+          // mes, 14x. Lado a lado com o resto do resumo, enganava.
           investPorRede: Object.fromEntries(
-            Object.entries(p.investPorRede).map(([k, v]) => [k, r2(v)])),
+            Object.entries(p.investDiaRede).map(([rede, dias]) => [
+              rede, r2(Object.entries(dias)
+                .filter(([d]) => doMes(d))
+                .reduce((s, [, v]) => s + v, 0)),
+            ])),
         };
       };
 
