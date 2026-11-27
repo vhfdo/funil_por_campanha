@@ -6,6 +6,16 @@ import { verifyToken } from '../lib/auth.js';
 import crypto from 'crypto';
 import { getSheetTitles, batchGetValues } from '../lib/sheets.js';
 
+// Teto de tempo da funcao, em segundos.
+//
+// Ela le as 45 abas num batchGet so' — incluindo o BACKLOG MQL, que passa
+// de 40 mil linhas. Numa execucao fria isso nao cabe no teto padrao da
+// Vercel, e a plataforma corta a requisicao: quem chamou recebe erro de
+// servidor e NADA aparece no log de runtime, porque a funcao nao chegou a
+// quebrar — foi interrompida. Foi o que derrubou toda leitura automatica
+// (27/11/2026): no navegador vinha do cache e parecia saudavel.
+export const maxDuration = 60;
+
 const SPREADSHEET_ID = '1yw82Xywh0pTDj10Kwq7jfpezE14gyBGwFsbDLiAXjYY';
 
 // Cada produto sabe de quais abas puxar seus dados.
@@ -1196,6 +1206,25 @@ export default async function handler(req, res) {
       const cLeads = soma('mes', 'leads'), cMqls = soma('mes', 'mqls');
       const cInv = soma('mes', 'investimento'), cVend = soma('mes', 'vendas');
       const cFat = soma('mes', 'faturamento');
+
+      // Cache na borda da Vercel. O dado de origem muda 6x por dia, entao
+      // guardar por 15 minutos nao atrasa ninguem.
+      //
+      // O stale-while-revalidate e' a parte que importa pra leitura
+      // automatica: passados os 15 minutos, a borda entrega NA HORA a
+      // copia guardada e vai buscar a nova por tras. Sem ele, a primeira
+      // chamada depois de um periodo parado dispara a leitura fria das 45
+      // abas e estoura de novo — que e' exatamente o 7h da manha, quando
+      // ninguem abriu o dashboard a noite inteira.
+      //
+      // A chave entra na URL, entao ela faz parte do endereco guardado:
+      // quem nao tem a chave nao alcanca a copia em cache.
+      //
+      // O preco: a resposta pode vir de ate um dia atras se ninguem tiver
+      // chamado nesse meio tempo. Por isso `dadosDe` vai no corpo — quem
+      // le sabe a idade do dado e avisa quando esta velho.
+      res.setHeader('Cache-Control',
+        'public, s-maxage=900, stale-while-revalidate=86400');
 
       return res.status(200).json({
         atualizadoEm: new Date().toISOString(),
