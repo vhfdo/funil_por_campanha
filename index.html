@@ -1120,12 +1120,11 @@ function metasAtivas() {
 // Paleta de rede, usada pelos cards de rede e pelo report mensal. Uma so:
 // com duas copias, o Meta um dia sai azul num card e roxo no outro.
 //
-// Organico e Workshop entram aqui mesmo sem aba de investimento — sao
-// classificacao de LEAD, e aparecem nos cards de rede.
+// Organico entra aqui mesmo sem aba de investimento — e' classificacao
+// de LEAD, e aparece nos cards de rede.
 const CORES_REDE = {
   Meta: '#4a6dd4', Google: '#2980b9', LinkedIn: '#0e76a8',
   'Orgânico': '#4ade80', 'Orgânico Diretoria': '#1f9e74',
-  Workshop: '#d9a441',
 };
 
 // Etapas que existem no Pipedrive mas nao fazem parte do funil de venda.
@@ -1229,10 +1228,12 @@ function redeDoLead(b) {
   const cn = semAcento(bruto);
   if (CAMPANHAS_ORGANICAS.some(x => cn.includes(semAcento(x)))) return 'Orgânico';
 
-  // Workshop e' uma entrada propria, nao organico e nao midia paga. Vem
-  // antes do source: o lead de workshop as vezes herda utm_source de Meta
-  // ou LinkedIn, e sem esta trava cairia numa rede de midia.
-  if (cn.includes('workshop')) return 'Workshop';
+  // Workshop nao tem entrada aqui: a campanha de workshop e' descartada
+  // no funil_denise.py (CAMPANHAS_FORA) e nunca chega no dashboard. A
+  // placa existia e vivia "Sem dados" — saiu em 27/11/2026. Se um dia
+  // uma campanha de workshop for liberada la', ela cai nas regras de
+  // source abaixo e pode virar Meta ou LinkedIn: o lugar de tratar isso
+  // e' no Python, nao aqui.
 
   if (s.includes('lkdn') || s.includes('linkedin') ||
       c.includes('[LKDN]') || c.includes('LINKEDIN')) return 'LinkedIn';
@@ -1248,7 +1249,7 @@ function redeDoLead(b) {
 }
 
 const REDES = ['LinkedIn', 'Google', 'Meta',
-               'Orgânico', 'Orgânico Diretoria', 'Workshop'];
+               'Orgânico', 'Orgânico Diretoria'];
 
 // Os cargos vem digitados de mil formas. Aqui agrupamos nos grandes blocos
 // pra tabela nao virar uma lista de 200 variacoes com 1 lead cada.
@@ -7093,8 +7094,8 @@ function tipoDaCampanha(rotulo) {
 }
 
 // Redes onde a separacao faz sentido: as que tem campanha paga. Organico
-// e Workshop entram no dashboard como classificacao de LEAD, nao tem
-// campanha nem investimento — apareceriam como uma coluna de CPL vazio.
+// entra no dashboard como classificacao de LEAD, nao tem campanha nem
+// investimento — apareceria como uma coluna de CPL vazio.
 // A ordem aqui e' a ordem dos blocos na tela: LinkedIn, Google, Meta.
 const REDES_PAGAS_SCORE = ['LinkedIn', 'Google', 'Meta'];
 
